@@ -6,7 +6,7 @@ description: Loop PRのCodeRabbit指摘を分類して対応する
 
 ## タスク
 
-指定されたLoop PR（または優先度が最も高い対象Loop PR）のCodeRabbitレビューthreadを調べます。対象リポジトリ、open状態、`develop` がbaseであること、信頼できる作成者であること、人対応・blockedラベルがないことを確認します。CodeRabbitのレート制限で最新commitが未レビューの場合も、残っている未解決threadは通常どおり対応します。
+指定されたLoop PR（または優先度が最も高い対象Loop PR）のCodeRabbitレビューthreadを調べます。対象リポジトリ、open状態、`main` がbaseであること、信頼できる作成者であること、人対応・blockedラベルがないことを確認します。CodeRabbitのレート制限で最新commitが未レビューの場合も、残っている未解決threadは通常どおり対応します。
 
 対応が必要な指摘をすべて、**修正**、**理由を示して見送る**、**別Issueにする** のいずれかに分類します。判断前に現在のコードとテストを確認し、ゲートを通すためだけに指摘を退けてはいけません。人が書いたレビュー依頼は維持し、本人に代わってthreadをresolveしてはいけません。
 

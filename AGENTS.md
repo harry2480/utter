@@ -9,10 +9,10 @@
 コード変更を伴う作業は、**必ず git worktree を作成してから開始すること**。メインのリポジトリディレクトリでは直接コード変更を行わない。
 
 ```bash
-git worktree add ../utter-<branch-name> -b <branch-name> origin/develop
+git worktree add ../utter-<branch-name> -b <branch-name> origin/main
 ```
 
-- **目的**: developブランチを常にクリーンに保ち、作業の分離と並列作業を容易にする
+- **目的**: mainブランチを常にクリーンに保ち、作業の分離と並列作業を容易にする
 - **例外なし**: ドキュメントのみの変更も含め、すべてのコミットでworktreeを使用すること
 
 ### 要件IDとの対応
