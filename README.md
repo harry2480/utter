@@ -1,124 +1,74 @@
-# スターターテンプレート
+# utter
 
-Claude Code や GitHub Copilot などの AI エージェントへの指示だけで高品質なプロダクトを構築できるスターターキットです。
-また、本リポジトリは**プロジェクト横断で利用可能なドキュメントテンプレート**や**AIエージェント向けの共通スキル・コマンド**を集約するハブとしても機能しています。
+話した言葉を自然な文章に整えて、いま使っているアプリの入力欄へ挿入する macOS ネイティブの音声入力アプリ（OSS）。
+共通基盤を使った iOS 個人利用版（カスタムキーボード）も開発する。
 
-## ハーネスエンジニアリングとは
+> **開発状況:** Phase 0 / i0（技術検証）。まだ利用できるアプリはありません。
 
-このスターターキットは、**ハーネスエンジニアリング**の考え方に基づいて設計されています。
+- 製品要件: [docs/要件定義.md](docs/要件定義.md)
+- コンセプト: [docs/サービスコンセプト.md](docs/サービスコンセプト.md)
 
-ハーネスエンジニアリングとは、AIエージェントが正しく力を発揮できるように情報やルールを整えることを指します。`CLAUDE.md` による共通ルールの注入、Skills（スラッシュコマンド）による定型作業の標準化、dependency-cruiser による依存方向の機械的な検証など、**複数のガードレールを多重に敷くことで、AIが書くコードの品質を構造的に担保**します。
+## 特徴（目標）
 
-これにより、AIエージェントを複数セッション並列で回しても、設計が崩れにくい開発が可能になります。
+- グローバルショートカットで録音 → ローカル音声認識 → 整形 → 入力欄へ挿入
+- Raw / Natural / Structured の整形モード、アプリ別の文体、ユーザー辞書
+- ローカル STT 優先（SpeechAnalyzer / WhisperKit）。クラウドへの送信は明示的な同意制
+- AI 整形は Claude API・Sign in with ChatGPT・Local Basic から選択。API キーは各自で設定
+- テレメトリなし。本文・音声をログに残さない
+- 待機中はマイク・STT を止め、Mac 全体を重くしない
 
-詳しい背景と実践事例については、以下の記事をご覧ください。
+## 動作環境（暫定）
 
-### このスターターキットに組み込まれたガードレール
+- macOS 26 以降 / Apple Silicon
+- iOS 版は本人所有の iPhone への Xcode 実機インストールのみ（App Store 非公開）。最低対応バージョンは Phase i0 で確定
 
-| ガードレール | 仕組み |
-|---|---|
-| **設計ルールの注入** | `CLAUDE.md` や `docs/templates/` 配下にアーキテクチャ・命名規約・依存ルールを明文化し、AIにコンテキストを供給 |
-| **共通Skillsとプロンプト** | `.claude/skills/` や `.claude/commands/` にプロジェクト横断の定型作業コマンドを集約し、品質のばらつきを抑制 |
-| **依存方向の機械的検証** | dependency-cruiser で「domain は外部に依存しない」等のルールを CI で自動チェック |
-| **レイヤー別テスト戦略** | domain/application は Unit テスト、infrastructure は Integration テスト。テスト方針もドキュメント化 |
-| **統合CI/CD** | `.github/workflows/` に集約されたワークフローにより、型チェックやlint、テストを一元的に自動化 |
+## 開発
 
-## テンプレートとドキュメント管理
+### 前提
 
-本リポジトリの `docs/` には、新しいプロジェクトを立ち上げる際や新しい機能を設計する際にそのまま使える汎用テンプレートが用意されています。
-AIに「`docs/` の〇〇を使って新しい機能の要件定義をして」と指示するだけで、ベストプラクティスに基づいた仕様書が生成されます。
+- Xcode 26 以降（Swift 6）
+- shellcheck（`brew install shellcheck`）
 
-**収録テンプレートの例:**
-- アーキテクチャ設計規約
-- フロントエンド規約
-- スタイルガイド
-- 品質チェック・テスト規約
-- 実装計画（プロジェクト設計時のチェックリスト）
-- AIチャット機能要件定義
-- AIエージェント運用ガイド
-
-## 技術スタック (標準構成)
-
-- Next.js 15 (App Router) + Vercel
-- Supabase PostgreSQL + Prisma
-- shadcn/ui + Tailwind CSS
-- vitest + dependency-cruiser
-- Biome (lint/format)
-- AIツール: Vercel AI SDK, Streamdown
-
-## はじめかた
-
-### セットアップ
-
-AIエージェント（Claude Code 等）を開き、`/init-pj` を実行してください。前提ツールのインストールからDB構築まで自動で行います。
-
-## 使い方
-
-AIに自然言語で指示するだけで、テンプレートやルールに沿った機能追加が可能です。
-
-Issueから実装・修復・PRまでを反復するLoop Engineeringを使う場合は、[運用ガイド](docs/loop-engineering.md)に従ってGitHub側のラベルと保護設定を用意してください。Loopは任意で、通常の開発フローにも引き続き利用できます。
-
-**コマンド例:**
-```
-「ユーザー管理機能を作って」
-「お気に入り機能を追加して」
-「/articles ページを作って」
-「○○テーブルにstatusカラムを追加して」
-「このエラーを直して: [エラーメッセージ]」
-```
-
-## 開発コマンド一覧
+### コマンド
 
 | コマンド | 内容 |
 |---|---|
-| `pnpm dev` | 開発サーバー起動 |
-| `pnpm verify` | 品質チェック（lint → typecheck → test → depcruise） |
-| `pnpm test:unit` | Unit テスト実行 |
-| `pnpm lint:fix` | 自動フォーマット・Lint適用 |
-| `pnpm db:migrate` | DBマイグレーション |
-| `pnpm merge [PR]` | PR マージ＋ブランチ削除・リモート追跡ブランチ削除を自動化 |
-| `pnpm knip` | 未使用コード検出 |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → shellcheck） |
+| `scripts/format.sh` | swift format で自動整形 |
+| `scripts/merge-pr.sh [PR]` | PR を squash マージしてブランチ削除 |
+| `scripts/loop-once.sh` / `scripts/loop.sh` | Loop Engineering の実行（[運用ガイド](docs/loop-engineering.md)） |
 
-### PR マージワークフロー
+### ビルド
 
-`pnpm merge` コマンドで PR マージからブランチクリーンアップまでを一括実行できます：
-
-```bash
-# 現在のブランチの PR をマージ
-pnpm merge
-
-# 指定した PR をマージ
-pnpm merge 42
-
-# PR URL でマージ
-pnpm merge https://github.com/owner/repo/pull/42
-```
-
-このコマンドは Claude Code でも Codex などの他のエディタでも使用でき、PR マージ時の手作業を削減できます。
+アプリターゲット作成後に、Xcode でのビルド手順と開発用署名（`Local.xcconfig`）の設定方法を記載します。
+署名・配布の方針は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) を参照してください。
 
 ## プロジェクト構成
 
 ```text
-starter-templete/
-├── .claude/                # プロジェクト横断のAI SkillsとCommands
-├── .github/workflows/      # 統合CI/CDワークフロー（型チェック、ビルド、テスト等）
-├── docs/                   # プロジェクト横断で使えるドキュメント・定義テンプレート
-└── apps/webapp/src/        # メインアプリケーション
-    ├── app/                # ページ（Next.js App Router）
-    ├── backend/            # バックエンド全体
-    │   ├── application/    # ユースケース
-    │   ├── domain/         # ビジネスルール（モデル、インターフェース）
-    │   ├── infrastructure/ # DB・外部API実装
-    │   └── presentation/   # DI組み立て、データ取得、Server Actions
-    ├── frontend/           # フロントエンド・UI全体
-    └── lib/                # 共有ライブラリ
+utter/
+├── .claude/              # Claude Code の Skills / Commands
+├── .github/workflows/    # CI（macOS ランナーで scripts/verify.sh）と Loop 用ワークフロー
+├── docs/                 # 要件定義・設計規約・検証結果
+├── scripts/              # verify / format / Loop
+├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
+├── Apps/                 # macOS / iOS アプリ
+├── Extensions/           # iOS カスタムキーボード
+└── Workers/              # macOS XPC STT Worker
 ```
 
-## サンプル実装について
+`Packages/` 以下は Phase 1 / i1 で作成します。設計は [docs/アーキテクチャ.md](docs/アーキテクチャ.md) を参照してください。
 
-初期状態では Claude API を使ったジョーク生成機能がサンプルとして含まれています。
-`ANTHROPIC_API_KEY` を設定すると API 経由で動作し、未設定の場合は Stub（固定値）で動作します。
+## AI エージェントでの開発
 
-```bash
-echo 'ANTHROPIC_API_KEY="your-api-key"' >> apps/webapp/.env.local
+このリポジトリは Claude Code などの AI エージェントでの開発を前提に、`CLAUDE.md`・`AGENTS.md`・`.claude/` にルールと定型作業を置いています。
+
 ```
+「REC-05（最大録音時間）を実装して」
+「Claude API の AIProvider を追加して」
+「このエラーを直して: [エラーメッセージ]」
+```
+
+## ライセンス
+
+[Apache License 2.0](LICENSE)。依存ライブラリとモデル重みは追加時にライセンスの両立を確認します（STT モデルは同梱せず初回取得）。

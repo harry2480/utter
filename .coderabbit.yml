@@ -22,9 +22,12 @@ reviews:
     - path: "docs/**/*.md"
       instructions: |
         設計・開発ドキュメントについて、アーキテクチャとの整合性、責務分離、依存方向、ドメイン境界、実装可能性、既存リポジトリとの整合性を確認してください。曖昧または矛盾する要件があれば指摘してください。
-    - path: "apps/webapp/src/backend/**"
+    - path: "Packages/**"
       instructions: |
-        依存方向が presentation → application → domain ← infrastructure の順になっているか確認してください。データベースアクセスは infrastructure に置き、認可はサーバー側のaction/use-case経由で行ってください。
+        docs/アーキテクチャ.md の依存方向（Apps → 各Package → UtterCore）に従っているか、UtterCore が Foundation 以外に依存していないかを確認してください。Swift 6 の strict concurrency を @unchecked Sendable 等で回避していないか、エラー文言やログに発話本文・APIキー・トークンが含まれていないか、同意確認なしでネットワーク送信する経路がないかを指摘してください。
+    - path: "{Apps,Extensions,Workers}/**"
+      instructions: |
+        docs/要件定義.md の機能ID（REC/INS/PERM/iOS-*）に照らして、二重挿入・Terminal での Enter 送信・挿入先の再検証漏れ・Keyboard Extension での録音やトークン保持がないかを確認してください。非公開 API の使用や、本文・音声・秘密情報のログ出力を指摘してください。
     - path: ".github/workflows/**"
       instructions: |
         イベントの信頼境界、最小権限のtoken設定、jobがskipされた場合の挙動を確認してください。失敗が成功として扱われる経路があれば指摘してください。
@@ -36,13 +39,10 @@ reviews:
     - "!**/*.jpeg"
     - "!**/*.gif"
     - "!**/*.lock"
-    - "!**/pnpm-lock.yaml"
-    - "!**/yarn.lock"
-    - "!**/package-lock.json"
-    - "!**/dist/**"
-    - "!**/.next/**"
-    - "!**/coverage/**"
-    - "!**/*.snap"
+    - "!**/Package.resolved"
+    - "!**/*.xcassets/**"
+    - "!**/.build/**"
+    - "!**/DerivedData/**"
 knowledge_base:
   code_guidelines:
     enabled: true
