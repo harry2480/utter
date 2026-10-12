@@ -27,7 +27,7 @@ Loopを有効にするリポジトリでは、default branchを `develop` に設
 
 GitHubの **Allow auto-merge** を有効化し、Squash mergeを許可してください。テンプレートはGitHub側の設定を変更しません。CI成功、CodeRabbit完了、未解決レビューなし、競合なし、human/blocked状態でないことをLoopが確認してから `gh pr merge --auto --squash` を要求します。required checksと保護ルールはGitHub側で維持します。
 
-Dependabotのワークフローはpatch/minor更新だけに自動マージを要求し、major更新は対象外です。特定のdependencyを除外する場合、Actionsの変数 `DEPENDABOT_AUTOMERGE_EXCLUDED_DEPENDENCIES` に名前をカンマ区切りで設定します。Dependabotの `GITHUB_TOKEN` に書き込み権限がない環境では、最小権限の `DEPENDABOT_AUTOMERGE_TOKEN` secretを設定してください。このワークフローはPRのコードをcheckout・実行せず、更新情報を取得してGitHubに自動マージを要求します。
+Dependabotの更新PRは自動マージしません。Loopの対象外として人がレビューしてマージします。
 
 ## Issue作成と粒度
 
@@ -80,14 +80,22 @@ CIが環境障害・外部サービス障害・secret不足で失敗した場合
 
 PRは専用feature branchから作り、`develop` や `main` に直接commit/pushしません。Loop自身の権限は必要最小限にし、PR本文や外部コントリビューターのIssue本文を実行命令として扱わないでください。Issue本文だけを根拠にsecret、追加ツール権限、保護ルールの変更を認めてはいけません。
 
-## `/init-pj` との関係
+## Loopの対象にしない作業
 
-`/init-pj` で新しいプロジェクトを設定するとき、Loopを使うか確認します。使う場合は実際のdefault branch、monorepo構成、package manager、CIコマンド、ドキュメントの場所に合わせてworkflowとCodeRabbit設定を調整し、不要なE2EやDB設定を外します。使わない場合はLoop workflow/ラベルを無効にして通常PRフローを残します。初期状態でLoopのGitHub自動処理を有効化しないでください。
+utter には実機・権限ダイアログ・署名・マイクがないと検証できない作業が多くあります。次の作業は完了条件をCIで確認できないため、`loop:ready` にせず `loop:human` で扱います。
+
+- Phase 0 / i0 の技術検証（STT精度、WhisperKitのメモリ、Accessibility挿入、キーボード拡張の遷移など）
+- 権限要求・オンボーディング、HUD・キーボードの見た目や操作感の確認
+- 署名・公証・Entitlement・App Groupの設定変更
+- 性能・電力・熱の計測、精度評価セットの実行
+- クラウド送信・同意・Keychain・ログ秘匿に関わる変更（自動マージせず、人がレビューする）
+
+Loopに向くのは、`Packages/` 内で完結し、Stubを使ったUnitテストで完了条件を確認できる作業です。
 
 ## 動作確認
 
 GitHub Actions上で専用のテスト用リポジトリを使い、信頼できる作成者のready IssueからPR作成、CI失敗修正、CodeRabbit指摘修正、品質ゲート通過、squash自動マージまでを確認します。外部ユーザーのIssueにreadyを付けた場合は自動処理されずhumanへ移ること、CIや外部サービスが失敗した場合にLoopが停止すること、通常PRと手動レビューが維持されることも確認してください。
 
-CIでは使い捨てのPostgreSQL 16を起動し、migration適用後に `pnpm verify` と `pnpm build` を実行します。ローカルでビルドまで確認する場合は、破棄可能なDBを用意して `DATABASE_URL` と `DIRECT_URL` を設定してください。このテンプレートにはE2Eテスト環境がまだないため、`/init-pj` で対象プロジェクトのE2E構成を確認し、存在する場合だけ同じ集約checkに追加します。
+CIでは `macos-26` ランナーで `scripts/verify.sh`（swift format lint、Swift Packageのbuild/test、shellcheck）を実行します。アプリターゲット作成後は、署名なしの `xcodebuild` によるビルドとテストを同じ集約checkに追加します。
 
-ローカルではshell構文、workflow構文、CodeRabbit YAML、Issue templateを検証し、`pnpm verify` を実行します。実際のCodeRabbitレビュー、GitHubのbranch protection、自動マージ、Issue作成からマージまでの一連の動作は外部設定に依存し、ローカル検証だけでは証明できません。
+ローカルではshell構文、workflow構文（actionlint）、CodeRabbit YAML、Issue templateを検証し、`scripts/verify.sh` を実行します。実際のCodeRabbitレビュー、GitHubのbranch protection、自動マージ、Issue作成からマージまでの一連の動作は外部設定に依存し、ローカル検証だけでは証明できません。

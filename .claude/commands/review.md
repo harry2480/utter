@@ -5,23 +5,28 @@ description: 現在の変更に対して設計レビューを行う (project)
 ## 現在の状況
 
 - 現在のブランチ: !`git branch --show-current`
-- 変更ファイル: !`git diff --name-only HEAD~1 2>/dev/null || git diff --name-only --cached 2>/dev/null || git diff --name-only`
+- 変更ファイル: !`git diff --name-only develop...HEAD 2>/dev/null; git diff --name-only`
 
 ## タスク
 
 以下の手順で現在のブランチの変更内容に対して設計レビューを行ってください：
 
-1. **変更内容の把握**: `git diff` で変更されたファイルの差分を取得し、変更内容を把握する。必要に応じて関連ファイルも読み込む。
+1. **変更内容の把握**: `git diff develop...HEAD` と未コミットの `git diff` で差分を取得し、変更内容を把握する。必要に応じて関連ファイルも読み込む。
 
-2. **ガイドラインの参照**: 変更対象に応じて以下のガイドラインを参照する。
-   - `admin/src/server/contexts/` または `webapp/src/server/contexts/` 配下の変更: [docs/backend-architecture-guide.md](docs/backend-architecture-guide.md)
-   - `admin/src/client/` または `admin/src/app/` 配下の変更: [docs/admin-ui-guidelines.md](docs/admin-ui-guidelines.md)
+2. **ガイドラインの参照**: 変更対象に応じて以下を参照する。
+   - すべての変更: [docs/要件定義.md](docs/要件定義.md)（対象の機能ID・受け入れ基準）
+   - `Packages/` 配下: [docs/アーキテクチャ.md](docs/アーキテクチャ.md)
+   - テスト: [docs/品質チェック・テスト規約.md](docs/品質チェック・テスト規約.md)
+   - `.github/`、署名・Entitlement・Info.plist: [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md)
 
 3. **レビュー実施**: 以下の観点でレビューを行う。
-   - **アーキテクチャ**: ガイドラインに沿ったレイヤー構成・責務分離ができているか
-   - **import パス**: `@/` から始まる絶対パスを使用しているか（相対パス禁止）
-   - **型定義**: 適切な型が定義されているか
-   - **命名**: 変数名・関数名・ファイル名が適切か
+   - **要件との整合**: 機能IDの挙動を満たしているか。要件にない挙動を追加していないか
+   - **依存方向**: UtterCore が Foundation 以外に依存していないか。Packages が Apps に依存していないか。Keyboard Extension が UtterSpeech / UtterAI をリンクしていないか
+   - **並行処理**: Swift 6 strict concurrency を `@unchecked Sendable` 等で回避していないか。キャンセル済みセッションの遅延結果を破棄しているか
+   - **プライバシー**: 本文・音声・トークンをログやエラー文言に出していないか。同意確認なしの送信経路がないか（AC-06, CTX-03）
+   - **挿入の安全性**: 二重挿入、成功不明時の再試行、Terminal での Enter 送信がないか（INS-01〜07）
+   - **テスト**: Stub を使った Unit テストがあり、表示名に機能IDが入っているか
+   - **命名**: 型名・ファイル名が [docs/アーキテクチャ.md](docs/アーキテクチャ.md) の命名規約に沿っているか
 
 4. **結果報告**: 以下の形式でレビュー結果を報告する。重大な問題がない場合は「✅ 設計上の問題は見つかりませんでした」と報告する。
 

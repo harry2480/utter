@@ -1,11 +1,12 @@
-# Dependabot 設定（テンプレート）
+# Dependabot 設定
 # 依存関係の自動更新 PR を作成する。
 # 詳細: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
 updates:
-  # npm (pnpm workspace) — ルートで monorepo 全体の依存を解決
-  - package-ecosystem: "npm"
-    directory: "/"
+  # Swift Package Manager — Packages/ 配下の各パッケージを対象にする
+  - package-ecosystem: "swift"
+    directories:
+      - "/Packages/*"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -14,9 +15,8 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore(deps)"
-      prefix-development: "chore(deps-dev)"
     groups:
-      # Patch/minor updates can use the guarded auto-merge workflow after CI passes.
+      # patch / minor をまとめて1つのPRにする（自動マージはしない）
       minor-and-patch:
         update-types:
           - "minor"

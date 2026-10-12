@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm lint:fix 2>&1 | head -30"
+            "command": "scripts/format.sh 2>&1 | head -30"
           }
         ]
       }

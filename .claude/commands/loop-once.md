@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(date:*), Read, Write, Edit, Glob, Grep
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(scripts/verify.sh:*), Bash(swift:*), Bash(xcodebuild:*), Bash(date:*), Read, Write, Edit, Glob, Grep
 description: Loopの作業単位を1つ選び、安全に実装または修復する
 ---
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Merge PR and delete local/remote branches
-# Usage: pnpm merge [PR_NUMBER_OR_URL]
+# Usage: scripts/merge-pr.sh [PR_NUMBER_OR_URL]
 
 set -e
 

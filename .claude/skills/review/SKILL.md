@@ -50,11 +50,11 @@ codex review --base develop "{ユーザーの指示}"
 
 #### 2b. テストガイドラインチェック（Agent ツールで実行）
 
-`.claude/agents/test-guidelines-checker.md` の内容に従い、`subagent_type: "general-purpose"` の Agent エージェントを起動してテストガイドラインの遵守状況をチェックする。
+`subagent_type: "general-purpose"` の Agent を起動し、[docs/品質チェック・テスト規約.md](../../../docs/品質チェック・テスト規約.md) の「必須テスト観点」「テストの書き方」に照らして差分のテストをチェックさせる。
 
 #### 2c. コード品質チェック（Agent ツールで実行）
 
-`.claude/agents/code-quality-checker.md` の内容に従い、`subagent_type: "general-purpose"` の Agent エージェントを起動して可読性・保守性・コード品質をチェックする。
+`subagent_type: "general-purpose"` の Agent を起動し、`.claude/commands/review.md` の観点（要件との整合、依存方向、並行処理、プライバシー、挿入の安全性）で差分をチェックさせる。
 
 **重要**: 2a, 2b, 2c は必ず並列（同一メッセージ内で3つの Tool call）で実行すること。
 
@@ -71,4 +71,4 @@ codex review --base develop "{ユーザーの指示}"
 - `codex` CLI がインストール済みであること（`/opt/homebrew/bin/codex`）
 - レビュー対象はデフォルトで `develop` ブランチとの差分
 - `--base` オプションで比較対象を変更可能
-- エージェントファイルが存在しない場合は、該当チェックをスキップして残りを実行する
+- `codex` CLI がない場合は 2a をスキップして残りを実行する
