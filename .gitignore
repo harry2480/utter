@@ -32,3 +32,6 @@ eval/audio/
 # Claude Code / エディタ
 settings.local.json
 .vscode/settings.json
+
+# カバレッジ（scripts/coverage.sh の出力）
+coverage/
