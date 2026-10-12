@@ -1,0 +1,56 @@
+name: Loopラベルの信頼性確認
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  validate-ready-issue:
+    if: github.event.label.name == 'loop:ready'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const actor = context.payload.sender.login;
+            const author = context.payload.issue.user.login;
+            const trustedPermissions = new Set(['admin', 'maintain', 'write']);
+
+            async function hasWriteAccess(username) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username,
+                });
+                return trustedPermissions.has(data.permission);
+              } catch (error) {
+                if (error.status === 404 || error.status === 403) return false;
+                throw error;
+              }
+            }
+
+            const [actorTrusted, authorTrusted] = await Promise.all([
+              hasWriteAccess(actor),
+              hasWriteAccess(author),
+            ]);
+
+            if (actorTrusted && authorTrusted) {
+              core.info(`信頼できる作成者 ${author} の loop:ready を受け付けました。`);
+              return;
+            }
+
+            await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'loop:ready' });
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['loop:human'] });
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: '自動処理を保留しました。`loop:ready` を付けたユーザーと Issue 作成者の両方に write 以上の権限が必要です。maintainer が内容を確認してから再度ラベルを付けてください。',
+            });
+            core.warning(`loop:ready を拒否しました: actorTrusted=${actorTrusted}, authorTrusted=${authorTrusted}`);

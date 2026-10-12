@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: ja-JP
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  sequence_diagrams: true
+  auto_review:
+    enabled: true
+    drafts: true
+    ignore_title_keywords: []
+    labels:
+      - "!skip-ai-review"
+      - "!no-bots"
+      - "!dependencies"
+    ignore_usernames:
+      - "dependabot"
+      - "renovate"
+  path_instructions:
+    - path: "docs/**/*.md"
+      instructions: |
+        設計・開発ドキュメントについて、アーキテクチャとの整合性、責務分離、依存方向、ドメイン境界、実装可能性、既存リポジトリとの整合性を確認してください。曖昧または矛盾する要件があれば指摘してください。
+    - path: "apps/webapp/src/backend/**"
+      instructions: |
+        依存方向が presentation → application → domain ← infrastructure の順になっているか確認してください。データベースアクセスは infrastructure に置き、認可はサーバー側のaction/use-case経由で行ってください。
+    - path: ".github/workflows/**"
+      instructions: |
+        イベントの信頼境界、最小権限のtoken設定、jobがskipされた場合の挙動を確認してください。失敗が成功として扱われる経路があれば指摘してください。
+  path_filters:
+    - "!**/*.mdx"
+    - "!**/*.svg"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+    - "!**/*.lock"
+    - "!**/pnpm-lock.yaml"
+    - "!**/yarn.lock"
+    - "!**/package-lock.json"
+    - "!**/dist/**"
+    - "!**/.next/**"
+    - "!**/coverage/**"
+    - "!**/*.snap"
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/docs/**/*.md"
