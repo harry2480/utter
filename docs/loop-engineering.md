@@ -27,7 +27,7 @@ Loopを有効にするリポジトリでは、default branchを `develop` に設
 
 GitHubの **Allow auto-merge** を有効化し、Squash mergeを許可してください。テンプレートはGitHub側の設定を変更しません。CI成功、CodeRabbit完了、未解決レビューなし、競合なし、human/blocked状態でないことをLoopが確認してから `gh pr merge --auto --squash` を要求します。required checksと保護ルールはGitHub側で維持します。
 
-Dependabotのワークフローはpatch/minor更新だけに自動マージを要求し、major更新は対象外です。特定のdependencyを除外する場合、Actionsの変数 `DEPENDABOT_AUTOMERGE_EXCLUDED_DEPENDENCIES` に名前をカンマ区切りで設定します。Dependabotの `GITHUB_TOKEN` に書き込み権限がない環境では、最小権限の `DEPENDABOT_AUTOMERGE_TOKEN` secretを設定してください。このワークフローはPRのコードをcheckout・実行せず、更新情報を取得してGitHubに自動マージを要求します。
+Dependabotの更新PRは自動マージしません。Loopの対象外として人がレビューしてマージします。
 
 ## Issue作成と粒度
 
