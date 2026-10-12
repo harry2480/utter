@@ -10,6 +10,11 @@ struct ProtectedSpanExtractorTests {
       ("全角の１２３円も対象", ["１２３"]),
       ("円周率は3.14、人口は1,000人", ["3.14", "1,000"]),
       ("全角の小数は３．５", ["３．５"]),
+      ("気温は-5度、−3度、＋2度", ["-5", "−3", "＋2"]),
+      ("1,2,3番を選ぶ", ["1", "2", "3"]),
+      ("1,0000件", ["1", "0000"]),
+      ("v2-3 と 2026-10-12", ["2", "3", "2026", "10", "12"]),
+      ("バージョン1.2.3", ["1.2.3"]),
     ]
   )
   func extractsNumbers(_ text: String, _ expected: [String]) {
@@ -32,6 +37,9 @@ struct ProtectedSpanExtractorTests {
         "https://en.wikipedia.org/wiki/Swift_(language)"
       ),
       ("http://localhost:3000/#top で確認", "http://localhost:3000/#top"),
+      ("**https://example.com** を見て", "https://example.com"),
+      ("[https://example.com]", "https://example.com"),
+      ("https://example.com/a[0] を参照", "https://example.com/a[0]"),
     ]
   )
   func extractsURL(_ text: String, _ expected: String) {
@@ -98,6 +106,14 @@ struct ProtectedSpanExtractorTests {
     #expect(extractor.dictionaryTerms == ["SwiftUI", "Swift"])
   }
 
+  @Test("TXT-02: 英数字の辞書語は単語の一部には一致させない")
+  func dictionaryTermRequiresWordBoundary() {
+    let extractor = ProtectedSpanExtractor(dictionaryTerms: ["Go"])
+    let spans = extractor.extract(from: "Google と Goで書く、Gopher、(Go)")
+
+    #expect(spans.map(\.text) == ["Go", "Go"])
+  }
+
   @Test("TXT-02: 数字を含む辞書語は辞書語として抽出する")
   func dictionaryTermWithDigits() {
     let extractor = ProtectedSpanExtractor(dictionaryTerms: ["iOS 26"])
@@ -129,7 +145,11 @@ struct ProtectedSpanExtractorTests {
     let span = try #require(
       ProtectedSpanExtractor().extract(from: "https://example.com/secret").first)
 
+    var dumped = ""
+    dump(span, to: &dumped)
+
     #expect(!span.description.contains("secret"))
     #expect(span.description.contains("url"))
+    #expect(!dumped.contains("secret"))
   }
 }

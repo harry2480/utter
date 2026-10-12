@@ -13,24 +13,25 @@ public struct ProtectionChecker: Sendable {
   /// 整形前の保護対象のうち、整形後に同じ種類・同じ内容で見つからないものを出現順に返す。
   ///
   /// - 数字は全角・半角の違いを同一とみなす。漢数字や桁区切りの有無は別の値として扱う
-  /// - 整形後にコードとして囲まれた場合も保持とみなすため、整形後のコードの中身も照合する
+  /// - 整形後にコードとして囲まれた値や、辞書の表記に揃えられて辞書語の一部になった数字も保持とみなす。
+  ///   URL の一部になった数字は保持とみなさない
   /// - 整形後に、整形前のどれにも対応しない同じ種類の保護対象があれば、出現順に組にして `altered` とする
+  /// - 整形後に追加された保護対象や、出現順の入れ替えは検出しない
   public func violations(original: String, refined: String) -> [ProtectionViolation] {
-    var candidates = extractor.extract(from: refined).flatMap { span in
-      [Candidate(span: span, isTopLevel: true)]
-        + extractor.extract(from: span.codeContent).map { Candidate(span: $0, isTopLevel: false) }
-    }
+    var candidates = extractor.extract(from: refined).map { Candidate(span: $0, parent: nil) }
+    var unmatched = consume(extractor.extract(from: original), from: &candidates)
 
-    var unmatched: [ProtectedSpan] = []
-    for span in extractor.extract(from: original) {
-      if let index = candidates.firstIndex(where: { !$0.isUsed && $0.key == span.key }) {
-        candidates[index].isUsed = true
-      } else {
-        unmatched.append(span)
+    // 整形前のどれとも一致しなかったコード・辞書語の中身だけを照合する。
+    // 一致済みのコードの中身を使うと、コードの外で変わった同じ値を見逃すため
+    let unusedCount = candidates.count
+    for index in 0..<unusedCount where !candidates[index].isUsed {
+      candidates += nestedSpans(in: candidates[index].span).map {
+        Candidate(span: $0, parent: index)
       }
     }
+    unmatched = consume(unmatched, from: &candidates)
 
-    var replacements = candidates.filter { $0.isTopLevel && !$0.isUsed }.map(\.span)
+    var replacements = replacementOrder(candidates)
     return unmatched.map { span in
       guard let index = replacements.firstIndex(where: { $0.kind == span.kind }) else {
         return ProtectionViolation(original: span, change: .missing)
@@ -40,12 +41,51 @@ public struct ProtectionChecker: Sendable {
     }
   }
 
+  /// `spans` を `candidates` と照合し、一致した候補を使用済みにして、一致しなかった `spans` を返す。
+  private func consume(_ spans: [ProtectedSpan], from candidates: inout [Candidate])
+    -> [ProtectedSpan]
+  {
+    spans.filter { span in
+      guard let index = candidates.firstIndex(where: { !$0.isUsed && $0.span.key == span.key })
+      else {
+        return true
+      }
+      candidates[index].isUsed = true
+      if let parent = candidates[index].parent {
+        candidates[parent].isUsed = true
+      }
+      return false
+    }
+  }
+
+  private func nestedSpans(in span: ProtectedSpan) -> [ProtectedSpan] {
+    switch span.kind {
+    case .codeBlock:
+      extractor.extract(from: String(span.text.dropFirst(3).dropLast(3)))
+    case .inlineCode:
+      extractor.extract(from: String(span.text.dropFirst().dropLast()))
+    case .dictionaryTerm:
+      // 辞書語自身に一致しないよう、辞書なしで数字などを取り出す
+      ProtectedSpanExtractor().extract(from: span.text)
+    case .url, .number:
+      []
+    }
+  }
+
+  /// 未使用の候補を整形後の出現順に並べる。中身の候補は親の直後に置く。
+  private func replacementOrder(_ candidates: [Candidate]) -> [ProtectedSpan] {
+    candidates.indices.filter { candidates[$0].parent == nil }.flatMap { parent in
+      ([parent] + candidates.indices.filter { candidates[$0].parent == parent })
+        .filter { !candidates[$0].isUsed }
+        .map { candidates[$0].span }
+    }
+  }
+
   private struct Candidate {
     let span: ProtectedSpan
-    let isTopLevel: Bool
+    /// コード・辞書語の中身から取り出した候補なら、その親の位置
+    let parent: Int?
     var isUsed = false
-
-    var key: SpanKey { span.key }
   }
 }
 
@@ -68,15 +108,23 @@ public struct ProtectionViolation: Hashable, Sendable {
   }
 }
 
+// 発話本文をログに出さないよう、文字列表現とリフレクションには種類と変化の種別だけを出す。
 extension ProtectionViolation: CustomStringConvertible {
-  /// 発話本文をログに出さないよう、種類と変化の種別だけを表す。
   public var description: String {
-    let change =
-      switch change {
-      case .missing: "missing"
-      case .altered: "altered"
-      }
-    return "ProtectionViolation(kind: \(original.kind), change: \(change))"
+    "ProtectionViolation(kind: \(original.kind), change: \(change))"
+  }
+}
+
+extension ProtectionViolation.Change: CustomStringConvertible, CustomReflectable {
+  public var description: String {
+    switch self {
+    case .missing: "missing"
+    case .altered: "altered"
+    }
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: [])
   }
 }
 
@@ -90,22 +138,15 @@ extension ProtectedSpan {
     SpanKey(kind: kind, text: kind == .number ? Self.normalizingNumber(text) : text)
   }
 
-  /// コードの囲みを除いた中身。コード以外は空文字。
-  fileprivate var codeContent: String {
-    switch kind {
-    case .codeBlock: String(text.dropFirst(3).dropLast(3))
-    case .inlineCode: String(text.dropFirst().dropLast())
-    case .url, .dictionaryTerm, .number: ""
-    }
-  }
-
-  /// 全角の数字と小数点・桁区切りを半角にする。
+  /// 全角の数字・小数点・桁区切り・符号を半角にする。
   private static func normalizingNumber(_ text: String) -> String {
     String(
       text.map { character -> Character in
         switch character {
         case "．": "."
         case "，": ","
+        case "−", "－": "-"
+        case "＋": "+"
         case "０"..."９":
           Character(
             UnicodeScalar(

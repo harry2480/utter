@@ -24,9 +24,13 @@ public struct ProtectedSpan: Hashable, Sendable {
   }
 }
 
-extension ProtectedSpan: CustomStringConvertible {
-  /// 発話本文をログに出さないよう、種類と文字数だけを表す。
+// 発話本文をログに出さないよう、文字列表現とリフレクションには種類と文字数だけを出す。
+extension ProtectedSpan: CustomStringConvertible, CustomReflectable {
   public var description: String {
     "ProtectedSpan(kind: \(kind), length: \(text.count))"
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["kind": kind, "length": text.count])
   }
 }
