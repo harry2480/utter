@@ -5,13 +5,13 @@ description: 現在の変更に対して設計レビューを行う (project)
 ## 現在の状況
 
 - 現在のブランチ: !`git branch --show-current`
-- 変更ファイル: !`git diff --name-only develop...HEAD 2>/dev/null; git diff --name-only`
+- 変更ファイル: !`git diff --name-only main...HEAD 2>/dev/null; git diff --name-only`
 
 ## タスク
 
 以下の手順で現在のブランチの変更内容に対して設計レビューを行ってください：
 
-1. **変更内容の把握**: `git diff develop...HEAD` と未コミットの `git diff` で差分を取得し、変更内容を把握する。必要に応じて関連ファイルも読み込む。
+1. **変更内容の把握**: `git diff main...HEAD` と未コミットの `git diff` で差分を取得し、変更内容を把握する。必要に応じて関連ファイルも読み込む。
 
 2. **ガイドラインの参照**: 変更対象に応じて以下を参照する。
    - すべての変更: [docs/要件定義.md](docs/要件定義.md)（対象の機能ID・受け入れ基準）
