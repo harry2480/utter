@@ -105,23 +105,24 @@ struct SessionStateMachineTests {
 
   @Test(
     "REC-06: 許可されていない遷移は拒否され、状態は変わらない",
-    arguments: [
-      (ProcessingPhase.recognizing, SessionEvent.Kind.refinementCompleted),
-      (.recognizing, .insertionCompleted),
-      (.refining, .recognitionCompleted),
-      (.refining, .insertionCompleted),
-      (.inserting, .recognitionCompleted),
-      (.inserting, .refinementCompleted),
-      (.error, .recognitionCompleted),
-      (.error, .failed),
-    ]
+    arguments: [ProcessingPhase?.none] + ProcessingPhase.allCases.map(Optional.some),
+    [SessionEvent.Kind.recognitionCompleted, .refinementCompleted, .insertionCompleted, .failed]
   )
-  func rejectsInvalidTransition(_ processing: ProcessingPhase, _ kind: SessionEvent.Kind) throws {
+  func rejectsInvalidTransition(_ processing: ProcessingPhase?, _ kind: SessionEvent.Kind) throws {
+    let allowed: [ProcessingPhase?: Set<SessionEvent.Kind>] = [
+      .none: [.failed],
+      .recognizing: [.recognitionCompleted, .failed],
+      .refining: [.refinementCompleted, .failed],
+      .inserting: [.insertionCompleted, .failed],
+      .error: [],
+    ]
+    guard allowed[processing]?.contains(kind) == false else { return }
+
     var machine = try machine(in: processing)
     let before = machine.phase
     let token = machine.currentToken
-
     let invalid = try event(machine, kind)
+
     #expect(throws: SessionTransitionError.invalidTransition(from: before, event: kind)) {
       try machine.handle(invalid)
     }
@@ -129,22 +130,7 @@ struct SessionStateMachineTests {
     #expect(machine.currentToken == token)
   }
 
-  @Test("REC-06: 録音中に認識完了イベントは受け付けない")
-  func rejectsCompletionWhileRecording() throws {
-    var machine = SessionStateMachine()
-    machine.start(at: t0)
-
-    let invalid = try event(machine, .recognitionCompleted)
-    #expect(
-      throws: SessionTransitionError.invalidTransition(
-        from: .recording, event: .recognitionCompleted)
-    ) {
-      try machine.handle(invalid)
-    }
-    #expect(machine.phase == .recording)
-  }
-
-  @Test("REC-06: Esc 相当のキャンセルで待機に戻る", arguments: ProcessingPhase.allCases)
+  @Test("REC-06: Esc 相当のキャンセルで待機に戻る", arguments: [ProcessingPhase.recognizing, .refining, .error])
   func cancelReturnsToIdle(_ processing: ProcessingPhase) throws {
     var machine = try machine(in: processing)
     let sessionID = try #require(machine.activeSession?.id)
@@ -166,6 +152,18 @@ struct SessionStateMachineTests {
     #expect(cancelled != nil)
     #expect(machine.phase == .idle)
     #expect(machine.recordingDeadline == nil)
+  }
+
+  @Test("REC-01: 挿入中のキャンセルは受け付けない")
+  func cancelWhileInsertingDoesNothing() throws {
+    var machine = try machine(in: .inserting)
+    let token = machine.currentToken
+
+    let cancelled = machine.cancel()
+
+    #expect(cancelled == nil)
+    #expect(machine.phase == .inserting)
+    #expect(machine.currentToken == token)
   }
 
   @Test("REC-06: 待機中のキャンセルは何もしない")
@@ -217,6 +215,31 @@ struct SessionStateMachineTests {
     #expect(machine.phase == .refining)
   }
 
+  @Test("REC-06: 未来の順序番号のイベントは破棄される")
+  func discardsEventsWithFutureSequence() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    let current = try #require(machine.currentToken)
+    let future = SessionToken(sessionID: current.sessionID, sequence: current.sequence + 1)
+
+    let outcome = try machine.handle(SessionEvent(token: future, kind: .failed))
+
+    #expect(outcome == .discarded(.sequenceMismatch))
+    #expect(machine.phase == .recording)
+  }
+
+  @Test("REC-06: 失敗の表示中に失敗した段階の遅延イベントは破棄される")
+  func discardsEventsOfFailedStage() throws {
+    var machine = try machine(in: .recognizing)
+    let recognizing = try #require(machine.currentToken)
+    _ = try machine.handle(SessionEvent(token: recognizing, kind: .failed))
+
+    let late = try machine.handle(SessionEvent(token: recognizing, kind: .recognitionCompleted))
+
+    #expect(late == .discarded(.sequenceMismatch))
+    #expect(machine.phase == .error(.recognition))
+  }
+
   @Test(
     "REC-06: 失敗すると error を経て待機に戻る",
     arguments: [
@@ -229,12 +252,7 @@ struct SessionStateMachineTests {
   func failureGoesThroughErrorToIdle(_ processing: ProcessingPhase?, _ failure: SessionFailure)
     throws
   {
-    var machine = SessionStateMachine()
-    if let processing {
-      machine = try self.machine(in: processing)
-    } else {
-      machine.start(at: t0)
-    }
+    var machine = try self.machine(in: processing)
 
     let failed = try machine.handle(event(machine, .failed))
     #expect(failed == .applied(.error(failure)))
@@ -326,6 +344,41 @@ struct SessionStateMachineTests {
     #expect(machine.activeSession?.stopReason == .maxDurationReached)
   }
 
+  @Test("REC-05: ちょうど上限の時刻の停止操作は自動停止として扱う")
+  func manualStopAtDeadlineIsTreatedAsLimit() {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+
+    machine.stopRecording(at: t0 + .seconds(300))
+
+    #expect(machine.activeSession?.stopReason == .maxDurationReached)
+  }
+
+  @Test("REC-05: 音声バッファの上限で録音を停止して認識へ進む")
+  func stopsAtBufferLimit() {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+
+    let token = machine.stopRecordingAtBufferLimit()
+
+    #expect(token != nil)
+    #expect(token == machine.currentToken)
+    #expect(machine.phase == .recognizing)
+    #expect(machine.activeSession?.stopReason == .bufferLimitReached)
+  }
+
+  @Test("REC-05: 録音中以外ではバッファ上限による停止は何もしない")
+  func bufferLimitOutsideRecordingDoesNothing() throws {
+    var machine = SessionStateMachine()
+    let whileIdle = machine.stopRecordingAtBufferLimit()
+    #expect(whileIdle == nil)
+
+    machine = try self.machine(in: .refining)
+    let whileRefining = machine.stopRecordingAtBufferLimit()
+    #expect(whileRefining == nil)
+    #expect(machine.phase == .refining)
+  }
+
   @Test("REC-05: 録音中以外では自動停止しない", arguments: ProcessingPhase.allCases)
   func limitCheckOutsideRecordingDoesNothing(_ processing: ProcessingPhase) throws {
     var machine = try machine(in: processing)
@@ -350,9 +403,11 @@ struct SessionStateMachineTests {
 
   // MARK: - Helpers
 
-  private func machine(in processing: ProcessingPhase) throws -> SessionStateMachine {
+  /// `nil` は録音中
+  private func machine(in processing: ProcessingPhase?) throws -> SessionStateMachine {
     var machine = SessionStateMachine()
     machine.start(at: t0)
+    guard let processing else { return machine }
     machine.stopRecording(at: t0)
     switch processing {
     case .recognizing:

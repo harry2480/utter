@@ -61,11 +61,23 @@ public struct SessionStateMachine: Sendable {
   }
 
   /// 最大録音時間に達していれば自動停止して認識へ進む（REC-05）。停止しなければ `nil` を返す。
+  ///
+  /// `now` は `ContinuousClock` で取得する。タイマーが期限より早く発火して `nil` が返った場合は、
+  /// `recordingDeadline` でタイマーを設定し直す。
   @discardableResult
   public mutating func stopRecordingIfLimitReached(at now: ContinuousClock.Instant) -> SessionToken?
   {
     guard let deadline = recordingDeadline, now >= deadline else { return nil }
     return finishRecording(reason: .maxDurationReached)
+  }
+
+  /// 音声バッファの上限に達したため録音を停止して認識へ進む（REC-05）。録音中でなければ `nil` を返す。
+  ///
+  /// 音声を破棄せず、最大録音時間と同様に通常どおり処理を続ける。
+  @discardableResult
+  public mutating func stopRecordingAtBufferLimit() -> SessionToken? {
+    guard phase == .recording else { return nil }
+    return finishRecording(reason: .bufferLimitReached)
   }
 
   /// 非同期処理の結果を反映する。
@@ -105,10 +117,12 @@ public struct SessionStateMachine: Sendable {
 
   /// Esc 相当のキャンセル。進行中のセッションを破棄して `idle` に戻り、破棄したセッションの ID を返す。
   ///
-  /// 以降に届くそのセッションのイベントは `handle(_:)` で破棄される。`idle` では何もしない。
+  /// 以降に届くそのセッションのイベントは `handle(_:)` で破棄される。
+  /// `idle` と `inserting` では何もせず `nil` を返す。挿入は始まると取り消せないため、
+  /// キャンセルを受け付けるのは録音〜整形中と失敗の表示中に限る（REC-01）。
   @discardableResult
   public mutating func cancel() -> SessionID? {
-    guard let activeSession else { return nil }
+    guard let activeSession, phase != .inserting else { return nil }
     reset()
     return activeSession.id
   }

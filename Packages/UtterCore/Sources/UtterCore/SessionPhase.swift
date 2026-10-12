@@ -25,4 +25,6 @@ public enum RecordingStopReason: Hashable, Sendable {
   case manual
   /// 最大録音時間に到達した自動停止（REC-05）
   case maxDurationReached
+  /// 音声バッファの上限に到達した自動停止（REC-05）
+  case bufferLimitReached
 }
