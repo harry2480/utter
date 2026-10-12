@@ -15,6 +15,7 @@ macOS ネイティブの音声入力アプリ（OSS）と、共通基盤を使�
 ```sh
 scripts/verify.sh        # swift format lint → Swift Package build/test → shellcheck
 scripts/format.sh        # swift format で自動整形
+scripts/coverage.sh      # カバレッジ計測（coverage/*.lcov、CI で Codecov へ送信）
 scripts/merge-pr.sh [PR] # PR を squash マージしてブランチ削除
 scripts/loop-once.sh     # Loopを1回だけ実行
 scripts/loop.sh          # 最大5回までLoopを反復（LOOP_MAX_ITERATIONSで調整）

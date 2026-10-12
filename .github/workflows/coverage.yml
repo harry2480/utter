@@ -1,0 +1,35 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: カバレッジ計測
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift Package のテスト + カバレッジ計測
+        run: scripts/coverage.sh
+
+      - name: Codecov へアップロード
+        # Swift Package がまだない間は lcov が出ないのでスキップする
+        if: hashFiles('coverage/*.lcov') != ''
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: coverage
+          flags: unit
+          fail_ci_if_error: false

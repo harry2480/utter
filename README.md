@@ -35,6 +35,7 @@
 |---|---|
 | `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → shellcheck） |
 | `scripts/format.sh` | swift format で自動整形 |
+| `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
 | `scripts/merge-pr.sh [PR]` | PR を squash マージしてブランチ削除 |
 | `scripts/loop-once.sh` / `scripts/loop.sh` | Loop Engineering の実行（[運用ガイド](docs/loop-engineering.md)） |
 
