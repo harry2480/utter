@@ -75,7 +75,7 @@ public struct ProtectedSpanExtractor: Sendable {
   }
 
   /// 英数字で始まる・終わる辞書語は、隣も英数字なら単語の一部とみなして一致させない（`Go` と `Google`）。
-  private static func isDelimited(_ range: Range<String.Index>, in text: String) -> Bool {
+  static func isDelimited(_ range: Range<String.Index>, in text: String) -> Bool {
     let term = text[range]
     if let first = term.first, first.isASCIIAlphanumericOrDigit, range.lowerBound > text.startIndex,
       text[text.index(before: range.lowerBound)].isASCIIAlphanumericOrDigit
@@ -93,7 +93,7 @@ public struct ProtectedSpanExtractor: Sendable {
 
 extension Character {
   /// ASCII の英数字、または全角数字
-  fileprivate var isASCIIAlphanumericOrDigit: Bool {
+  var isASCIIAlphanumericOrDigit: Bool {
     (isASCII && (isLetter || isNumber)) || ("０"..."９").contains(self)
   }
 }
