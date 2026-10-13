@@ -51,8 +51,16 @@ public struct ProtectionChecker: Sendable {
         return true
       }
       candidates[index].isUsed = true
+      // 親の中身が前後の空白を除いてその値だけなら親も使用済みにする。ほかの内容を含む親は、
+      // 変更後の値として残しつつ、対応先を探すときの優先度を下げる
       if let parent = candidates[index].parent {
-        candidates[parent].isUsed = true
+        if content(of: candidates[parent].span).split(whereSeparator: \.isWhitespace)
+          == [Substring(candidates[index].span.text)]
+        {
+          candidates[parent].isUsed = true
+        } else {
+          candidates[parent].isPartlyUsed = true
+        }
       }
       return false
     }
@@ -60,21 +68,33 @@ public struct ProtectionChecker: Sendable {
 
   private func nestedSpans(in span: ProtectedSpan) -> [ProtectedSpan] {
     switch span.kind {
-    case .codeBlock:
-      extractor.extract(from: String(span.text.dropFirst(3).dropLast(3)))
-    case .inlineCode:
-      extractor.extract(from: String(span.text.dropFirst().dropLast()))
+    case .codeBlock, .inlineCode:
+      extractor.extract(from: content(of: span))
     case .dictionaryTerm:
       // 辞書語自身に一致しないよう、辞書なしで数字などを取り出す
-      ProtectedSpanExtractor().extract(from: span.text)
+      ProtectedSpanExtractor().extract(from: content(of: span))
     case .url, .number:
       []
     }
   }
 
-  /// 未使用の候補を整形後の出現順に並べる。中身の候補は親の直後に置く。
+  /// コードは囲みを除いた中身、それ以外は本文そのものを返す。
+  private func content(of span: ProtectedSpan) -> String {
+    switch span.kind {
+    case .codeBlock: String(span.text.dropFirst(3).dropLast(3))
+    case .inlineCode: String(span.text.dropFirst().dropLast())
+    case .dictionaryTerm, .url, .number: span.text
+    }
+  }
+
+  /// 未使用の候補を整形後の出現順に並べる。中身の候補は親の直後に置き、
+  /// 中身の一部が一致済みの親とその中身は後ろに回す。
   private func replacementOrder(_ candidates: [Candidate]) -> [ProtectedSpan] {
-    candidates.indices.filter { candidates[$0].parent == nil }.flatMap { parent in
+    let parents = candidates.indices.filter { candidates[$0].parent == nil }
+    let ordered =
+      parents.filter { !candidates[$0].isPartlyUsed }
+      + parents.filter { candidates[$0].isPartlyUsed }
+    return ordered.flatMap { parent in
       ([parent] + candidates.indices.filter { candidates[$0].parent == parent })
         .filter { !candidates[$0].isUsed }
         .map { candidates[$0].span }
@@ -86,6 +106,8 @@ public struct ProtectionChecker: Sendable {
     /// コード・辞書語の中身から取り出した候補なら、その親の位置
     let parent: Int?
     var isUsed = false
+    /// 中身の候補の一部だけが一致済み
+    var isPartlyUsed = false
   }
 }
 

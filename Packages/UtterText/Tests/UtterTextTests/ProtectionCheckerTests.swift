@@ -82,6 +82,30 @@ struct ProtectionCheckerTests {
     #expect(violations.map(\.change) == [.altered(to: "4")])
   }
 
+  @Test("TXT-02: 中身の値が地の文と一致しても、変わったコードは変更として列挙する")
+  func reportsAlteredCodeContainingMatchedValue() {
+    let violations = checker.violations(original: "`123` と 123", refined: "`123x`")
+
+    #expect(violations.map(\.original.kind) == [.inlineCode])
+    #expect(violations.map(\.change) == [.altered(to: "`123x`")])
+  }
+
+  @Test("TXT-02: 中身の一部が一致済みのコードより、ほかのコードを変更先として優先する")
+  func prefersUntouchedCodeAsReplacement() {
+    let violations = checker.violations(
+      original: "kubectl で `ls` を実行", refined: "`kubectl get pods` で `ls -l` を実行")
+
+    #expect(violations.map(\.change) == [.altered(to: "`ls -l`")])
+  }
+
+  @Test("TXT-02: 値だけを囲んだコードは、ほかのコードの変更先にしない")
+  func wrappedValueIsNotReplacement() {
+    let violations = checker.violations(original: "123 と `abc`", refined: "`123`")
+
+    #expect(violations.map(\.original.kind) == [.inlineCode])
+    #expect(violations.map(\.change) == [.missing])
+  }
+
   @Test("TXT-02: 符号の脱落を列挙する")
   func reportsDroppedSign() {
     let violations = checker.violations(original: "気温は-5度", refined: "気温は5度")
