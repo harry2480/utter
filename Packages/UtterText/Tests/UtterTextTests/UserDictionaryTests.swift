@@ -121,6 +121,78 @@ struct UserDictionaryTests {
     #expect(dictionary.applyingReplacements(to: "見て`ls`") == "見テ`ls`")
   }
 
+  @Test(
+    "TXT-03: 最長一致が URL・コードにかかる位置では短いルールを使う",
+    arguments: [
+      ("見てhttps://a.com", "見テhttps://a.com"),
+      ("見て```\nls\n```", "見テ```\nls\n```"),
+    ]
+  )
+  func fallsBackToShorterRuleBeforeProtectedSpan(_ text: String, _ expected: String) throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "てh", replacement: "X"),
+      ReplacementRule(pattern: "て`", replacement: "X"),
+      ReplacementRule(pattern: "て", replacement: "テ"),
+    ])
+
+    #expect(dictionary.applyingReplacements(to: text) == expected)
+  }
+
+  @Test(
+    "TXT-03: 数字で終わるパターンは続く数字と一体なら置換しない",
+    arguments: [
+      ("GPT 5 を使う", "GPT-5 を使う"),
+      ("GPT 50 を使う", "GPT 50 を使う"),
+      ("GPT 5.1 を使う", "GPT-5.1 を使う"),
+    ]
+  )
+  func patternEndingWithDigit(_ text: String, _ expected: String) throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "GPT 5", replacement: "GPT-5")
+    ])
+
+    #expect(dictionary.applyingReplacements(to: text) == expected)
+  }
+
+  @Test("TXT-03: 全角数字が続く英字パターンは置換しない")
+  func fullWidthDigitIsWordCharacter() throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "git", replacement: "Git", ignoresCase: true)
+    ])
+
+    #expect(dictionary.applyingReplacements(to: "git１ と git") == "git１ と Git")
+  }
+
+  @Test("TXT-03: 結合文字は正規等価で照合し、文字の途中では一致させない")
+  func matchesByCanonicalEquivalence() throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "が", replacement: "ガ"),
+      ReplacementRule(pattern: "て", replacement: "テ"),
+    ])
+
+    #expect(dictionary.applyingReplacements(to: "か\u{3099}とて\u{3099}") == "ガとて\u{3099}")
+  }
+
+  @Test("TXT-03: 大文字始まりのテキストにも大文字小文字を無視するルールが一致する")
+  func ignoresCaseOfFirstCharacter() throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "GitHub", replacement: "GitHub", ignoresCase: true),
+      ReplacementRule(pattern: "Go", replacement: "Go言語"),
+    ])
+
+    #expect(dictionary.applyingReplacements(to: "GITHUB と github と Go") == "GitHub と GitHub と Go言語")
+  }
+
+  @Test("TXT-03: 境界は置換前のテキストで判定する")
+  func checksBoundaryBeforeReplacement() throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "えーと", replacement: ""),
+      ReplacementRule(pattern: "github", replacement: "GitHub"),
+    ])
+
+    #expect(dictionary.applyingReplacements(to: "gitえーとhub") == "github")
+  }
+
   @Test("TXT-03: 置換後を空にしてフィラーを取り除ける")
   func replacesWithEmptyString() throws {
     let dictionary = try UserDictionary(rules: [
@@ -167,6 +239,28 @@ struct UserDictionaryTests {
     #expect(throws: UserDictionaryError.conflictingRules(first: 1, second: 2)) {
       try UserDictionary(rules: rules)
     }
+  }
+
+  @Test("TXT-03: 正規等価なパターンの組は衝突として拒否する")
+  func rejectsCanonicallyEquivalentPatterns() throws {
+    let rules = [
+      try ReplacementRule(pattern: "が", replacement: "A"),
+      try ReplacementRule(pattern: "か\u{3099}", replacement: "B"),
+    ]
+
+    #expect(throws: UserDictionaryError.conflictingRules(first: 0, second: 1)) {
+      try UserDictionary(rules: rules)
+    }
+  }
+
+  @Test("TXT-03: 長さの違うルールは共存できる")
+  func allowsRulesWithDifferentLength() throws {
+    let dictionary = try UserDictionary(rules: [
+      ReplacementRule(pattern: "git", replacement: "Git", ignoresCase: true),
+      ReplacementRule(pattern: "github", replacement: "GitHub", ignoresCase: true),
+    ])
+
+    #expect(dictionary.applyingReplacements(to: "git と GitHub") == "Git と GitHub")
   }
 
   @Test("TXT-03: 表記の異なる大文字小文字を区別するルールは共存できる")
