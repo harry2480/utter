@@ -9,13 +9,3 @@ public enum ConsentScope: Hashable, Sendable, CaseIterable {
     CloudTransmission.allCases.map(Self.transmission) + [.crossProviderFallback]
   }
 }
-
-/// 同意の状態。
-public enum ConsentStatus: Hashable, Sendable {
-  /// 一度も同意していない（既定）
-  case notGranted
-  /// 同意している
-  case granted
-  /// 同意した後に撤回した
-  case revoked
-}

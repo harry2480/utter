@@ -34,12 +34,15 @@ public struct ConsentState: Hashable, Sendable {
 
   /// `source` での整形に失敗したとき、`destination` へ自動で切り替えて送信してよいか（AI-04）。
   ///
-  /// 自動フォールバックへの同意に加えて、切り替え先への整形の送信にも同意している場合に限る。
+  /// 自動フォールバックへの同意に加えて、切り替え元と切り替え先の両方への整形の送信に同意している場合に限る。
   /// 同じプロバイダーへの再送は切り替えではないため許可しない。
-  public func allowsFallback(from source: CloudAIProvider, to destination: CloudAIProvider) -> Bool
-  {
+  /// 予算上限の判定は含まない（`BudgetGuard` で行う）。
+  public func allowsFallback(
+    from source: CloudAIProviderKind, to destination: CloudAIProviderKind
+  ) -> Bool {
     source != destination
       && isGranted(.crossProviderFallback)
+      && allows(.textRefinement(source))
       && allows(.textRefinement(destination))
   }
 }

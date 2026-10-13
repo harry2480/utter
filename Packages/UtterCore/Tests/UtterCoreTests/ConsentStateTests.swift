@@ -3,82 +3,103 @@ import Testing
 @testable import UtterCore
 
 struct ConsentStateTests {
-  /// 同意対象のすべての部分集合。
-  private static let allGrantedSets: [Set<ConsentScope>] = ConsentScope.allCases.reduce([[]]) {
-    subsets, scope in
-    subsets + subsets.map { $0.union([scope]) }
-  }
+  /// 各同意対象を未同意・同意・撤回済みのいずれかにした、すべての組み合わせ（3^6 通り）。
+  static let allStatusCombinations: [[ConsentScope: ConsentStatus]] = ConsentScope.allCases
+    .reduce([[:]]) { combinations, scope in
+      combinations.flatMap { combination in
+        [ConsentStatus.notGranted, .granted, .revoked].map { status in
+          combination.merging([scope: status]) { $1 }
+        }
+      }
+    }
 
-  private static func state(granting scopes: Set<ConsentScope>) -> ConsentState {
+  /// 送信元・送信先プロバイダーのすべての組み合わせ。
+  static let providerPairs: [(CloudAIProviderKind, CloudAIProviderKind)] =
+    CloudAIProviderKind.allCases.flatMap { source in
+      CloudAIProviderKind.allCases.map { (source, $0) }
+    }
+
+  /// 操作の履歴から、指定した状態の `ConsentState` を作る。
+  private static func state(_ statuses: [ConsentScope: ConsentStatus]) -> ConsentState {
     var state = ConsentState()
-    for scope in scopes {
-      state.grant(scope)
+    for (scope, status) in statuses {
+      switch status {
+      case .notGranted:
+        break
+      case .granted:
+        state.grant(scope)
+      case .revoked:
+        state.grant(scope)
+        state.revoke(scope)
+      }
     }
     return state
   }
 
   @Test("AC-06: 同意対象は送信先・送信内容ごとに区別される")
   func scopesAreDistinct() {
-    #expect(ConsentScope.allCases.count == 6)
-    #expect(Set(ConsentScope.allCases).count == ConsentScope.allCases.count)
+    // ケースの追加漏れを検知する: (Claude, ChatGPT) × (整形, Edit) + STT = 5、それにフォールバックを加えて 6。
     #expect(Set(CloudTransmission.allCases).count == 5)
+    #expect(Set(ConsentScope.allCases).count == 6)
+    #expect(ConsentScope.allCases.count == 6)
+    #expect(Self.allStatusCombinations.count == 729)
   }
 
-  @Test("AC-06: 既定はすべて未同意で、どの送信も許可しない")
-  func defaultDeniesEverything() {
-    let state = ConsentState()
-    for scope in ConsentScope.allCases {
-      #expect(state.status(of: scope) == .notGranted)
-    }
-    for transmission in CloudTransmission.allCases {
-      #expect(!state.allows(transmission))
-    }
-    for source in CloudAIProvider.allCases {
-      for destination in CloudAIProvider.allCases {
-        #expect(!state.allowsFallback(from: source, to: destination))
-      }
-    }
+  @Test("AC-06: 既定は未同意", arguments: ConsentScope.allCases)
+  func defaultIsNotGranted(_ scope: ConsentScope) {
+    #expect(ConsentState().status(of: scope) == .notGranted)
   }
 
-  @Test("AC-06: 同意した送信だけを許可する（全組み合わせ）")
-  func allowsOnlyGrantedTransmissions() {
-    for granted in Self.allGrantedSets {
-      let state = Self.state(granting: granted)
-      for transmission in CloudTransmission.allCases {
-        #expect(state.allows(transmission) == granted.contains(.transmission(transmission)))
-      }
+  @Test("AC-06: 既定ではどの送信も許可しない", arguments: CloudTransmission.allCases)
+  func defaultDeniesTransmission(_ transmission: CloudTransmission) {
+    #expect(!ConsentState().allows(transmission))
+  }
+
+  @Test("AI-04: クラウド間の自動フォールバックは既定で無効")
+  func defaultDeniesFallback() {
+    for (source, destination) in Self.providerPairs {
+      #expect(!ConsentState().allowsFallback(from: source, to: destination))
     }
   }
 
-  @Test("AI-04: 自動フォールバックはその同意と切り替え先への同意がある場合だけ許可する（全組み合わせ）")
-  func allowsFallbackOnlyWithBothConsents() {
-    for granted in Self.allGrantedSets {
-      let state = Self.state(granting: granted)
-      for source in CloudAIProvider.allCases {
-        for destination in CloudAIProvider.allCases {
-          let expected =
-            source != destination
-            && granted.contains(.crossProviderFallback)
-            && granted.contains(.transmission(.textRefinement(destination)))
-          #expect(state.allowsFallback(from: source, to: destination) == expected)
-        }
-      }
-    }
-  }
-
-  @Test("AI-04: 自動フォールバックは既定で無効")
-  func fallbackIsDisabledByDefault() {
+  @Test("AI-04: 両プロバイダーに同意していても、フォールバックの同意がなければ切り替えない")
+  func fallbackNeedsItsOwnConsent() {
     var state = ConsentState()
-    for provider in CloudAIProvider.allCases {
+    for provider in CloudAIProviderKind.allCases {
       state.grant(.transmission(.textRefinement(provider)))
     }
     #expect(!state.allowsFallback(from: .claude, to: .chatGPT))
     #expect(!state.allowsFallback(from: .chatGPT, to: .claude))
   }
 
-  @Test("AC-12: 撤回するとすぐに送信不可になる", arguments: ConsentScope.allCases)
+  @Test("AC-06: 同意している送信だけを許可する（未同意・撤回済みの全組み合わせ）", arguments: allStatusCombinations)
+  func allowsOnlyGrantedTransmissions(_ statuses: [ConsentScope: ConsentStatus]) {
+    let state = Self.state(statuses)
+    for transmission in CloudTransmission.allCases {
+      let expected = statuses[.transmission(transmission)] == .granted
+      #expect(state.allows(transmission) == expected)
+    }
+  }
+
+  @Test(
+    "AI-04: 自動フォールバックはその同意と切り替え元・先への同意がある場合だけ許可する（全組み合わせ）",
+    arguments: allStatusCombinations)
+  func allowsFallbackOnlyWithAllConsents(_ statuses: [ConsentScope: ConsentStatus]) {
+    let state = Self.state(statuses)
+    for (source, destination) in Self.providerPairs {
+      let expected =
+        source != destination
+        && statuses[.crossProviderFallback] == .granted
+        && statuses[.transmission(.textRefinement(source))] == .granted
+        && statuses[.transmission(.textRefinement(destination))] == .granted
+      #expect(state.allowsFallback(from: source, to: destination) == expected)
+    }
+  }
+
+  @Test("AC-12: 撤回するとすぐに送信不可になり、他の同意は変わらない", arguments: ConsentScope.allCases)
   func revokeDeniesImmediately(_ scope: ConsentScope) {
-    var state = Self.state(granting: Set(ConsentScope.allCases))
+    var state = Self.state(
+      Dictionary(uniqueKeysWithValues: ConsentScope.allCases.map { ($0, .granted) }))
     #expect(state.isGranted(scope))
 
     state.revoke(scope)
@@ -93,35 +114,31 @@ struct ConsentStateTests {
     }
   }
 
-  @Test("AC-12: 撤回後に送信不可となるフォールバックの判定")
-  func revokingFallbackOrDestinationDeniesFallback() {
-    var state = Self.state(granting: Set(ConsentScope.allCases))
-    #expect(state.allowsFallback(from: .claude, to: .chatGPT))
+  @Test("AC-12: 撤回後に再び同意すると同意済みに戻る", arguments: ConsentScope.allCases)
+  func regrantAfterRevoke(_ scope: ConsentScope) {
+    var state = ConsentState()
+    state.grant(scope)
+    state.revoke(scope)
+    state.grant(scope)
 
-    var withoutFallback = state
-    withoutFallback.revoke(.crossProviderFallback)
-    #expect(!withoutFallback.allowsFallback(from: .claude, to: .chatGPT))
-
-    state.revoke(.transmission(.textRefinement(.chatGPT)))
-    #expect(!state.allowsFallback(from: .claude, to: .chatGPT))
-    #expect(state.allowsFallback(from: .chatGPT, to: .claude))
+    #expect(state.status(of: scope) == .granted)
   }
 
-  @Test("AC-12: 撤回後に再び同意すると送信可になる")
-  func regrantAfterRevoke() {
+  @Test("AC-12: 撤回済みの対象を再び撤回しても撤回済みのまま", arguments: ConsentScope.allCases)
+  func revokeTwiceKeepsRevoked(_ scope: ConsentScope) {
     var state = ConsentState()
-    state.grant(.transmission(.speechRecognition))
-    state.revoke(.transmission(.speechRecognition))
-    state.grant(.transmission(.speechRecognition))
+    state.grant(scope)
+    state.revoke(scope)
+    state.revoke(scope)
 
-    #expect(state.status(of: .transmission(.speechRecognition)) == .granted)
-    #expect(state.allows(.speechRecognition))
+    #expect(state.status(of: scope) == .revoked)
   }
 
   @Test("AC-06: 未同意の対象を撤回しても未同意のまま", arguments: ConsentScope.allCases)
   func revokeWithoutGrantKeepsNotGranted(_ scope: ConsentScope) {
     var state = ConsentState()
     state.revoke(scope)
+
     #expect(state.status(of: scope) == .notGranted)
   }
 
