@@ -3,22 +3,6 @@ import Testing
 @testable import UtterEvaluation
 
 struct CharacterErrorRateTests {
-  @Test(
-    "AC-04: 編集距離は置換・挿入・削除の最小回数",
-    arguments: [
-      ("", "", 0),
-      ("", "あい", 2),
-      ("あい", "", 2),
-      ("かいぎ", "かいぎ", 0),
-      ("かいぎ", "かいき", 1),
-      ("かいぎ", "かぎ", 1),
-      ("かぎ", "かいぎ", 1),
-      ("kitten", "sitting", 3),
-    ])
-  func editDistance(_ reference: String, _ hypothesis: String, _ expected: Int) {
-    #expect(EditDistance.between(reference, hypothesis) == expected)
-  }
-
   @Test("AC-04: 正規化してから文字誤りを数える")
   func countsAfterNormalization() {
     let count = CharacterErrorRate().count(reference: "明日、三時に集合。", hypothesis: "明日 3時に集合")

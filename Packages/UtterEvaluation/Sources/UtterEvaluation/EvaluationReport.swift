@@ -52,7 +52,7 @@ public struct EvaluationReport: Hashable, Sendable {
   public init(
     samples: [EvaluationSample], characterErrorRate: CharacterErrorRate = CharacterErrorRate()
   ) throws(EvaluationSampleError) {
-    try EvaluationSample.validate(samples)
+    try EvaluationSample.validate(samples, normalizer: characterErrorRate.normalizer)
     var categories = Dictionary(
       uniqueKeysWithValues: EvaluationCategory.allCases.map { ($0, EvaluationSummary()) })
     var overall = EvaluationSummary()

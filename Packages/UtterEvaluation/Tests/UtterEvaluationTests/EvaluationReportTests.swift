@@ -48,48 +48,79 @@ struct EvaluationReportTests {
     #expect(overall.meaningChanges == ErrorCount(errors: 1, total: 2))
   }
 
-  @Test("AC-04: 表は全区分と合計の件数を出し、発話本文を含めない")
-  func markdownTableHasCountsWithoutText() throws {
+  @Test("AC-04: 表は全区分と合計の件数と結果を出す")
+  func markdownTableHasCounts() throws {
     let table = try EvaluationReport(samples: Self.samples).markdownTable()
     let lines = table.split(separator: "\n")
 
     #expect(lines.count == 2 + EvaluationCategory.allCases.count + 1)
     #expect(table.contains("| 日本語 | 2 | 2 | 18.8% (n=16) | - | 2 | - | 2 | 50.0% (n=2) |"))
+    #expect(
+      table.contains("| 日英混在 | 1 | 1 | 50.0% (n=10) | 0.0% (n=1) | 1 | 100.0% (n=1) | 0 | - |"))
     #expect(table.contains("| 騒音 | 0 | 0 | - | - | 0 | - | 0 | - |"))
-    #expect(table.contains("| 合計 | 4 |"))
-    for sample in Self.samples {
-      #expect(!table.contains(sample.reference))
+    #expect(table.contains("| 合計 | 4 | 3 |"))
+  }
+
+  @Test("AC-04: 表に発話本文を含めない")
+  func markdownTableHasNoText() throws {
+    let table = try EvaluationReport(samples: Self.samples).markdownTable()
+    let texts = Self.samples.flatMap {
+      [$0.reference, $0.sttOutput, $0.refinedOutput].compactMap(\.self)
+    }
+
+    for text in texts {
+      #expect(!table.contains(text))
     }
   }
 
-  @Test("AC-04: 百分率は小数第1位で四捨五入する")
-  func formatsPercent() {
-    let count = ErrorCount(errors: 1, total: 3)
+  @Test(
+    "AC-04: 百分率は小数第1位で四捨五入する",
+    arguments: [
+      (ErrorCount(errors: 1, total: 3), "33.3% (n=3)"),
+      (ErrorCount(errors: 1, total: 80), "1.3% (n=80)"),
+      (ErrorCount(errors: 5, total: 2), "250.0% (n=2)"),
+      (ErrorCount(errors: 0, total: 5), "0.0% (n=5)"),
+    ])
+  func formatsPercent(_ count: ErrorCount, _ expected: String) {
+    #expect(EvaluationReport.percent(count.errorRate, of: count) == expected)
+  }
 
-    #expect(EvaluationReport.percent(count.errorRate, of: count) == "33.3% (n=3)")
-    #expect(EvaluationReport.percent(2.5, of: count) == "250.0% (n=3)")
-    #expect(EvaluationReport.percent(-0.0004, of: count) == "0.0% (n=3)")
-    #expect(EvaluationReport.percent(-0.05, of: count) == "-5.0% (n=3)")
+  @Test("AC-04: 負の値も小数第1位で表す")
+  func formatsNegativePercent() {
+    #expect(EvaluationReport.percent(-0.05, of: .zero) == "-5.0% (n=0)")
+    #expect(EvaluationReport.percent(-0.0004, of: .zero) == "0.0% (n=0)")
+  }
+
+  @Test("AC-04: 値がなければ「-」を出す")
+  func formatsMissingPercent() {
     #expect(EvaluationReport.percent(nil, of: .zero) == "-")
   }
 
-  @Test("AC-04: 評価セットの不備を識別子つきで拒否する")
-  func rejectsInvalidSamples() {
-    #expect(throws: EvaluationSampleError.duplicateID("a")) {
-      try EvaluationReport(samples: [
-        EvaluationSample(id: "a", category: .japanese, reference: "はい"),
-        EvaluationSample(id: "a", category: .japanese, reference: "いいえ"),
-      ])
-    }
-    #expect(throws: EvaluationSampleError.emptyReference(id: "b")) {
-      try EvaluationReport(samples: [EvaluationSample(id: "b", category: .japanese, reference: "。")]
-      )
-    }
-    #expect(throws: EvaluationSampleError.termNotInReference(id: "c")) {
-      try EvaluationReport(samples: [
-        EvaluationSample(
-          id: "c", category: .developerTerms, reference: "swiftui", terms: ["SwiftUI"])
-      ])
+  @Test(
+    "AC-04: 評価セットの不備を識別子つきで拒否する",
+    arguments: [
+      (
+        [
+          EvaluationSample(id: "a", category: .japanese, reference: "はい"),
+          EvaluationSample(id: "a", category: .japanese, reference: "いいえ"),
+        ], EvaluationSampleError.duplicateID("a")
+      ),
+      ([EvaluationSample(id: "b", category: .japanese, reference: "。")], .emptyReference(id: "b")),
+      (
+        [
+          EvaluationSample(
+            id: "c", category: .developerTerms, reference: "swiftui", terms: ["SwiftUI"])
+        ],
+        .termNotInReference(id: "c")
+      ),
+      (
+        [EvaluationSample(id: "d", category: .japanese, reference: "はい", meaningChanges: [])],
+        .meaningChangesWithoutRefinedOutput(id: "d")
+      ),
+    ])
+  func rejectsInvalidSamples(_ samples: [EvaluationSample], _ expected: EvaluationSampleError) {
+    #expect(throws: expected) {
+      try EvaluationReport(samples: samples)
     }
   }
 
@@ -118,8 +149,12 @@ struct EvaluationReportTests {
       .appendingPathComponent("eval/results.example.json")
     let samples = try JSONDecoder().decode([EvaluationSample].self, from: Data(contentsOf: url))
     let report = try EvaluationReport(samples: samples)
+    let developerTerms = try #require(report.categories[.developerTerms])
 
     #expect(report.overall.sampleCount == 3)
+    #expect(developerTerms.sttCharacterErrors == ErrorCount(errors: 9, total: 26))
+    #expect(developerTerms.sttTermErrors == ErrorCount(errors: 2, total: 3))
+    #expect(report.overall.meaningChanges == ErrorCount(errors: 1, total: 3))
   }
 
   @Test("AC-04: 評価セットは9章の6区分")

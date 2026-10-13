@@ -2,6 +2,7 @@
 ///
 /// 用語は表記どおりに書かれているかを見るため、CER の正規化を適用せず、
 /// 大文字・小文字や全角・半角も区別して照合する。
+/// 英数字で始まる・終わる用語は、隣も英数字なら単語の一部とみなして数えない（`Git` と `GitHub`）。
 public enum TermAccuracy {
   /// 正解に含まれる各用語について、認識結果に同じ回数以上現れたかを数える。
   ///
@@ -16,7 +17,7 @@ public enum TermAccuracy {
     return result
   }
 
-  /// 重ならない出現回数。
+  /// 重ならない出現回数。英数字で始まる・終わる用語は、単語の一部としての出現を数えない。
   static func occurrences(of term: String, in text: String) -> Int {
     let needle = Array(term)
     let haystack = Array(text)
@@ -24,13 +25,24 @@ public enum TermAccuracy {
     var count = 0
     var index = 0
     while index <= haystack.count - needle.count {
-      if haystack[index..<(index + needle.count)].elementsEqual(needle) {
+      let end = index + needle.count
+      if haystack[index..<end].elementsEqual(needle),
+        !(needle[0].isASCIIAlphanumeric && index > 0 && haystack[index - 1].isASCIIAlphanumeric),
+        !(needle[needle.count - 1].isASCIIAlphanumeric && end < haystack.count
+          && haystack[end].isASCIIAlphanumeric)
+      {
         count += 1
-        index += needle.count
+        index = end
       } else {
         index += 1
       }
     }
     return count
+  }
+}
+
+extension Character {
+  fileprivate var isASCIIAlphanumeric: Bool {
+    isASCII && (isLetter || isNumber)
   }
 }

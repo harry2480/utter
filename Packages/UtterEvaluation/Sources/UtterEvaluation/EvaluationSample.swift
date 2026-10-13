@@ -42,22 +42,29 @@ public enum EvaluationSampleError: Error, Hashable, Sendable {
   case emptyReference(id: String)
   /// 用語が正解に表記どおり含まれていない
   case termNotInReference(id: String)
+  /// 整形結果がないのに意味改変を判定している
+  case meaningChangesWithoutRefinedOutput(id: String)
 }
 
 extension EvaluationSample {
-  /// 評価セット全体の不備を確認する。
-  public static func validate(_ samples: [EvaluationSample]) throws(EvaluationSampleError) {
+  /// 評価セット全体の不備を確認する。正解が空かどうかは集計と同じ `normalizer` で判定する。
+  public static func validate(
+    _ samples: [EvaluationSample], normalizer: TextNormalizer = TextNormalizer()
+  ) throws(EvaluationSampleError) {
     var seen: Set<String> = []
     for sample in samples {
       guard seen.insert(sample.id).inserted else {
         throw .duplicateID(sample.id)
       }
-      guard !TextNormalizer().normalize(sample.reference).isEmpty else {
+      guard !normalizer.normalize(sample.reference).isEmpty else {
         throw .emptyReference(id: sample.id)
       }
       for term in sample.terms ?? []
       where TermAccuracy.occurrences(of: term, in: sample.reference) == 0 {
         throw .termNotInReference(id: sample.id)
+      }
+      if sample.meaningChanges != nil, sample.refinedOutput == nil {
+        throw .meaningChangesWithoutRefinedOutput(id: sample.id)
       }
     }
   }
