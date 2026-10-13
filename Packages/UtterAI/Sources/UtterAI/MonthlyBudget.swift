@@ -17,6 +17,7 @@ public struct MonthlyBudget: Hashable, Sendable {
   ///
   /// 費用を推定できない送信（単価表にないモデル、通貨の不一致）は予算を守れないため、許可しない。
   /// 判定と記録は別の呼び出しなので、並行して送信すると上限をその件数分超えうる。
+  /// 並行送信がありうる場合は、予約と記録をまとめて行う `BudgetGuard` を使う。
   ///
   /// - Parameter expectedUsage: 今回の送信の見込みのトークン使用量（入力の見込みと出力の上限など）
   public func check(
@@ -26,20 +27,35 @@ public struct MonthlyBudget: Hashable, Sendable {
     ledger: MonthlyUsageLedger,
     in month: YearMonth
   ) -> BudgetDecision {
+    decide(
+      model: model, expectedUsage: expectedUsage, estimator: estimator, ledger: ledger, in: month,
+      reserved: 0
+    ).decision
+  }
+
+  /// `reserved` は送信中でまだ記録されていない見込み費用の合計。許可した場合は今回の見込み費用も返す。
+  func decide(
+    model: String,
+    expectedUsage: TokenUsage,
+    estimator: CostEstimator,
+    ledger: MonthlyUsageLedger,
+    in month: YearMonth,
+    reserved: Decimal
+  ) -> (decision: BudgetDecision, pending: EstimatedCost?) {
     guard ledger.currency == currency, estimator.priceTable.currency == currency else {
-      return .cannotEstimate(.currencyMismatch)
+      return (.cannotEstimate(.currencyMismatch), nil)
     }
     let pending: EstimatedCost
     do throws(CostEstimationError) {
       pending = try estimator.estimate(model: model, usage: expectedUsage)
     } catch {
-      return .cannotEstimate(.estimationFailed(error))
+      return (.cannotEstimate(.estimationFailed(error)), nil)
     }
-    let spent = ledger.spent(in: month)
+    let spent = ledger.spent(in: month) + reserved
     guard spent < limitAmount, spent + pending.amount <= limitAmount else {
-      return .exceeded
+      return (.exceeded, nil)
     }
-    return .allowed
+    return (.allowed, pending)
   }
 
   /// `check` が許可しなければ `budgetExceeded` を投げる。理由を区別したい場合は `check` を使う。
