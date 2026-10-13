@@ -4,11 +4,17 @@ import Testing
 @testable import UtterAI
 
 struct PricingValidationTests {
-  @Test("AI-05: 通貨コードは空を拒否する")
-  func rejectsEmptyCurrencyCode() {
+  @Test("AI-05: 通貨コードは空や空白だけを拒否する", arguments: ["", "  \n"])
+  func rejectsEmptyCurrencyCode(_ code: String) {
     #expect(throws: PricingError.emptyCurrencyCode) {
-      try CostCurrency(code: "")
+      try CostCurrency(code: code)
     }
+  }
+
+  @Test("AI-05: 通貨コードは前後の空白を除いて大文字にそろえる")
+  func normalizesCurrencyCode() throws {
+    #expect(try CostCurrency(code: " jpy ") == CostCurrency(code: "JPY"))
+    #expect(try CostCurrency(code: "jpy").code == "JPY")
   }
 
   @Test("AI-05: モデル名は空を拒否する")
@@ -59,7 +65,7 @@ struct PricingValidationTests {
     let yen = try CostCurrency(code: "JPY")
 
     #expect(throws: PricingError.negativeAmount) {
-      try MonthlyBudget(limit: EstimatedCost(amount: Decimal(-1), currency: yen))
+      try MonthlyBudget(limitAmount: Decimal(-1), currency: yen)
     }
   }
 }
