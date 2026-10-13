@@ -8,10 +8,11 @@ let package = Package(
     .library(name: "UtterAI", targets: ["UtterAI"])
   ],
   dependencies: [
-    .package(path: "../UtterCore")
+    .package(path: "../UtterCore"),
+    .package(path: "../UtterText"),
   ],
   targets: [
-    .target(name: "UtterAI", dependencies: ["UtterCore"]),
+    .target(name: "UtterAI", dependencies: ["UtterCore", "UtterText"]),
     .testTarget(name: "UtterAITests", dependencies: ["UtterAI"]),
   ],
   swiftLanguageModes: [.v6]
