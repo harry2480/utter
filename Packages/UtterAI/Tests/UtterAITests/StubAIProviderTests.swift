@@ -61,7 +61,7 @@ struct StubAIProviderTests {
     #expect(response.text == request.text)
   }
 
-  @Test("AI-06: 遅延中にキャンセルされたら cancelled を投げる")
+  @Test("AI-06: 遅延中にキャンセルされたら cancelled を投げる", .timeLimit(.minutes(1)))
   func throwsCancelledWhenCancelledDuringDelay() async throws {
     let stub = StubAIProvider(behavior: .echo, delay: .seconds(60))
     let request = request
@@ -93,7 +93,7 @@ struct StubAIProviderTests {
     }
   }
 
-  @Test("AI-06: 遅延中に振る舞いを変えても呼び出し時点の設定で応答する")
+  @Test("AI-06: 遅延中に振る舞いを変えても呼び出し時点の設定で応答する", .timeLimit(.minutes(1)))
   func usesBehaviorAtCallTime() async throws {
     let stub = StubAIProvider(behavior: .respond("最初"), delay: .milliseconds(50))
     let request = request
@@ -111,6 +111,17 @@ struct StubAIProviderTests {
     await #expect(throws: AIProviderError.timeout) {
       try await stub.refine(request)
     }
+  }
+
+  @Test("AI-06: 振る舞いだけを変えると遅延を保つ")
+  func keepsDelayWhenOnlyBehaviorChanges() async {
+    let stub = StubAIProvider(behavior: .echo, delay: .milliseconds(20))
+
+    await stub.setBehavior(.fail(.timeout))
+    #expect(await stub.delay == .milliseconds(20))
+
+    await stub.setBehavior(.echo, delay: .zero)
+    #expect(await stub.delay == .zero)
   }
 
   @Test("CTX-03: 受け取った入力と呼び出し回数を記録する")

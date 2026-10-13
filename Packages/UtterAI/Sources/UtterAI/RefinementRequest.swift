@@ -2,6 +2,7 @@
 ///
 /// 持てるのは STT テキスト・整形モード・スタイル区分・辞書語だけで、
 /// ウィンドウタイトル・入力欄の既存本文・URL などの文脈は持たない（CTX-03）。
+/// プロパティを足す場合は CTX-03 に照らして可否を判断し、`RefinementRequestTests` のサイズ検査も更新する。
 public struct RefinementRequest: Hashable, Sendable {
   /// 整形対象の STT テキスト。指示ではなくデータとして扱う（TXT-04）
   public let text: String

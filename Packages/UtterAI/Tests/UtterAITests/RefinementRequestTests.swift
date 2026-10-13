@@ -5,10 +5,18 @@ import Testing
 struct RefinementRequestTests {
   @Test("CTX-03: 入力は STT テキスト・整形モード・スタイル区分・辞書語だけを持つ")
   func holdsOnlyAllowedContext() {
+    // customMirror は手書きのため、実際の格納項目はサイズで検査する。
+    // 文字列や配列などの追加は検出できるが、隙間に収まる小さな型は検出できない。
+    #expect(
+      MemoryLayout<RefinementRequest>.size
+        == MemoryLayout<(String, RefinementMode, RefinementStyle, [String])>.size)
+  }
+
+  @Test("CTX-03: リフレクションに出す項目は許可された文脈だけ")
+  func reflectsOnlyAllowedContext() {
     let request = RefinementRequest(
       text: "本文", mode: .structured, style: .technical, dictionaryTerms: ["SwiftUI"])
 
-    // 文字列表現とリフレクションに出る項目が、送信を許可された文脈と一致する。
     let labels = Mirror(reflecting: request).children.compactMap(\.label)
     #expect(labels == ["mode", "style", "length", "dictionaryTerms"])
   }

@@ -26,9 +26,12 @@ public actor StubAIProvider: AIProvider {
     self.delay = delay
   }
 
-  public func setBehavior(_ behavior: Behavior, delay: Duration = .zero) {
+  /// 振る舞いを変える。`delay` を省略すると、現在の遅延を保つ。
+  public func setBehavior(_ behavior: Behavior, delay: Duration? = nil) {
     self.behavior = behavior
-    self.delay = delay
+    if let delay {
+      self.delay = delay
+    }
   }
 
   public func refine(_ request: RefinementRequest) async throws(AIProviderError)

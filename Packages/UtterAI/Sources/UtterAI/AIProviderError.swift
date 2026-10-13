@@ -15,6 +15,6 @@ public enum AIProviderError: Error, Hashable, Sendable, CaseIterable {
   case networkUnavailable
   /// 応答を解釈できない
   case invalidResponse
-  /// 呼び出し元の Task がキャンセルされた
+  /// 呼び出し元の Task がキャンセルされた。失敗ではないため、ローカル整形への退避や HUD 通知の対象にしない
   case cancelled
 }
