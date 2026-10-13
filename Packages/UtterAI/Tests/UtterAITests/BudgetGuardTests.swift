@@ -100,6 +100,24 @@ struct BudgetGuardTests {
     #expect(await budgetGuard.ledger.spent(in: october) == 30)
   }
 
+  @Test("AI-05: 別の BudgetGuard の予約は確定も取り消しもしない")
+  func ignoresReservationFromOtherGuard() async throws {
+    let first = try makeGuard()
+    let second = try makeGuard()
+    let own = try await second.reserve(model: "m", expectedUsage: usage(70), in: october)
+    let foreign = try await first.reserve(model: "m", expectedUsage: usage(30), in: october)
+
+    await second.settle(foreign, actualUsage: usage(30))
+    await second.cancel(foreign)
+
+    #expect(await second.ledger.spent(in: october) == 0)
+    await #expect(throws: AIProviderError.budgetExceeded) {
+      try await second.reserve(model: "m", expectedUsage: usage(31), in: october)
+    }
+    await second.settle(own, actualUsage: usage(70))
+    #expect(await second.ledger.spent(in: october) == 70)
+  }
+
   @Test("AI-05: 取り消すと台帳に記録せず予約を解放する")
   func cancelReleasesReservation() async throws {
     let budgetGuard = try makeGuard(spent: 40)

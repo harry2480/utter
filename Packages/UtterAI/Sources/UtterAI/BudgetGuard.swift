@@ -8,8 +8,7 @@ public actor BudgetGuard {
   public let budget: MonthlyBudget
   public let estimator: CostEstimator
   public private(set) var ledger: MonthlyUsageLedger
-  private var reservations: [UInt64: BudgetReservation] = [:]
-  private var nextReservationID: UInt64 = 0
+  private var reservations: [UUID: BudgetReservation] = [:]
 
   public init(budget: MonthlyBudget, estimator: CostEstimator, ledger: MonthlyUsageLedger) {
     self.budget = budget
@@ -33,8 +32,7 @@ public actor BudgetGuard {
       throw .budgetExceeded
     }
     let reservation = BudgetReservation(
-      id: nextReservationID, model: model, month: month, amount: pending.amount)
-    nextReservationID += 1
+      id: UUID(), model: model, month: month, amount: pending.amount)
     reservations[reservation.id] = reservation
     return reservation
   }
@@ -42,9 +40,9 @@ public actor BudgetGuard {
   /// 送信後に予約を確定し、推定費用を台帳に記録する。
   ///
   /// 実際の使用量がわからない、または推定できない場合は、課金されている可能性があるため予約した見込み費用を記録する。
-  /// 確定済み・取り消し済みの予約は何もしない。
+  /// 確定済み・取り消し済みの予約や、別の `BudgetGuard` の予約は何もしない。
   public func settle(_ reservation: BudgetReservation, actualUsage: TokenUsage?) {
-    guard reservations.removeValue(forKey: reservation.id) != nil else {
+    guard release(reservation) else {
       return
     }
     let amount: Decimal
@@ -62,13 +60,23 @@ public actor BudgetGuard {
 
   /// 送信しなかった場合に予約を取り消す。台帳には記録しない。
   public func cancel(_ reservation: BudgetReservation) {
-    reservations.removeValue(forKey: reservation.id)
+    release(reservation)
+  }
+
+  /// この `BudgetGuard` が発行した未解放の予約なら解放して `true` を返す。
+  @discardableResult
+  private func release(_ reservation: BudgetReservation) -> Bool {
+    guard reservations[reservation.id] == reservation else {
+      return false
+    }
+    reservations[reservation.id] = nil
+    return true
   }
 }
 
 /// 送信前に予約した見込み費用（AI-05）。`BudgetGuard.settle` か `cancel` で必ず解放する。
 public struct BudgetReservation: Hashable, Sendable {
-  let id: UInt64
+  let id: UUID
   public let model: String
   public let month: YearMonth
   /// 予約した見込みの推定費用
