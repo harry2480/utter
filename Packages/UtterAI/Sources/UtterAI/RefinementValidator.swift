@@ -2,7 +2,9 @@ import UtterText
 
 /// クラウド整形の応答が整形結果として使えるかを判定する（4.1節, TXT-04）。
 ///
-/// 判定はルールベースで、モデルによる判定は行わない。
+/// 判定はルールベースで、モデルによる判定は行わない。そのため次は検出できない。
+/// - 疑問符も「〜ですか」などもない質問への回答
+/// - 発話の後ろに足された回答（発話の文字が応答に残っている場合）
 public struct RefinementValidator: Sendable {
   public let configuration: RefinementValidationConfiguration
 
@@ -24,7 +26,11 @@ public struct RefinementValidator: Sendable {
     if refined.allSatisfy(\.isWhitespace) {
       return .empty
     }
-    if startsWithPreamble(refined, original: original) {
+    if containsAddedPhrase(
+      configuration.preamblePhrases, in: refined, original: original, prefixOnly: true)
+      || containsAddedPhrase(
+        configuration.refusalPhrases, in: refined, original: original, prefixOnly: false)
+    {
       return .preambleOrRefusal
     }
     if Self.isQuestion(original) && !Self.isQuestion(refined) {
@@ -34,12 +40,12 @@ public struct RefinementValidator: Sendable {
     if !checker.violations(original: original, refined: refined).isEmpty {
       return .protectedContentChanged
     }
-    if let overlap = Self.bigramOverlap(of: refinedCharacters, in: originalCharacters),
+    if let overlap = Self.characterOverlap(of: refinedCharacters, in: originalCharacters),
       overlap < configuration.minimumOverlap
     {
       return .unrelatedContent
     }
-    if !originalCharacters.isEmpty {
+    if originalCharacters.count >= configuration.minimumLengthForRatio {
       let ratio = Double(refinedCharacters.count) / Double(originalCharacters.count)
       if !configuration.lengthRatioRange.contains(ratio) {
         return .lengthRatioOutOfRange
@@ -48,22 +54,46 @@ public struct RefinementValidator: Sendable {
     return nil
   }
 
-  /// 整形前にない前置き・拒否の定型句で応答が始まるか。
-  private func startsWithPreamble(_ refined: String, original: String) -> Bool {
-    let trimmed = refined.drop(while: \.isWhitespace)
-    return configuration.preamblePhrases.contains { phrase in
-      trimmed.hasPrefix(phrase) && !original.contains(phrase)
+  /// 整形前にない定型句が応答にあるか。英字の大文字小文字は区別しない。
+  private func containsAddedPhrase(
+    _ phrases: [String],
+    in refined: String,
+    original: String,
+    prefixOnly: Bool
+  ) -> Bool {
+    let refined = String(refined.drop(while: \.isWhitespace)).lowercased()
+    let original = original.lowercased()
+    return phrases.contains { phrase in
+      let phrase = phrase.lowercased()
+      let found = prefixOnly ? refined.hasPrefix(phrase) : refined.contains(phrase)
+      return found && !original.contains(phrase)
     }
   }
 
-  /// 文末が疑問符か「か」で終わるか。文末の句読点・空白は無視する。
+  /// 文末を閉じる記号。疑問かどうかの判定では無視する
+  private static let closingCharacters: Set<Character> = [
+    "。", "、", ".", ",", "！", "!", "」", "』", "）", ")", "\"", "”", "'", "’", "…", "〜", "~",
+  ]
+  /// 疑問の「か」の直前に来る文字（「ですか」「でしょうか」「ないか」「のか」「するか」「したか」「ませんか」）
+  private static let questionParticlePredecessors: Set<Character> = [
+    "す", "う", "い", "の", "る", "た", "ん",
+  ]
+
+  /// 文末が疑問符か、「ですか」などの疑問の「か」で終わるか。
+  ///
+  /// 「明らか」「とか」「何か」のような「か」で終わる語は疑問とみなさない。
   private static func isQuestion(_ text: String) -> Bool {
-    let trailing: Set<Character> = ["。", "、", ".", ",", "！", "!"]
-    let body = text.reversed().drop { $0.isWhitespace || trailing.contains($0) }
+    let body = text.reversed().drop { $0.isWhitespace || closingCharacters.contains($0) }
     guard let last = body.first else {
       return false
     }
-    return last == "？" || last == "?" || last == "か"
+    if last == "？" || last == "?" {
+      return true
+    }
+    guard last == "か", let predecessor = body.dropFirst().first else {
+      return false
+    }
+    return questionParticlePredecessors.contains(predecessor)
   }
 
   /// 比較に使う文字（文字と数字）。空白・句読点・記号は除く。
@@ -71,25 +101,17 @@ public struct RefinementValidator: Sendable {
     text.filter { $0.isLetter || $0.isNumber }.map(\.self)
   }
 
-  /// 整形後の文字 bigram のうち、整形前にも現れるものの割合。どちらかが bigram を持たない場合は `nil`。
-  private static func bigramOverlap(
+  /// 整形後に現れる文字の種類のうち、整形前にも現れるものの割合。どちらかが文字を持たない場合は `nil`。
+  private static func characterOverlap(
     of refined: [Character],
     in original: [Character]
   ) -> Double? {
-    let refinedBigrams = bigrams(of: refined)
-    let originalBigrams = bigrams(of: original)
-    guard !refinedBigrams.isEmpty, !originalBigrams.isEmpty else {
+    let refinedSet = Set(refined)
+    let originalSet = Set(original)
+    guard !refinedSet.isEmpty, !originalSet.isEmpty else {
       return nil
     }
-    let shared = refinedBigrams.intersection(originalBigrams).count
-    return Double(shared) / Double(refinedBigrams.count)
-  }
-
-  private static func bigrams(of characters: [Character]) -> Set<String> {
-    guard characters.count >= 2 else {
-      return []
-    }
-    return Set((1..<characters.count).map { String([characters[$0 - 1], characters[$0]]) })
+    return Double(refinedSet.intersection(originalSet).count) / Double(refinedSet.count)
   }
 }
 
@@ -111,50 +133,71 @@ public enum RefinementValidationFailure: Hashable, Sendable, CaseIterable {
 
 /// 応答検証の閾値。既定値は暫定で、最終値は Phase 2 の評価セットで決める（4.1節）。
 public struct RefinementValidationConfiguration: Hashable, Sendable {
-  public static let defaultLengthRatioRange: ClosedRange<Double> = 0.3...2.0
+  public static let defaultLengthRatioRange: ClosedRange<Double> = 0.1...2.5
+  public static let defaultMinimumLengthForRatio = 10
   public static let defaultMinimumOverlap = 0.3
+  /// 丁寧化で現れうる「承知しました」「申し訳ありません」単独は含めない
   public static let defaultPreamblePhrases = [
-    "以下", "整形しました", "整形した", "整形後", "整形結果", "承知しました", "かしこまりました", "了解しました",
-    "申し訳ありません", "申し訳ございません", "お答えします", "回答します",
-    "Here is", "Here's", "Sure,", "Sure!", "Sure.", "Certainly", "I'm sorry", "I cannot", "I can't",
+    "以下が", "以下は整形", "以下に整形", "以下のように整形", "整形しました", "整形した文章", "整形後の文章", "整形結果",
+    "Here is the", "Here's the refined", "Here is your", "Here's your", "Sure, here",
+    "Certainly, here",
     "As an AI",
+  ]
+  public static let defaultRefusalPhrases = [
+    "お応えできません", "お答えできません", "お手伝いできません", "対応いたしかねます",
+    "I can't help", "I cannot help", "I'm unable to", "I am unable to",
   ]
 
   /// 整形後と整形前の文字数比（空白・句読点・記号を除く）の許容範囲
   public let lengthRatioRange: ClosedRange<Double>
-  /// 整形後の文字 bigram のうち、整形前にも現れるものの割合の下限
+  /// 文字数比を検査する整形前の最小文字数。短い発話は丁寧化などで比が大きく振れるため検査しない
+  public let minimumLengthForRatio: Int
+  /// 整形後に現れる文字の種類のうち、整形前にも現れるものの割合の下限
   public let minimumOverlap: Double
-  /// 整形前になく、応答の先頭にあれば整形以外の出力とみなす定型句
+  /// 整形前になく、応答の先頭にあれば整形以外の出力とみなす前置きの句
   public let preamblePhrases: [String]
+  /// 整形前になく、応答のどこかにあれば整形以外の出力とみなす拒否の句
+  public let refusalPhrases: [String]
 
   public init() {
     lengthRatioRange = Self.defaultLengthRatioRange
+    minimumLengthForRatio = Self.defaultMinimumLengthForRatio
     minimumOverlap = Self.defaultMinimumOverlap
     preamblePhrases = Self.defaultPreamblePhrases
+    refusalPhrases = Self.defaultRefusalPhrases
   }
 
   public init(
     lengthRatioRange: ClosedRange<Double> = defaultLengthRatioRange,
+    minimumLengthForRatio: Int = defaultMinimumLengthForRatio,
     minimumOverlap: Double = defaultMinimumOverlap,
-    preamblePhrases: [String] = defaultPreamblePhrases
+    preamblePhrases: [String] = defaultPreamblePhrases,
+    refusalPhrases: [String] = defaultRefusalPhrases
   ) throws(RefinementValidationConfigurationError) {
     guard lengthRatioRange.lowerBound >= 0, lengthRatioRange.upperBound.isFinite else {
       throw .invalidLengthRatioRange
     }
+    guard minimumLengthForRatio >= 1 else {
+      throw .invalidMinimumLengthForRatio
+    }
     guard (0...1).contains(minimumOverlap) else {
       throw .invalidMinimumOverlap
     }
-    guard !preamblePhrases.contains(where: \.isEmpty) else {
-      throw .emptyPreamblePhrase
+    guard !preamblePhrases.contains(where: \.isEmpty), !refusalPhrases.contains(where: \.isEmpty)
+    else {
+      throw .emptyPhrase
     }
     self.lengthRatioRange = lengthRatioRange
+    self.minimumLengthForRatio = minimumLengthForRatio
     self.minimumOverlap = minimumOverlap
     self.preamblePhrases = preamblePhrases
+    self.refusalPhrases = refusalPhrases
   }
 }
 
 public enum RefinementValidationConfigurationError: Error, Hashable, Sendable {
   case invalidLengthRatioRange
+  case invalidMinimumLengthForRatio
   case invalidMinimumOverlap
-  case emptyPreamblePhrase
+  case emptyPhrase
 }

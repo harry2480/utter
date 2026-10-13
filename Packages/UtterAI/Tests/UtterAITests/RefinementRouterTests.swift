@@ -15,6 +15,19 @@ struct RefinementRouterTests {
     }
   }
 
+  /// キャンセルに応じず、指定時間が過ぎるまで応答しないプロバイダー
+  private struct UncooperativeProvider: AIProvider {
+    let delay: Duration
+
+    func refine(_ request: RefinementRequest) async throws(AIProviderError) -> RefinementResponse {
+      let delay = delay
+      await Task.detached {
+        try? await Task.sleep(for: delay)
+      }.value
+      return RefinementResponse(text: request.text)
+    }
+  }
+
   @Test("AC-16: 検証を通った応答はクラウド整形の結果として返す")
   func returnsValidatedCloudResponse() async throws {
     let usage = TokenUsage(inputTokens: 20, outputTokens: 10)
@@ -23,9 +36,34 @@ struct RefinementRouterTests {
 
     let outcome = try await router.refine(request, cloudConsentGranted: true)
 
-    #expect(outcome == RefinementOutcome(text: "明日の会議は10時からです。", source: .cloud(usage: usage)))
+    #expect(
+      outcome == RefinementOutcome(text: "明日の会議は10時からです。", source: .cloud, usage: usage))
     #expect(outcome.fallbackReason == nil)
     #expect(await stub.receivedRequests == [request])
+  }
+
+  @Test("AC-16: 応答の前後の空白・改行を除いて返す")
+  func trimsWhitespaceAroundResponse() async throws {
+    let stub = StubAIProvider(behavior: .respond("\n 明日の会議は10時からです。\n\n"))
+    let router = try RefinementRouter(provider: stub)
+
+    let outcome = try await router.refine(request, cloudConsentGranted: true)
+
+    #expect(outcome.text == "明日の会議は10時からです。")
+    #expect(outcome.source == .cloud)
+  }
+
+  @Test("AC-06: Raw モードは送信せず STT テキストをそのまま返す")
+  func skipsProviderInRawMode() async throws {
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(
+      provider: stub, localRefiner: FixedLocalRefiner(text: "ローカル整形"))
+    let raw = RefinementRequest(text: "えーと明日の会議", mode: .raw)
+
+    let outcome = try await router.refine(raw, cloudConsentGranted: true)
+
+    #expect(await stub.callCount == 0)
+    #expect(outcome == RefinementOutcome(text: "えーと明日の会議", source: .raw))
   }
 
   @Test("AC-06: 同意がオフのときはプロバイダーを呼ばずローカル結果を返す")
@@ -42,7 +80,7 @@ struct RefinementRouterTests {
 
   @Test(
     "AC-16: プロバイダーの失敗時はローカル結果に退避し、理由を含める",
-    arguments: AIProviderError.allCases
+    arguments: AIProviderError.allCases.filter { $0 != .cancelled }
   )
   func fallsBackOnProviderFailure(_ error: AIProviderError) async throws {
     let stub = StubAIProvider(behavior: .fail(error))
@@ -52,18 +90,34 @@ struct RefinementRouterTests {
     let outcome = try await router.refine(request, cloudConsentGranted: true)
 
     #expect(
-      outcome == RefinementOutcome(text: "ローカル整形", source: .localFallback(.providerFailed(error))))
+      outcome
+        == RefinementOutcome(text: "ローカル整形", source: .localFallback(.providerFailed(error))))
   }
 
-  @Test("AC-16: 検証失敗時はローカル結果に退避し、理由を含める")
+  @Test("AC-16: 呼び出し元がキャンセルしていないのにプロバイダーが cancelled を返したら退避する")
+  func fallsBackOnProviderCancelledWithoutCallerCancellation() async throws {
+    let stub = StubAIProvider(behavior: .fail(.cancelled))
+    let router = try RefinementRouter(provider: stub)
+
+    let outcome = try await router.refine(request, cloudConsentGranted: true)
+
+    #expect(
+      outcome
+        == RefinementOutcome(
+          text: request.text, source: .localFallback(.providerFailed(.cancelled))))
+  }
+
+  @Test("AC-16: 検証失敗時はローカル結果に退避し、理由と使用量を含める")
   func fallsBackOnValidationFailure() async throws {
-    let stub = StubAIProvider(behavior: .respond(""))
+    let usage = TokenUsage(inputTokens: 20, outputTokens: 0)
+    let stub = StubAIProvider(behavior: .respond("", usage: usage))
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(request, cloudConsentGranted: true)
 
     #expect(outcome.text == request.text)
     #expect(outcome.fallbackReason == .validationFailed(.empty))
+    #expect(outcome.usage == usage)
   }
 
   @Test("AC-17: 質問文への回答が返ったらローカル結果に退避する（TXT-04）")
@@ -74,10 +128,8 @@ struct RefinementRouterTests {
 
     let outcome = try await router.refine(question, cloudConsentGranted: true)
 
-    #expect(
-      outcome
-        == RefinementOutcome(
-          text: question.text, source: .localFallback(.validationFailed(.questionAnswered))))
+    #expect(outcome.text == question.text)
+    #expect(outcome.fallbackReason == .validationFailed(.questionAnswered))
   }
 
   @Test("AC-16: 上限時間を超えたらタイムアウトとしてローカル結果に退避する", .timeLimit(.minutes(1)))
@@ -90,19 +142,32 @@ struct RefinementRouterTests {
     let outcome = try await router.refine(request, cloudConsentGranted: true)
 
     #expect(clock.now - start < .seconds(30))
-    #expect(
-      outcome
-        == RefinementOutcome(text: request.text, source: .localFallback(.providerFailed(.timeout))))
+    #expect(outcome.text == request.text)
+    #expect(outcome.fallbackReason == .providerFailed(.timeout))
+  }
+
+  @Test("AC-16: キャンセルに応じないプロバイダーでも上限時間で退避する", .timeLimit(.minutes(1)))
+  func fallsBackOnTimeoutWithUncooperativeProvider() async throws {
+    let router = try RefinementRouter(
+      provider: UncooperativeProvider(delay: .seconds(3)), timeout: .milliseconds(50))
+    let clock = ContinuousClock()
+    let start = clock.now
+
+    let outcome = try await router.refine(request, cloudConsentGranted: true)
+
+    #expect(clock.now - start < .seconds(2))
+    #expect(outcome.fallbackReason == .providerFailed(.timeout))
   }
 
   @Test("AC-16: 上限時間内の遅延した応答は採用する")
   func acceptsDelayedResponseWithinTimeout() async throws {
-    let stub = StubAIProvider(behavior: .respond("明日の会議は10時からです。"), delay: .milliseconds(20))
+    let stub = StubAIProvider(
+      behavior: .respond("明日の会議は10時からです。"), delay: .milliseconds(20))
     let router = try RefinementRouter(provider: stub, timeout: .seconds(30))
 
     let outcome = try await router.refine(request, cloudConsentGranted: true)
 
-    #expect(outcome.source == .cloud(usage: nil))
+    #expect(outcome.source == .cloud)
   }
 
   @Test(
@@ -139,14 +204,35 @@ struct RefinementRouterTests {
     }
   }
 
-  @Test("AC-16: キャンセル済みなら送信しない")
-  func doesNotSendWhenAlreadyCancelled() async throws {
+  @Test(
+    "AC-16: キャンセルに応じないプロバイダーでも、呼び出し元のキャンセルで待たずに戻る", .timeLimit(.minutes(1)))
+  func returnsOnCancellationWithUncooperativeProvider() async throws {
+    let router = try RefinementRouter(
+      provider: UncooperativeProvider(delay: .seconds(3)), timeout: .seconds(30))
+    let request = request
+    let clock = ContinuousClock()
+    let start = clock.now
+    let task = Task {
+      try await router.refine(request, cloudConsentGranted: true)
+    }
+    try await Task.sleep(for: .milliseconds(20))
+
+    task.cancel()
+
+    await #expect(throws: CancellationError.self) {
+      try await task.value
+    }
+    #expect(clock.now - start < .seconds(2))
+  }
+
+  @Test("AC-16: キャンセル済みなら同意の有無によらず送信も退避もしない", arguments: [true, false])
+  func doesNotSendWhenAlreadyCancelled(_ consent: Bool) async throws {
     let stub = StubAIProvider(behavior: .echo)
     let router = try RefinementRouter(provider: stub)
     let request = request
     let task = Task {
       withUnsafeCurrentTask { $0?.cancel() }
-      return try await router.refine(request, cloudConsentGranted: true)
+      return try await router.refine(request, cloudConsentGranted: consent)
     }
 
     await #expect(throws: CancellationError.self) {
@@ -172,7 +258,9 @@ struct RefinementRouterTests {
 
   @Test("AC-16: 結果の文字列表現に本文を含めない")
   func redactsOutcomeText() {
-    let outcome = RefinementOutcome(text: "秘密の整形結果", source: .localFallback(.consentNotGranted))
+    let outcome = RefinementOutcome(
+      text: "秘密の整形結果", source: .localFallback(.consentNotGranted),
+      usage: TokenUsage(inputTokens: 1, outputTokens: 2))
     let outputs = [
       String(describing: outcome),
       String(reflecting: outcome),
