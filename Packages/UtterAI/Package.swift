@@ -13,7 +13,7 @@ let package = Package(
   ],
   targets: [
     .target(name: "UtterAI", dependencies: ["UtterCore", "UtterText"]),
-    .testTarget(name: "UtterAITests", dependencies: ["UtterAI"]),
+    .testTarget(name: "UtterAITests", dependencies: ["UtterAI", "UtterCore"]),
   ],
   swiftLanguageModes: [.v6]
 )
