@@ -117,7 +117,7 @@ public struct RefinementRouter: Sendable {
 }
 
 /// 最初に届いた結果で1回だけ continuation を再開し、残りの Task をキャンセルする。
-private final class Race: Sendable {
+final class Race: Sendable {
   typealias Outcome = Result<RefinementResponse, AIProviderError>
 
   private struct State {
