@@ -28,6 +28,11 @@ struct BasicFormatterTests {
       ("その件は了解です", "その件は了解です。"),
       ("へえーそうなんだ", "へえーそうなんだ。"),
       ("umbrella is here", "umbrella is here"),
+      ("ええとても良いです", "ええとても良いです。"),
+      ("「えー」と言った", "「えー」と言った。"),
+      ("えー！本当？", "えー！本当？"),
+      ("uh-oh, umm... okay", "uh-oh, umm... okay"),
+      ("UH students are here", "UH students are here"),
     ])
   func keepsMeaningfulWords(_ input: String, _ expected: String) {
     #expect(formatter.natural(input) == expected)
@@ -58,6 +63,22 @@ struct BasicFormatterTests {
     #expect(formatter.natural(input) == expected)
   }
 
+  @Test("TXT-02: 結果の前後に改行を残さない", arguments: ["明日\n", "\n明日", "明日\n\n"])
+  func trimsSurroundingNewlines(_ input: String) {
+    #expect(formatter.natural(input) == "明日。")
+    #expect(formatter.structured(input) == "明日。")
+  }
+
+  @Test("TXT-02: フィラーを除いても改行は残す")
+  func keepsNewlineAfterFiller() {
+    #expect(formatter.natural("行きます。えー\n明日") == "行きます。\n明日。")
+  }
+
+  @Test("TXT-02: 日本語の間の空白は除く（STT が区切りに入れた空白も除く）")
+  func removesSpacesBetweenJapanese() {
+    #expect(formatter.natural("東京 大阪 名古屋") == "東京大阪名古屋。")
+  }
+
   @Test("TXT-02: 文末の「。」を補わない設定")
   func withoutSentenceEnd() {
     let formatter = BasicFormatter(options: .init(addsSentenceEnd: false))
@@ -65,7 +86,7 @@ struct BasicFormatterTests {
     #expect(formatter.natural("えーと了解です") == "了解です")
   }
 
-  @Test("TXT-02: 空文字と空白だけの入力は空文字を返す", arguments: ["", "   ", "えー"])
+  @Test("TXT-02: 空白・改行・フィラーだけの入力は空文字を返す", arguments: ["", "   ", "えー", "\n", " \n \n"])
   func emptyInput(_ input: String) {
     #expect(formatter.natural(input).isEmpty)
     #expect(formatter.structured(input).isEmpty)
@@ -90,6 +111,19 @@ struct BasicFormatterTests {
     for output in [formatter.natural(input), formatter.structured(input)] {
       #expect(checker.violations(original: input, refined: output).isEmpty)
     }
+  }
+
+  @Test(
+    "TXT-02: フィラーや列挙の語と重なる辞書語も変えない",
+    arguments: [
+      ("えーと株式会社です", "えーと株式会社です。"),
+      ("Uh を押す", "Uh を押す。"),
+      ("まず株式会社と次に株式会社", "まず株式会社と次に株式会社。"),
+    ])
+  func preservesDictionaryTermsOverlappingRules(_ input: String, _ expected: String) {
+    let formatter = BasicFormatter(dictionaryTerms: ["えーと株式会社", "Uh", "まず株式会社"])
+
+    #expect(formatter.natural(input) == expected)
   }
 
   @Test("TXT-02: コードの中の空白・句読点・フィラーは変えない")
@@ -132,6 +166,29 @@ struct BasicFormatterTests {
         """)
   }
 
+  @Test("TXT-01: 箇条書きの後の「以上」や段落の語からは締めの段落にする")
+  func bulletListWithConclusion() {
+    #expect(
+      formatter.structured("まずAを開く。次にBを閉じる。以上です") == """
+        - まずAを開く。
+        - 次にBを閉じる。
+
+        以上です。
+        """)
+  }
+
+  @Test("TXT-01: 列挙の語が別の語の一部なら箇条書きにしない", arguments: ["まずい料理でした。次に行きます", "続いている。最後に行く"])
+  func markerPrefixOfOtherWord(_ input: String) {
+    #expect(!formatter.structured(input).contains("- "))
+  }
+
+  @Test(
+    "TXT-01: 連続する文末記号を分けない",
+    arguments: [("Wow!! Great", "Wow!! Great"), ("えっ!?本当に", "えっ!?本当に。"), ("本当？！はい", "本当？！はい。")])
+  func keepsConsecutiveSentenceEnds(_ input: String, _ expected: String) {
+    #expect(formatter.structured(input) == expected)
+  }
+
   @Test("TXT-01: 列挙の語が1つだけなら箇条書きにしない")
   func singleMarkerIsNotList() {
     #expect(formatter.structured("まず確認します。よろしくお願いします") == "まず確認します。よろしくお願いします。")
@@ -151,9 +208,11 @@ struct BasicFormatterTests {
         """)
   }
 
-  @Test("TXT-01: 英文は空白で文をつなぐ")
-  func joinsLatinSentencesWithSpace() {
-    #expect(formatter.structured("First do this. Then do that.") == "First do this. Then do that.")
+  @Test(
+    "TXT-01: 英文は空白で文をつなぎ、和文はつなげて書く",
+    arguments: [("Really? Yes!", "Really? Yes!"), ("了解。OK! 次は？", "了解。OK! 次は？")])
+  func joinsSentences(_ input: String, _ expected: String) {
+    #expect(formatter.structured(input) == expected)
   }
 
   // MARK: TXT-04・意味の創作
@@ -184,6 +243,9 @@ struct BasicFormatterTests {
   func doesNotInventWords(_ input: String) {
     for output in [formatter.natural(input), formatter.structured(input)] {
       #expect(Self.isSubsequence(Self.content(of: output), of: Self.content(of: input)))
+      // 平叙文を疑問文や感嘆文に変えない
+      #expect(
+        output.count(where: { "？?！!".contains($0) }) <= input.count(where: { "？?！!".contains($0) }))
     }
   }
 

@@ -28,17 +28,20 @@ struct ProtectedTextMask: Sendable {
     self.spans = spans
   }
 
-  /// 目印を元の保護対象に戻す。
+  /// 目印を元の保護対象に戻す。目印に結合文字が続いても戻せるよう、Unicode スカラー単位で走査する。
   func unmask(_ masked: String) -> String {
-    var result = ""
-    for character in masked {
-      if let span = span(for: character) {
-        result += span.text
+    var result = String.UnicodeScalarView()
+    for scalar in masked.unicodeScalars {
+      if Self.isPlaceholder(scalar),
+        spans.indices.contains(Int(scalar.value - Self.firstPlaceholder))
+      {
+        result.append(
+          contentsOf: spans[Int(scalar.value - Self.firstPlaceholder)].text.unicodeScalars)
       } else {
-        result.append(character)
+        result.append(scalar)
       }
     }
-    return result
+    return String(result)
   }
 
   /// 目印なら、その保護対象の種類を返す。

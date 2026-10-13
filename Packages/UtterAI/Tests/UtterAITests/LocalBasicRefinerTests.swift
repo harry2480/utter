@@ -33,6 +33,30 @@ struct LocalBasicRefinerTests {
     #expect(refiner.refine(request) == "了解です")
   }
 
+  @Test(
+    "AI-03: ターミナルではコマンドの記号・空白を変えず、末尾に改行を残さない",
+    arguments: [
+      ("ls -la\n", "ls -la"),
+      ("えーと git status", "git status"),
+      ("awk -F,", "awk -F,"),
+      ("ls um", "ls um"),
+      ("echo 'a  b'", "echo 'a  b'"),
+      ("cd ~/src、、", "cd ~/src、、"),
+    ])
+  func terminalPreservesCommands(_ input: String, _ expected: String) {
+    for mode in [RefinementMode.natural, .structured] {
+      let request = RefinementRequest(text: input, mode: mode, style: .command)
+      #expect(refiner.refine(request) == expected)
+    }
+  }
+
+  @Test("AI-03: チャットの Structured は箇条書きにし、文末の「。」は補わない")
+  func conciseStructured() {
+    let request = RefinementRequest(text: "まず開きます。次に閉じます", mode: .structured, style: .concise)
+
+    #expect(refiner.refine(request) == "- まず開きます。\n- 次に閉じます")
+  }
+
   @Test("AI-03: ターミナルでは Structured でも箇条書きにしない")
   func terminalStructuredIsNatural() {
     let request = RefinementRequest(text: "まず開きます。次に閉じます", mode: .structured, style: .command)
