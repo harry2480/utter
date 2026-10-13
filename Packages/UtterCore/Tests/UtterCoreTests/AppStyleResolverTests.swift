@@ -11,6 +11,7 @@ struct AppStyleResolverTests {
       ("com.apple.mail", .polite),
       ("com.apple.dt.Xcode", .technical),
       ("com.microsoft.VSCode", .technical),
+      ("com.todesktop.230313mzl4w4u92", .technical),
       ("com.apple.Terminal", .command),
       ("com.googlecode.iterm2", .command),
       ("com.apple.iWork.Pages", .document),
@@ -35,15 +36,18 @@ struct AppStyleResolverTests {
     #expect(resolver.style(forBundleID: "com.hnc.discord") == .concise)
   }
 
-  @Test("CTX-01: 既定の対応表は standard 以外のすべての区分を含み、bundle ID の重複がない")
-  func builtInTableIsConsistent() {
-    let groups = AppStyleResolver.builtInGroups
-    let allIDs = groups.flatMap(\.bundleIDs).map { $0.lowercased() }
+  @Test("CTX-01: 既定の対応表は standard 以外のすべての区分を含む")
+  func builtInTableCoversAllStyles() {
+    let styles = Set(AppStyleResolver.builtInGroups.map(\.style))
+
+    #expect(styles == Set(RefinementStyle.allCases).subtracting([.standard]))
+  }
+
+  @Test("CTX-01: 既定の対応表に bundle ID の重複がない")
+  func builtInTableHasNoDuplicates() {
+    let allIDs = AppStyleResolver.builtInGroups.flatMap(\.bundleIDs).map { $0.lowercased() }
 
     #expect(Set(allIDs).count == allIDs.count)
-    #expect(Set(groups.map(\.style)) == Set(RefinementStyle.allCases).subtracting([.standard]))
-    #expect(AppStyleResolver.builtInStyles.count == allIDs.count)
-    #expect(!AppStyleResolver.builtInStyles.values.contains(.standard))
   }
 
   @Test("CTX-02: 利用者のアプリ別上書きは既定の対応表より優先される", arguments: RefinementStyle.allCases)
@@ -83,12 +87,24 @@ struct AppStyleResolverTests {
     #expect(resolver.style(forBundleID: "com.apple.Terminal") == .document)
   }
 
-  @Test("CTX-02: 大文字・小文字だけが異なる初期値は辞書順で先のキーを採る")
+  @Test("CTX-01 / CTX-02: 大文字・小文字だけが異なる初期値は Unicode スカラー順で先のキーを採る")
   func duplicateKeysAreResolvedDeterministically() {
-    let resolver = AppStyleResolver(
-      defaultStyles: [:], overrides: ["com.example.app": .polite, "COM.EXAMPLE.APP": .command])
+    // 大文字は小文字より Unicode スカラー値が小さいため、"COM.EXAMPLE.APP" の値が採られる。
+    let keys: [String: RefinementStyle] = ["com.example.app": .polite, "COM.EXAMPLE.APP": .command]
+    let fromDefaults = AppStyleResolver(defaultStyles: keys)
+    let fromOverrides = AppStyleResolver(defaultStyles: [:], overrides: keys)
 
-    #expect(resolver.style(forBundleID: "com.example.app") == .command)
+    #expect(fromDefaults.style(forBundleID: "com.example.app") == .command)
+    #expect(fromOverrides.style(forBundleID: "com.example.app") == .command)
+  }
+
+  @Test("CTX-02: 空文字の bundle ID には上書きを設定しない")
+  func ignoresEmptyBundleIDOverride() {
+    var resolver = AppStyleResolver(overrides: ["": .polite])
+    resolver.setOverride(.command, forBundleID: "")
+
+    #expect(resolver.overrides.isEmpty)
+    #expect(resolver.style(forBundleID: "") == .standard)
   }
 
   @Test("CTX-01: 既定の対応表を差し替えられる")

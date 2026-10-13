@@ -20,15 +20,17 @@ public struct AppStyleResolver: Hashable, Sendable {
     self.overrides = Self.normalizedKeys(overrides)
   }
 
-  /// 前面アプリのスタイルを返す。前面アプリを特定できない（`nil`）・未知のアプリは `standard`。
+  /// 前面アプリのスタイルを返す。前面アプリを特定できない（`nil` または空文字）・未知のアプリは `standard`。
   public func style(forBundleID bundleID: String?) -> RefinementStyle {
-    guard let bundleID else { return .standard }
+    guard let bundleID, !bundleID.isEmpty else { return .standard }
     let key = Self.normalized(bundleID)
     return overrides[key] ?? defaultStyles[key] ?? .standard
   }
 
   /// アプリ別の上書きを設定する（CTX-02）。`nil` を渡すと上書きを外し、既定の対応表に戻す。
+  /// 空文字の bundle ID は無視する。
   public mutating func setOverride(_ style: RefinementStyle?, forBundleID bundleID: String) {
+    guard !bundleID.isEmpty else { return }
     overrides[Self.normalized(bundleID)] = style
   }
 
@@ -36,12 +38,13 @@ public struct AppStyleResolver: Hashable, Sendable {
     bundleID.lowercased()
   }
 
-  /// 大文字・小文字だけが異なるキーが重なった場合は、後勝ちにせず辞書順で先のキーの値を採る。
+  /// 大文字・小文字だけが異なるキーが重なった場合は、Unicode スカラー順で先のキー（大文字を含む方）の値を採る。
+  /// 空文字のキーは除く。
   private static func normalizedKeys(
     _ styles: [String: RefinementStyle]
   ) -> [String: RefinementStyle] {
     var result: [String: RefinementStyle] = [:]
-    for key in styles.keys.sorted() {
+    for key in styles.keys.sorted() where !key.isEmpty {
       let normalizedKey = normalized(key)
       if result[normalizedKey] == nil {
         result[normalizedKey] = styles[key]
@@ -62,6 +65,7 @@ extension AppStyleResolver {
         "com.tinyspeck.slackmacgap",
         "com.microsoft.teams2",
         "com.apple.MobileSMS",
+        "jp.naver.line.mac",
       ]
     ),
     // メール
@@ -70,7 +74,9 @@ extension AppStyleResolver {
       [
         "com.apple.mail",
         "com.microsoft.Outlook",
-        "com.readdle.smartemail-Mac",
+        "com.readdle.smartemail-Mac",  // Spark Classic
+        "com.readdle.SparkDesktop",
+        "org.mozilla.thunderbird",
       ]
     ),
     // IDE・コードエディター
@@ -111,6 +117,7 @@ extension AppStyleResolver {
         "com.apple.iWork.Pages",
         "com.microsoft.Word",
         "com.apple.TextEdit",
+        "com.apple.Notes",
         "md.obsidian",
         "notion.id",
       ]
