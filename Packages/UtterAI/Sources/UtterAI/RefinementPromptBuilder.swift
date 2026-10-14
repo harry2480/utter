@@ -1,3 +1,5 @@
+import UtterCore
+
 /// `RefinementRequest` から整形プロンプトを組み立てる（TXT-04, CTX-03）。
 ///
 /// - 発話は `<utterance-NONCE>` と `</utterance-NONCE>` で、辞書語は `<terms-NONCE>` で囲む。
