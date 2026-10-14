@@ -1,0 +1,34 @@
+[
+  {
+    "id": "ja-001",
+    "category": "japanese",
+    "reference": "えー、明日は三時に集合です。",
+    "sttOutput": "えー明日は3時に集合です",
+    "refinedOutput": "明日は3時に集合です。",
+    "meaningChanges": []
+  },
+  {
+    "id": "dev-001",
+    "category": "developerTerms",
+    "reference": "SwiftUI の View を Xcode でプレビューする",
+    "terms": [
+      "SwiftUI",
+      "View",
+      "Xcode"
+    ],
+    "sttOutput": "スイフトUI のビューを Xcode でプレビューする",
+    "refinedOutput": "SwiftUI の View を Xcode でプレビューする。",
+    "meaningChanges": []
+  },
+  {
+    "id": "self-001",
+    "category": "selfCorrection",
+    "reference": "会議は三時、いや四時からです",
+    "sttOutput": "会議は3時いや4時からです",
+    "refinedOutput": "会議は3時からです。",
+    "meaningChanges": [
+      "numberChanged",
+      "contentOmitted"
+    ]
+  }
+]
