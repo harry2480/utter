@@ -1,0 +1,63 @@
+import UtterCore
+
+/// 音声認識から届くイベント（4章）。
+///
+/// どのセッションの何番目のイベントかを持ち、受け手はキャンセル済みのセッションや
+/// 順序の古いイベントを `RecognitionEventFilter` で破棄する。
+public struct RecognitionEvent: Hashable, Sendable {
+  public enum Kind: Hashable, Sendable {
+    /// 暫定の認識結果。後から変わりうる
+    case partial(String)
+    /// 確定した認識結果の一部
+    case confirmed(String)
+    /// 認識の完了。値は全体の確定テキスト
+    case completed(String)
+    /// 認識の失敗
+    case failed(SpeechRecognitionError)
+
+    /// セッションの最後のイベントか
+    public var isTerminal: Bool {
+      switch self {
+      case .partial, .confirmed: false
+      case .completed, .failed: true
+      }
+    }
+  }
+
+  public let sessionID: SessionID
+  /// セッション内の順序番号。0 から1ずつ増える
+  public let sequence: UInt64
+  public let kind: Kind
+
+  public init(sessionID: SessionID, sequence: UInt64, kind: Kind) {
+    self.sessionID = sessionID
+    self.sequence = sequence
+    self.kind = kind
+  }
+}
+
+// 認識テキストをログに出さないよう、文字列表現とリフレクションには種類と文字数だけを出す。
+extension RecognitionEvent: CustomStringConvertible, CustomReflectable {
+  public var description: String {
+    "RecognitionEvent(sequence: \(sequence), kind: \(kind))"
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["sequence": sequence, "kind": kind])
+  }
+}
+
+extension RecognitionEvent.Kind: CustomStringConvertible, CustomReflectable {
+  public var description: String {
+    switch self {
+    case .partial(let text): "partial(length: \(text.count))"
+    case .confirmed(let text): "confirmed(length: \(text.count))"
+    case .completed(let text): "completed(length: \(text.count))"
+    case .failed(let error): "failed(\(error))"
+    }
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["description": description])
+  }
+}
