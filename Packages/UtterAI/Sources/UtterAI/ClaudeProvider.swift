@@ -25,13 +25,19 @@ public struct ClaudeProvider: AIProvider {
     /// HTTP の待ち時間の上限。整形全体の上限は `RefinementRouter.timeout` で別に設ける
     public var requestTimeout: Duration
 
+    /// - Throws: モデル名が空、最大トークン数・待ち時間が 0 以下、エンドポイントが https でない場合
     public init(
       model: String,
       maxTokens: Int = 4096,
       effort: String? = nil,
       endpoint: URL = ClaudeProvider.defaultEndpoint,
       requestTimeout: Duration = .seconds(30)
-    ) {
+    ) throws(ClaudeProviderConfigurationError) {
+      guard !model.isEmpty else { throw .emptyModel }
+      guard maxTokens > 0 else { throw .nonPositiveMaxTokens }
+      guard requestTimeout > .zero else { throw .nonPositiveRequestTimeout }
+      // API キーを平文で送らない
+      guard endpoint.scheme?.lowercased() == "https" else { throw .insecureEndpoint }
       self.model = model
       self.maxTokens = maxTokens
       self.effort = effort
@@ -48,7 +54,7 @@ public struct ClaudeProvider: AIProvider {
   public init(
     apiKey: String,
     configuration: Configuration,
-    transport: any HTTPTransport = URLSession.shared,
+    transport: any HTTPTransport = URLSessionTransport(),
     promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder()
   ) {
     self.apiKey = apiKey
@@ -67,13 +73,16 @@ public struct ClaudeProvider: AIProvider {
     if Task.isCancelled {
       throw .cancelled
     }
-    let urlRequest = makeURLRequest(prompt)
+    let urlRequest = try makeURLRequest(prompt)
 
     let data: Data
     let response: HTTPURLResponse
     do {
       (data, response) = try await transport.send(urlRequest)
     } catch {
+      if Task.isCancelled {
+        throw .cancelled
+      }
       throw Self.mapTransportError(error)
     }
     if Task.isCancelled {
@@ -82,7 +91,7 @@ public struct ClaudeProvider: AIProvider {
     return try Self.parse(data, response: response)
   }
 
-  func makeURLRequest(_ prompt: RefinementPrompt) -> URLRequest {
+  func makeURLRequest(_ prompt: RefinementPrompt) throws(AIProviderError) -> URLRequest {
     var request = URLRequest(url: configuration.endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = Self.seconds(configuration.requestTimeout)
@@ -95,7 +104,10 @@ public struct ClaudeProvider: AIProvider {
       system: prompt.system,
       messages: [.init(role: "user", content: prompt.user)],
       outputConfig: configuration.effort.map { .init(effort: $0) })
-    request.httpBody = try? JSONEncoder().encode(body)
+    guard let encoded = try? JSONEncoder().encode(body) else {
+      throw .invalidResponse
+    }
+    request.httpBody = encoded
     return request
   }
 
@@ -118,15 +130,15 @@ extension ClaudeProvider {
     guard let message = try? JSONDecoder().decode(MessagesResponse.self, from: data) else {
       throw .invalidResponse
     }
-    // 途中で打ち切られた応答や拒否は整形結果として使わない
+    let usage = TokenUsage(
+      inputTokens: message.usage.inputTokens, outputTokens: message.usage.outputTokens)
+    // 途中で打ち切られた応答（max_tokens）や拒否（refusal）などは整形結果として使わない。
+    // 消費したトークンは費用の推定に残すため、使用量つきの空応答として返し、呼び出し側の検証で退避させる
     guard message.stopReason == "end_turn" || message.stopReason == "stop_sequence" else {
-      throw .invalidResponse
+      return RefinementResponse(text: "", usage: usage)
     }
     let text = message.content.filter { $0.type == "text" }.compactMap(\.text).joined()
-    return RefinementResponse(
-      text: text,
-      usage: TokenUsage(
-        inputTokens: message.usage.inputTokens, outputTokens: message.usage.outputTokens))
+    return RefinementResponse(text: text, usage: usage)
   }
 
   /// HTTP ステータスとエラーの type を `AIProviderError` に対応づける（AI-06）。
@@ -167,6 +179,15 @@ extension ClaudeProvider {
       return .networkUnavailable
     }
   }
+}
+
+/// `ClaudeProvider.Configuration` の不正な値。
+public enum ClaudeProviderConfigurationError: Error, Hashable, Sendable {
+  case emptyModel
+  case nonPositiveMaxTokens
+  case nonPositiveRequestTimeout
+  /// https 以外のエンドポイント
+  case insecureEndpoint
 }
 
 // API キーをログに出さないよう、文字列表現とリフレクションにはモデル名だけを出す。

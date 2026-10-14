@@ -39,15 +39,29 @@ struct ClaudeProviderTests {
     }
   }
 
-  /// キャンセルされるまで応答しない送信部
+  /// 送信に入ったことを知らせ、キャンセルされるまで応答しない送信部
   struct HangingTransport: HTTPTransport {
+    let entered: AsyncStream<Void>.Continuation
+
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-      try await Task.sleep(for: .seconds(3600))
-      throw URLError(.timedOut)
+      entered.yield()
+      let (never, _) = AsyncStream.makeStream(of: Void.self)
+      for await _ in never {}
+      throw CancellationError()
     }
   }
 
-  private static let successBody = """
+  /// キャンセルを無視して成功を返す送信部
+  struct IgnoringCancellationTransport: HTTPTransport {
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+      withUnsafeCurrentTask { $0?.cancel() }
+      let response = HTTPURLResponse(
+        url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+      return (Data(ClaudeProviderTests.successBody.utf8), response)
+    }
+  }
+
+  static let successBody = """
     {"id":"msg_1","type":"message","role":"assistant","model":"m",
      "content":[{"type":"thinking","thinking":""},{"type":"text","text":"明日の会議は10時からです。"}],
      "stop_reason":"end_turn","usage":{"input_tokens":120,"output_tokens":15}}
@@ -55,7 +69,8 @@ struct ClaudeProviderTests {
 
   private let request = RefinementRequest(
     text: "えーと明日の会議は10時からです", mode: .natural, style: .polite, dictionaryTerms: ["会議"])
-  private let configuration = ClaudeProvider.Configuration(model: "test-model", maxTokens: 512)
+  // swift-format-ignore: NeverUseForceTry
+  private let configuration = try! ClaudeProvider.Configuration(model: "test-model", maxTokens: 512)
 
   private func provider(_ transport: any HTTPTransport, apiKey: String = "sk-test-secret")
     -> ClaudeProvider
@@ -105,7 +120,7 @@ struct ClaudeProviderTests {
   func sendsEffort() async throws {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))
     let provider = ClaudeProvider(
-      apiKey: "k", configuration: .init(model: "m", effort: "low"), transport: transport)
+      apiKey: "k", configuration: try .init(model: "m", effort: "low"), transport: transport)
 
     _ = try await provider.refine(request)
 
@@ -179,16 +194,91 @@ struct ClaudeProviderTests {
   }
 
   @Test(
-    "AI-06: 解釈できない応答・打ち切り・拒否は invalidResponse にする",
-    arguments: [
-      "not json",
-      #"{"content":[],"usage":{"input_tokens":1}}"#,
-      #"{"content":[{"type":"text","text":"途中"}],"stop_reason":"max_tokens","usage":{"input_tokens":1,"output_tokens":2}}"#,
-      #"{"content":[],"stop_reason":"refusal","usage":{"input_tokens":1,"output_tokens":0}}"#,
-    ])
+    "AI-06: 解釈できない応答は invalidResponse にする",
+    arguments: ["not json", #"{"content":[],"usage":{"input_tokens":1}}"#, "{}"])
   func rejectsInvalidResponses(_ body: String) async {
     await #expect(throws: AIProviderError.invalidResponse) {
       try await provider(StubTransport(.response(status: 200, body: body))).refine(request)
+    }
+  }
+
+  @Test(
+    "AI-05: 打ち切り・拒否などの応答は本文を使わず、使用量つきの空応答にする",
+    arguments: ["max_tokens", "refusal", "pause_turn", "tool_use", nil] as [String?])
+  func incompleteResponsesKeepUsage(_ stopReason: String?) async throws {
+    let reason = stopReason.map { #""\#($0)""# } ?? "null"
+    let body = #"""
+      {"content":[{"type":"text","text":"途中まで"}],"stop_reason":\#(reason),
+       "usage":{"input_tokens":30,"output_tokens":4096}}
+      """#
+
+    let response = try await provider(StubTransport(.response(status: 200, body: body))).refine(
+      request)
+
+    #expect(response.text.isEmpty)
+    #expect(response.usage == TokenUsage(inputTokens: 30, outputTokens: 4096))
+  }
+
+  @Test("AC-16: 打ち切られた応答はローカル整形に退避し、使用量を残す")
+  func incompleteResponseFallsBackWithUsage() async throws {
+    let body = #"""
+      {"content":[{"type":"text","text":"途中"}],"stop_reason":"max_tokens","usage":{"input_tokens":3,"output_tokens":5}}
+      """#
+    let router = try RefinementRouter(
+      provider: provider(StubTransport(.response(status: 200, body: body))))
+
+    let outcome = try await router.refine(request, cloudConsentGranted: true)
+
+    #expect(outcome.source == .localFallback(.validationFailed(.empty)))
+    #expect(outcome.usage == TokenUsage(inputTokens: 3, outputTokens: 5))
+  }
+
+  @Test("AI-01: stop_sequence で終わった応答は使う")
+  func acceptsStopSequence() async throws {
+    let body = #"""
+      {"content":[{"type":"text","text":"完了"}],"stop_reason":"stop_sequence","usage":{"input_tokens":1,"output_tokens":1}}
+      """#
+
+    let response = try await provider(StubTransport(.response(status: 200, body: body))).refine(
+      request)
+
+    #expect(response.text == "完了")
+  }
+
+  @Test(
+    "AI-06: ステータスと本文のエラー種別が食い違うときも対応づける",
+    arguments: [
+      (
+        400, #"{"type":"error","error":{"type":"rate_limit_error"}}"#, AIProviderError.quotaExceeded
+      ),
+      (503, "<html>Service Unavailable</html>", .networkUnavailable),
+      (418, "", .invalidResponse),
+    ])
+  func mapsMismatchedStatus(_ status: Int, _ body: String, _ expected: AIProviderError) async {
+    await #expect(throws: expected) {
+      try await provider(StubTransport(.response(status: status, body: body))).refine(request)
+    }
+  }
+
+  @Test(
+    "AI-07: 不正な設定は作れない",
+    arguments: [
+      (
+        "", 1, 1, "https://api.anthropic.com/v1/messages",
+        ClaudeProviderConfigurationError.emptyModel
+      ),
+      ("m", 0, 1, "https://api.anthropic.com/v1/messages", .nonPositiveMaxTokens),
+      ("m", 1, 0, "https://api.anthropic.com/v1/messages", .nonPositiveRequestTimeout),
+      ("m", 1, 1, "http://api.anthropic.com/v1/messages", .insecureEndpoint),
+    ])
+  func rejectsInvalidConfiguration(
+    _ model: String, _ maxTokens: Int, _ timeout: Int, _ endpoint: String,
+    _ expected: ClaudeProviderConfigurationError
+  ) throws {
+    let url = try #require(URL(string: endpoint))
+    #expect(throws: expected) {
+      try ClaudeProvider.Configuration(
+        model: model, maxTokens: maxTokens, endpoint: url, requestTimeout: .seconds(timeout))
     }
   }
 
@@ -205,9 +295,10 @@ struct ClaudeProviderTests {
     #expect(response.text == "前半後半")
   }
 
-  @Test("AI-06: キャンセルされたら応答を待たずに cancelled を投げる")
+  @Test("AI-06: 送信中にキャンセルされたら応答を待たずに cancelled を投げる", .timeLimit(.minutes(1)))
   func respondsToCancellation() async {
-    let provider = provider(HangingTransport())
+    let (entered, signal) = AsyncStream.makeStream(of: Void.self)
+    let provider = provider(HangingTransport(entered: signal))
     let request = request
     let task = Task { () -> AIProviderError? in
       do throws(AIProviderError) {
@@ -217,9 +308,29 @@ struct ClaudeProviderTests {
         return error
       }
     }
+    // 送信に入ってからキャンセルする
+    var iterator = entered.makeAsyncIterator()
+    await iterator.next()
     task.cancel()
 
     #expect(await task.value == .cancelled)
+  }
+
+  @Test("AI-06: 送信部がキャンセルを無視して応答しても cancelled を投げる")
+  func cancelledEvenIfTransportIgnoresCancellation() async {
+    let provider = provider(IgnoringCancellationTransport())
+    let request = request
+
+    let error = await Task { () -> AIProviderError? in
+      do throws(AIProviderError) {
+        _ = try await provider.refine(request)
+        return nil
+      } catch {
+        return error
+      }
+    }.value
+
+    #expect(error == .cancelled)
   }
 
   @Test("AI-06: キャンセル済みなら送信しない")
@@ -253,6 +364,18 @@ struct ClaudeProviderTests {
       #expect(!output.contains("sk-test-secret"))
     }
     #expect(String(describing: provider) == "ClaudeProvider(model: test-model)")
+  }
+
+  @Test("AI-06: 送信するリクエストの文字列表現に API キーと発話を含めない")
+  func redactsURLRequestDescription() async throws {
+    let transport = StubTransport(.response(status: 200, body: Self.successBody))
+    _ = try await provider(transport).refine(request)
+    let sent = try #require(transport.requests.withLock { $0.first })
+
+    for output in [String(describing: sent), String(reflecting: sent)] {
+      #expect(!output.contains("sk-test-secret"))
+      #expect(!output.contains("明日の会議"))
+    }
   }
 
   @Test("AI-06: エラーは本文・API キーを持たない", arguments: [401, 429, 500, 400])
