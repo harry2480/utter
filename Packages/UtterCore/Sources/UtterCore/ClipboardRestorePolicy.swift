@@ -10,7 +10,7 @@ public struct ClipboardRestorePolicy: Hashable, Sendable {
     self.changeCountAfterWrite = changeCountAfterWrite
   }
 
-  /// 現在の changeCount で、復元してよいか。
+  /// 現在の changeCount で、復元してよいか。書き込み直後の値と一致する場合だけ許可する（増減の向きは問わない）。
   public func allowsRestore(currentChangeCount: Int) -> Bool {
     currentChangeCount == changeCountAfterWrite
   }

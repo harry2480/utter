@@ -2,7 +2,7 @@
 public enum InsertionResult: Hashable, Sendable {
   /// 挿入後の値を読み戻して確認できた
   case verified(InsertionRoute)
-  /// 成功応答はあったが確認できない。二重挿入を避けるため再試行しない
+  /// 入った可能性があるが確認できない。二重挿入を避けるため再試行しない
   case unconfirmed(InsertionRoute)
   /// 挿入されていないことが確かな失敗。次の経路を試してよい
   case failed(InsertionRoute)
@@ -18,7 +18,19 @@ public enum InsertionResult: Hashable, Sendable {
   }
 }
 
+/// 経路の応答（INS-05）。
+public enum InsertionResponse: Hashable, Sendable {
+  /// 成功を返した
+  case succeeded
+  /// 送信する前に失敗した（入力要素がない、権限がないなど）。何も送っていない
+  case rejectedBeforeSend
+  /// 送信した後に失敗を返した。一部または全部が入った可能性がある
+  case failedAfterSend
+}
+
 /// 挿入後の値を読み戻した結果（INS-05）。
+///
+/// アダプターは、アプリが値を反映するのを待ってから読み戻す。早すぎる読み戻しで `unchanged` にしない。
 public enum InsertionReadBack: Hashable, Sendable {
   /// 挿入した文字列が期待どおりの位置にある
   case matches
@@ -31,22 +43,22 @@ public enum InsertionReadBack: Hashable, Sendable {
 }
 
 extension InsertionResult {
-  /// 経路の成功応答と読み戻しの結果から、挿入結果を決める（INS-05）。
+  /// 経路の応答と読み戻しの結果から、挿入結果を決める（INS-05）。
   ///
   /// 成功応答だけでは信用せず、読み戻しで一致した場合だけ確認済みとする。
-  /// 失敗応答でも読み戻しで変化があれば、入った可能性があるため成功不明とする。
+  /// 次の経路を試してよい「失敗」は、送信前の失敗か、読み戻しで変化がないと確かめられた場合に限る。
   public static func classify(
-    route: InsertionRoute, reportedSuccess: Bool, readBack: InsertionReadBack
+    route: InsertionRoute, response: InsertionResponse, readBack: InsertionReadBack
   ) -> InsertionResult {
-    switch readBack {
-    case .matches:
+    switch (readBack, response) {
+    case (.matches, _):
       .verified(route)
-    case .unchanged:
-      .failed(route)
-    case .differs:
+    case (.differs, _):
       .unconfirmed(route)
-    case .unavailable:
-      reportedSuccess ? .unconfirmed(route) : .failed(route)
+    case (.unchanged, _), (.unavailable, .rejectedBeforeSend):
+      .failed(route)
+    case (.unavailable, .succeeded), (.unavailable, .failedAfterSend):
+      .unconfirmed(route)
     }
   }
 }
