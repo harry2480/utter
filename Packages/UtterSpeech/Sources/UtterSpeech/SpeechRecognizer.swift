@@ -7,9 +7,12 @@ import UtterCore
 public protocol SpeechRecognizer: Sendable {
   /// `audio` を認識し、イベントを流す。
   ///
+  /// - `audio` の終わり（`finish()`）を録音の終了とみなす。認識が終わるまで `audio` を保持して読む
+  /// - 音声バッファの上限と、上限に達したときの通知（REC-05）は `audio` を作る側の責務とする。
+  ///   実装は音声を黙って捨てない
   /// - 各イベントには `session` と、0 から1ずつ増える順序番号を付ける
-  /// - `completed` か `failed` を最後に1回だけ流して終える
-  /// - 受け手がストリームを破棄したら、認識を止めて資源を解放する
+  /// - `completed` か `failed` を最後に1回だけ流して終える。終端イベントを落とすバッファの設定を使わない
+  /// - 受け手がストリームを破棄したら、認識を止めて資源を解放する。このときは終端イベントを流さなくてよい
   func recognize(
     _ audio: AsyncStream<AudioChunk>, session: SessionID
   ) -> AsyncStream<RecognitionEvent>

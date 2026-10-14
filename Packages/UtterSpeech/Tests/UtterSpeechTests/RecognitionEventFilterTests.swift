@@ -49,10 +49,25 @@ struct RecognitionEventFilterTests {
     filter.begin(current)
     _ = filter.accept(event(current, 0))
 
-    filter.cancel()
+    let cancelled = filter.cancel(current)
+
+    #expect(cancelled)
 
     #expect(filter.accept(event(current, 1, .completed("遅延"))) == .inactiveSession)
     #expect(filter.activeSession == nil)
+  }
+
+  @Test("REC-01: 前のセッションの ID で遅れて届いたキャンセルは、新しいセッションを止めない")
+  func staleCancelDoesNotStopNewSession() {
+    var filter = RecognitionEventFilter()
+    filter.begin(other)
+    filter.begin(current)
+
+    let cancelled = filter.cancel(other)
+
+    #expect(!cancelled)
+    #expect(filter.activeSession == current)
+    #expect(filter.accept(event(current, 0)) == nil)
   }
 
   @Test(
