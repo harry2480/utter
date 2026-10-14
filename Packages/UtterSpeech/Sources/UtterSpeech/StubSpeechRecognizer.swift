@@ -2,7 +2,7 @@ import UtterCore
 
 /// 固定のイベント列・遅延・失敗を流すテスト用の音声認識（4章）。
 ///
-/// 音声の中身は使わないが、本番と同じく音声のストリームを最後まで読む。
+/// 音声の中身は使わないが、本番と同じく終端イベントを流すまで音声のストリームを読む。
 /// 待ち時間は `sleep` を注入でき、テストでは実時間を待たずに済む。
 public struct StubSpeechRecognizer: SpeechRecognizer {
   public enum Step: Hashable, Sendable {
@@ -18,7 +18,8 @@ public struct StubSpeechRecognizer: SpeechRecognizer {
   private let sleep: @Sendable (Duration) async throws -> Void
 
   /// - Parameters:
-  ///   - steps: 流すイベントと待ち時間。`completed` か `fail` の後の手順は流さない。
+  ///   - steps: 流すイベントと待ち時間。`completed` か `fail` の後の手順は流さず、
+  ///     音声のストリームの終わりも待たない（`SpeechRecognizer` の契約）。
   ///     どちらも含まない場合は、音声のストリームが終わるのを待ってから `completed` を流す
   ///     （値は確定テキストを連結したもの）
   ///   - sleep: 待ち時間の実装。既定は `Task.sleep`。キャンセル以外で失敗したら

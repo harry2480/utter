@@ -92,6 +92,23 @@ struct StubSpeechRecognizerTests {
     #expect(reasons.withLock { $0 } == ["finished"])
   }
 
+  @Test(
+    "REC-06: 終端イベントを流したら、録音側が音声を終えるのを待たずに終わる",
+    .timeLimit(.minutes(1)),
+    arguments: [StubSpeechRecognizer.Step.completed("a"), .fail(.engineFailed)])
+  func endsAtTerminalStepWithoutWaitingForAudio(_ terminal: StubSpeechRecognizer.Step) async {
+    let (audio, producer) = AsyncStream.makeStream(of: AudioChunk.self)
+    let recognizer = StubSpeechRecognizer(steps: [.partial("a"), terminal], sleep: { _ in })
+
+    // 録音側は音声を流し続け、finish() しない
+    producer.yield(AudioChunk(samples: [0], sampleRate: 16_000))
+    let events = await collect(recognizer, audio: audio)
+
+    #expect(events.count == 2)
+    #expect(events.last?.kind.isTerminal == true)
+    producer.finish()
+  }
+
   @Test("REC-06: 失敗を注入すると failed で終わり、以降の手順は流さない", arguments: SpeechRecognitionError.allCases)
   func injectsFailure(_ error: SpeechRecognitionError) async {
     let recognizer = StubSpeechRecognizer(
