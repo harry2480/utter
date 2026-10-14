@@ -3,66 +3,83 @@ import Testing
 @testable import UtterCore
 
 struct SensitiveInputPolicyTests {
-  private static let apps: [String?] = [
-    "com.example.editor", "com.example.vault", "com.example.private", "", nil,
+  private static let policy = SensitiveInputPolicy(
+    sensitiveApps: ["COM.EXAMPLE.VAULT", "com.example.both"],
+    excludedApps: [" com.example.Private ", "com.example.both"])
+
+  /// アプリの識別子と、それだけで生じる抑止の理由
+  private static let apps: [(String?, Set<SensitiveInputReason>)] = [
+    ("com.example.editor", []),
+    ("com.example.vault", [.sensitiveApp]),
+    ("com.example.private", [.excludedApp]),
+    ("com.example.both", [.sensitiveApp, .excludedApp]),
+    ("", [.undetermined]),
+    (" \n", [.undetermined]),
+    (nil, [.undetermined]),
   ]
-  private let policy = SensitiveInputPolicy(
-    sensitiveApps: ["com.example.vault"], excludedApps: ["COM.EXAMPLE.PRIVATE"])
 
-  @Test(
-    "AC-12: 入力の全組み合わせで、該当・不明が1つでもあれば録音・送信・履歴をすべて抑止する",
-    arguments: SensitiveSignal.allCases, SensitiveSignal.allCases)
-  func allCombinations(_ secureField: SensitiveSignal, _ secureEventInput: SensitiveSignal) {
-    for app in Self.apps {
-      let context = SensitiveInputContext(
-        secureField: secureField, secureEventInput: secureEventInput, app: app)
-      let decision = policy.decide(context)
-
-      var expected: Set<SensitiveInputReason> = []
-      if secureField == .on { expected.insert(.secureField) }
-      if secureEventInput == .on { expected.insert(.secureEventInput) }
-      if secureField == .unknown || secureEventInput == .unknown || app == nil || app == "" {
-        expected.insert(.undetermined)
-      }
-      if app == "com.example.vault" { expected.insert(.sensitiveApp) }
-      if app == "com.example.private" { expected.insert(.excludedApp) }
-      let allowed = expected.isEmpty
-
-      #expect(decision.reasons == expected)
-      #expect(decision.allowsRecording == allowed)
-      #expect(decision.allowsCloudTransmission == allowed)
-      #expect(decision.allowsHistory == allowed)
+  private static func reasons(_ signal: SensitiveSignal, on reason: SensitiveInputReason)
+    -> Set<SensitiveInputReason>
+  {
+    switch signal {
+    case .on: [reason]
+    case .off: []
+    case .unknown: [.undetermined]
     }
   }
 
-  @Test("AC-12: すべて該当しないと判定できたときだけ許可する")
-  func allowsOnlyWhenAllClear() {
-    let decision = policy.decide(
-      SensitiveInputContext(secureField: .off, secureEventInput: .off, app: "com.example.editor"))
+  /// 入力の全組み合わせ（3 × 3 × 7 = 63 通り）と、期待する抑止の理由
+  static let cases: [(SensitiveInputContext, Set<SensitiveInputReason>)] =
+    SensitiveSignal.allCases.flatMap { field in
+      SensitiveSignal.allCases.flatMap { event in
+        apps.map { app, appReasons in
+          (
+            SensitiveInputContext(secureField: field, secureEventInput: event, app: app),
+            reasons(field, on: .secureField).union(reasons(event, on: .secureEventInput))
+              .union(appReasons)
+          )
+        }
+      }
+    }
 
-    #expect(decision.allowsRecording)
-    #expect(decision.allowsCloudTransmission)
-    #expect(decision.allowsHistory)
-    #expect(decision.reasons.isEmpty)
+  @Test("AC-12: 全組み合わせで、該当・不明が1つでもあれば録音・送信・履歴をすべて抑止する", arguments: cases)
+  func allCombinations(_ context: SensitiveInputContext, _ expected: Set<SensitiveInputReason>) {
+    let decision = Self.policy.decide(context)
+    let allowed = expected.isEmpty
+
+    #expect(decision.reasons == expected)
+    #expect(decision.allowsRecording == allowed)
+    #expect(decision.allowsCloudTransmission == allowed)
+    #expect(decision.allowsHistory == allowed)
   }
 
-  @Test("AC-12: パスワード欄では抑止する")
+  @Test("AC-12: 全組み合わせのうち許可はすべて該当しないと判定できた場合だけ")
+  func onlyAllClearIsAllowed() {
+    let allowed = Self.cases.filter { Self.policy.decide($0.0).allowsRecording }
+
+    #expect(allowed.count == 1)
+    #expect(
+      allowed.first?.0
+        == SensitiveInputContext(
+          secureField: .off, secureEventInput: .off, app: "com.example.editor"))
+  }
+
+  @Test("AC-12: パスワード欄では録音・送信・履歴を抑止する")
   func suppressesPasswordField() {
-    let decision = policy.decide(
+    let decision = Self.policy.decide(
       SensitiveInputContext(secureField: .on, secureEventInput: .off, app: "com.example.editor"))
 
     #expect(!decision.allowsRecording)
+    #expect(!decision.allowsCloudTransmission)
+    #expect(!decision.allowsHistory)
     #expect(decision.reasons == [.secureField])
   }
 
-  @Test("AC-12: 除外アプリは利用者の設定で指定でき、大文字・小文字を区別しない")
-  func userExcludedApps() {
-    let policy = SensitiveInputPolicy(excludedApps: ["com.example.Diary"])
-    let context = SensitiveInputContext(
-      secureField: .off, secureEventInput: .off, app: "COM.EXAMPLE.DIARY")
-
-    #expect(policy.decide(context).reasons == [.excludedApp])
-    #expect(policy.excludedApps == ["com.example.diary"])
+  @Test("AC-12: 除外アプリ・機密アプリは前後の空白を除き、大文字・小文字を区別せずに照合する")
+  func normalizesAppIdentifiers() {
+    #expect(Self.policy.excludedApps == ["com.example.private", "com.example.both"])
+    #expect(Self.policy.sensitiveApps == ["com.example.vault", "com.example.both"])
+    #expect(SensitiveInputPolicy(excludedApps: ["  ", ""]).excludedApps.isEmpty)
   }
 
   @Test("AC-12: 機密アプリの既定一覧は空")
