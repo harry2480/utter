@@ -327,4 +327,39 @@ struct TemporaryAudioStoreTests {
     let attributes = try FileManager.default.attributesOfItem(atPath: directory.url.path)
     #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
   }
+
+  @Test("AC-10: 既にあるディレクトリも、保存時に所有者だけが読み書きできる権限にそろえる")
+  func tightensExistingDirectoryPermissions() throws {
+    try FileManager.default.createDirectory(
+      at: directory.url, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o755])
+
+    try store(clock: Clock(start)).save(audio, for: SessionID())
+
+    let attributes = try FileManager.default.attributesOfItem(atPath: directory.url.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+  }
+
+  @Test("AC-10: 保存したファイルは所有者だけが読み書きできる")
+  func filePermissions() throws {
+    let record = try store(clock: Clock(start)).save(audio, for: SessionID())
+
+    let attributes = try FileManager.default.attributesOfItem(atPath: record.url.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+  }
+
+  @Test("AC-10: 保存前にファイルの権限をそろえ、保護属性を付ける処理にはその状態で渡す")
+  func protectsFileAfterTighteningPermissions() throws {
+    let seen = Mutex<Int?>(nil)
+    let store = try store(
+      clock: Clock(start),
+      protectFile: { url in
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        seen.withLock { $0 = (attributes[.posixPermissions] as? NSNumber)?.intValue }
+      })
+
+    try store.save(audio, for: SessionID())
+
+    #expect(seen.withLock { $0 } == 0o600)
+  }
 }

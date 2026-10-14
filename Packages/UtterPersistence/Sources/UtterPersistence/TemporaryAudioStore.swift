@@ -26,7 +26,8 @@ public struct TemporaryAudioStore: Sendable {
   private let removeFile: @Sendable (URL) throws -> Void
 
   /// - Parameters:
-  ///   - directory: 一時音声だけを置くディレクトリ。なければ所有者だけが読み書きできる権限で作る
+  ///   - directory: 一時音声だけを置くディレクトリ。保存のたびに、所有者だけが読み書きできる権限にそろえる
+  ///     （なければその権限で作る）。ほかの用途と共有するディレクトリを渡さない
   ///   - retention: 保持期限
   ///   - now: 現在時刻
   ///   - writeOptions: 書き込みのオプション。iOS では書き込みと同時にファイル保護を付けるオプションを渡す
@@ -76,7 +77,11 @@ public struct TemporaryAudioStore: Sendable {
       try FileManager.default.createDirectory(
         at: directory, withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700])
+      // 既にあるディレクトリには作成時の権限が適用されず、ファイルも umask に従うため、明示的にそろえる
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: directory.path)
       try audio.write(to: partial, options: writeOptions)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: partial.path)
       try protectFile(partial)
       if FileManager.default.fileExists(atPath: record.url.path) {
         try FileManager.default.removeItem(at: record.url)
