@@ -4,42 +4,48 @@ import Synchronization
 ///
 /// 認識側がまだ読んでいない音声の長さに上限を設ける。上限に達したら、そのチャンクまでを受け入れてから
 /// 録音を自動停止扱いにし、受け入れた音声はすべて認識側へ渡す（無言で音声を破棄しない）。
+/// そのため読まれていない音声は「上限＋最大1チャンク」まで増えうる。
+///
 /// 録音側は `append(_:)` の結果で上限到達を区別し、`SessionStateMachine.stopRecordingAtBufferLimit()`
 /// と HUD 通知につなげる。認識側は `stream` を `SpeechRecognizer.recognize(_:session:)` に渡す。
-/// 読み手は1つだけを想定する。
+/// 録音のタップから同期的に追加できるよう、actor ではなく `Mutex` で状態を守る。
 public final class AudioChunkBuffer: Sendable {
   /// まだ読まれていない音声の長さの上限の既定値（暫定）。最大録音時間（5分）に余裕を持たせた値
   public static let defaultLimit: Duration = .seconds(330)
 
   public let limit: Duration
-  private let state = Mutex(State())
-
-  private struct State {
-    var queue: [AudioChunk] = []
-    var head = 0
-    var pending: Duration = .zero
-    var closeReason: AudioChunkBufferCloseReason?
-    var waiter: CheckedContinuation<AudioChunk?, Never>?
-  }
+  /// 読み手へ渡すストリーム。読み手は1つだけで、同時に2つ目の読み手が待つとそちらはすぐに終わる。
+  /// 読み手がキャンセルすると、未読の音声を捨てて以後の追加を `.rejected(.consumerCancelled)` にする
+  public let stream: AsyncStream<AudioChunk>
+  private let storage: Storage
 
   public init(limit: Duration = AudioChunkBuffer.defaultLimit) throws(AudioChunkBufferError) {
     guard limit > .zero else { throw .nonPositiveLimit }
+    let storage = Storage(limit: limit)
     self.limit = limit
+    self.storage = storage
+    stream = AsyncStream(
+      unfolding: { await storage.next() }, onCancel: { storage.close(.consumerCancelled) })
   }
 
   /// まだ読まれていない音声の長さ
   public var pendingDuration: Duration {
-    state.withLock { $0.pending }
-  }
-
-  /// 読み手が次の音声を待っているか
-  var hasWaitingConsumer: Bool {
-    state.withLock { $0.waiter != nil }
+    storage.state.withLock { $0.pending }
   }
 
   /// 閉じた理由。受け付け中は `nil`
   public var closeReason: AudioChunkBufferCloseReason? {
-    state.withLock { $0.closeReason }
+    storage.state.withLock { $0.closeReason }
+  }
+
+  /// 読み手が次の音声を待っているか
+  var hasWaitingConsumer: Bool {
+    storage.state.withLock { $0.waiter != nil }
+  }
+
+  /// 読み済みのチャンクを保持している数（メモリの確認用）
+  var retainedChunkCount: Int {
+    storage.state.withLock { $0.queue.count }
   }
 
   /// 録音した音声を追加する。
@@ -47,89 +53,105 @@ public final class AudioChunkBuffer: Sendable {
   /// 上限に達した場合もこのチャンクは受け入れ、以後の追加を拒否して `.limitReached` を返す。
   @discardableResult
   public func append(_ chunk: AudioChunk) -> AudioChunkAppendResult {
-    let (result, resume) = state.withLock {
-      state -> (AudioChunkAppendResult, (CheckedContinuation<AudioChunk?, Never>, AudioChunk)?) in
-      if let reason = state.closeReason {
-        return (.rejected(reason), nil)
-      }
-      var resume: (CheckedContinuation<AudioChunk?, Never>, AudioChunk)?
-      if let waiter = state.waiter {
-        // 待っている読み手へ直接渡すため、読まれていない音声は増えない
-        state.waiter = nil
-        resume = (waiter, chunk)
-      } else {
-        state.queue.append(chunk)
-        state.pending += chunk.duration
-      }
-      guard state.pending < limit else {
-        state.closeReason = .limitReached
-        return (.limitReached, resume)
-      }
-      return (.accepted, resume)
-    }
-    if let (waiter, chunk) = resume {
-      waiter.resume(returning: chunk)
-    }
-    return result
+    storage.append(chunk)
   }
 
   /// 録音を終える。読み手は残りの音声を読み終えた後に終わりを受け取る。
+  ///
+  /// 録音側は必ず呼ぶ。呼ばずにバッファを捨てると、読み手は終わらない。
   public func finish() {
-    close(.finished)
+    storage.close(.finished)
   }
+}
 
-  /// 読み手へ渡すストリーム。読み手がキャンセルすると、以後の追加は `.rejected(.consumerCancelled)` になる。
-  public var stream: AsyncStream<AudioChunk> {
-    AsyncStream(unfolding: { [self] in await next() }, onCancel: { [self] in cancelConsumer() })
-  }
+extension AudioChunkBuffer {
+  fileprivate struct State {
+    var queue: [AudioChunk] = []
+    var head = 0
+    var pending: Duration = .zero
+    var closeReason: AudioChunkBufferCloseReason?
+    var waiter: CheckedContinuation<AudioChunk?, Never>?
 
-  func next() async -> AudioChunk? {
-    if Task.isCancelled {
-      cancelConsumer()
-      return nil
+    /// 読み済みのチャンクを手放す
+    mutating func compact() {
+      if head == queue.count {
+        queue.removeAll(keepingCapacity: true)
+        head = 0
+      } else if head >= 16, head * 2 >= queue.count {
+        queue.removeFirst(head)
+        head = 0
+      }
     }
-    return await withCheckedContinuation { continuation in
-      let immediate = state.withLock { state -> AudioChunk?? in
-        if state.head < state.queue.count {
-          let chunk = state.queue[state.head]
-          state.head += 1
-          state.pending -= chunk.duration
-          if state.head == state.queue.count {
-            state.queue.removeAll(keepingCapacity: true)
-            state.head = 0
+  }
+
+  fileprivate final class Storage: Sendable {
+    let limit: Duration
+    let state = Mutex(State())
+
+    init(limit: Duration) {
+      self.limit = limit
+    }
+
+    func append(_ chunk: AudioChunk) -> AudioChunkAppendResult {
+      let (result, waiter) = state.withLock {
+        state -> (AudioChunkAppendResult, CheckedContinuation<AudioChunk?, Never>?) in
+        if let reason = state.closeReason {
+          return (.rejected(reason), nil)
+        }
+        // 待っている読み手へ直接渡すなら、読まれていない音声は増えない
+        let waiter = state.waiter.take()
+        if waiter == nil {
+          state.queue.append(chunk)
+          state.pending += chunk.duration
+        }
+        guard state.pending < limit else {
+          state.closeReason = .limitReached
+          return (.limitReached, waiter)
+        }
+        return (.accepted, waiter)
+      }
+      waiter?.resume(returning: chunk)
+      return result
+    }
+
+    func next() async -> AudioChunk? {
+      await withCheckedContinuation { continuation in
+        let immediate = state.withLock { state -> AudioChunk?? in
+          if state.head < state.queue.count {
+            let chunk = state.queue[state.head]
+            state.head += 1
+            state.pending -= chunk.duration
+            state.compact()
+            return .some(chunk)
           }
-          return .some(chunk)
+          // 閉じた後と、すでに別の読み手が待っている場合はすぐに終える
+          if state.closeReason != nil || state.waiter != nil {
+            return .some(nil)
+          }
+          state.waiter = continuation
+          return .none
         }
-        if state.closeReason != nil {
-          return .some(nil)
+        if let immediate {
+          continuation.resume(returning: immediate)
         }
-        state.waiter = continuation
-        return .none
-      }
-      if let immediate {
-        continuation.resume(returning: immediate)
       }
     }
-  }
 
-  private func cancelConsumer() {
-    close(.consumerCancelled)
-  }
-
-  private func close(_ reason: AudioChunkBufferCloseReason) {
-    let waiter = state.withLock { state -> CheckedContinuation<AudioChunk?, Never>? in
-      if state.closeReason == nil {
-        state.closeReason = reason
+    func close(_ reason: AudioChunkBufferCloseReason) {
+      let waiter = state.withLock { state -> CheckedContinuation<AudioChunk?, Never>? in
+        if state.closeReason == nil {
+          state.closeReason = reason
+        }
+        if reason == .consumerCancelled {
+          // セッションのキャンセル（REC-01）なので、未読の音声は捨てる
+          state.queue.removeAll()
+          state.head = 0
+          state.pending = .zero
+        }
+        return state.waiter.take()
       }
-      if reason == .consumerCancelled {
-        state.queue.removeAll()
-        state.head = 0
-        state.pending = .zero
-      }
-      defer { state.waiter = nil }
-      return state.waiter
+      waiter?.resume(returning: nil)
     }
-    waiter?.resume(returning: nil)
   }
 }
 
@@ -143,7 +165,7 @@ public enum AudioChunkAppendResult: Hashable, Sendable {
   case rejected(AudioChunkBufferCloseReason)
 }
 
-/// バッファを閉じた理由。
+/// バッファを閉じた理由。先に閉じた理由を保持する。
 public enum AudioChunkBufferCloseReason: Hashable, Sendable {
   /// 録音側が終えた
   case finished

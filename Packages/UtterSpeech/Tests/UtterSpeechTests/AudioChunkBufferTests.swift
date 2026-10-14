@@ -101,10 +101,12 @@ struct AudioChunkBufferTests {
     #expect(await reader.value == [chunk])
   }
 
-  @Test("REC-05: 読み手がキャンセルしたら以後の追加を拒否する")
+  @Test("REC-05: 読み手がキャンセルしたら未読の音声を捨て、以後の追加を拒否する")
   func consumerCancellationRejectsAppends() async throws {
     let buffer = try AudioChunkBuffer(limit: .seconds(10))
-    buffer.append(Self.second())
+    for _ in 0..<3 {
+      buffer.append(Self.second())
+    }
     let reader = Task {
       var count = 0
       for await _ in buffer.stream {
@@ -116,17 +118,90 @@ struct AudioChunkBufferTests {
 
     #expect(await reader.value == 1)
     #expect(buffer.closeReason == .consumerCancelled)
-    #expect(buffer.append(Self.second()) == .rejected(.consumerCancelled))
     #expect(buffer.pendingDuration == .zero)
+    #expect(buffer.append(Self.second()) == .rejected(.consumerCancelled))
   }
 
-  @Test("REC-05: 録音の終了後も上限到達の理由は上書きしない")
+  @Test("REC-05: 待っている読み手をキャンセルすると、読み手は終わる", .timeLimit(.minutes(1)))
+  func cancellingWaitingConsumerEndsIt() async throws {
+    let buffer = try AudioChunkBuffer(limit: .seconds(10))
+    let reader = Task { await Self.readAll(buffer.stream) }
+    while !buffer.hasWaitingConsumer {
+      await Task.yield()
+    }
+
+    reader.cancel()
+
+    #expect(await reader.value.isEmpty)
+    #expect(buffer.closeReason == .consumerCancelled)
+  }
+
+  @Test("REC-05: 待っている読み手は録音の終了で終わる", .timeLimit(.minutes(1)))
+  func finishEndsWaitingConsumer() async throws {
+    let buffer = try AudioChunkBuffer(limit: .seconds(10))
+    let reader = Task { await Self.readAll(buffer.stream) }
+    while !buffer.hasWaitingConsumer {
+      await Task.yield()
+    }
+
+    buffer.finish()
+
+    #expect(await reader.value.isEmpty)
+    #expect(buffer.closeReason == .finished)
+  }
+
+  @Test("REC-05: 読み手が待っている間に来た2つ目の読み手はすぐに終わり、1つ目は影響を受けない", .timeLimit(.minutes(1)))
+  func secondConcurrentConsumerEndsImmediately() async throws {
+    let buffer = try AudioChunkBuffer(limit: .seconds(10))
+    let first = Task { await Self.readAll(buffer.stream) }
+    while !buffer.hasWaitingConsumer {
+      await Task.yield()
+    }
+
+    var second = buffer.stream.makeAsyncIterator()
+    #expect(await second.next() == nil)
+
+    let chunk = Self.second(0.7)
+    buffer.append(chunk)
+    buffer.finish()
+    #expect(await first.value == [chunk])
+  }
+
+  @Test("REC-05: 読み手が常に少し遅れても、読み済みの音声を保持し続けない")
+  func releasesConsumedChunks() async throws {
+    let buffer = try AudioChunkBuffer(limit: .seconds(10))
+    var iterator = buffer.stream.makeAsyncIterator()
+    buffer.append(Self.second())
+
+    for _ in 0..<200 {
+      buffer.append(Self.second())
+      _ = await iterator.next()
+    }
+
+    #expect(buffer.pendingDuration == .seconds(1))
+    #expect(buffer.retainedChunkCount < 40)
+  }
+
+  @Test("REC-05: 上限到達の後に録音を終えても、閉じた理由は上限到達のまま")
   func closeReasonIsNotOverwritten() throws {
     let buffer = try AudioChunkBuffer(limit: .seconds(1))
     buffer.append(Self.second())
     buffer.finish()
 
     #expect(buffer.closeReason == .limitReached)
+  }
+
+  @Test("REC-05: 音声の長さは整数で求め、足し引きで誤差が積もらない")
+  func durationIsExact() {
+    let chunk = AudioChunk(samples: Array(repeating: 0, count: 480), sampleRate: 48_000)
+    var total: Duration = .zero
+    for _ in 0..<100 {
+      total += chunk.duration
+    }
+
+    #expect(chunk.duration == .milliseconds(10))
+    #expect(total == .seconds(1))
+    #expect(AudioChunk(samples: [0], sampleRate: 3).duration == .nanoseconds(333_333_333))
   }
 
   @Test("REC-05: バッファのストリームを Stub の音声認識に渡せる")

@@ -10,10 +10,13 @@ public struct AudioChunk: Hashable, Sendable {
     self.sampleRate = sampleRate
   }
 
-  /// 音声の長さ。サンプリング周波数が 0 以下なら `.zero`
+  /// 音声の長さ（ナノ秒単位で切り捨て）。サンプリング周波数が 0 以下なら `.zero`
+  ///
+  /// 足し引きしても誤差が積もらないよう、浮動小数点を使わずに整数で求める。
   public var duration: Duration {
     guard sampleRate > 0 else { return .zero }
-    return .seconds(Double(samples.count) / Double(sampleRate))
+    let (seconds, remainder) = samples.count.quotientAndRemainder(dividingBy: sampleRate)
+    return .seconds(seconds) + .nanoseconds(remainder * 1_000_000_000 / sampleRate)
   }
 }
 
