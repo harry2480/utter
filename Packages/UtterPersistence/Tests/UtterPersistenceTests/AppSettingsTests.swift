@@ -227,7 +227,8 @@ struct AppSettingsTests {
     #expect(AppSettings(monthlyBudget: 0).monthlyBudget == 10.0)
   }
 
-  @Test("2.3節: 全プロパティのラウンドトリップが保持される") throws {
+  @Test("2.3節: 全プロパティのラウンドトリップが保持される")
+  func allPropertiesRoundTrip() throws {
     let targetID = InsertionTargetID(rawValue: "test.app")
     var original = AppSettings()
     original.maxRecordingDuration = 600
