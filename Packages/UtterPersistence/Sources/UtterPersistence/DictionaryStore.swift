@@ -2,7 +2,7 @@ import Foundation
 import UtterCore
 
 /// ユーザー辞書の保存層（TXT-03）。
-/// 
+///
 /// UtterText の UserDictionary を永続化するスレッドセーフなストア。
 public actor DictionaryStore: Sendable {
   private var entries: [String: String] = [:]
@@ -36,7 +36,7 @@ public actor DictionaryStore: Sendable {
 }
 
 /// 月次推定費用の保存層（AI-05）。
-/// 
+///
 /// MonthlyUsageLedger を永続化するスレッドセーフなストア。
 /// 操作は順序を保証する呼び出し側の責務。
 public actor MonthlyUsageStore: Sendable {
@@ -51,6 +51,9 @@ public actor MonthlyUsageStore: Sendable {
   public func add(month: String, cost: Double) throws {
     guard cost >= 0 else {
       throw CostError.negativeCost(cost)
+    }
+    guard cost.isFinite else {
+      throw CostError.nonFiniteCost(cost)
     }
     ledger[month] = (ledger[month] ?? 0) + cost
   }
@@ -79,4 +82,5 @@ public actor MonthlyUsageStore: Sendable {
 /// コスト記録エラー
 public enum CostError: Error {
   case negativeCost(Double)
+  case nonFiniteCost(Double)
 }
