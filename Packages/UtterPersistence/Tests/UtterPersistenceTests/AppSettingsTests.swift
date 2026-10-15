@@ -227,6 +227,22 @@ struct AppSettingsTests {
     #expect(AppSettings(monthlyBudget: 0).monthlyBudget == 10.0)
   }
 
+  @Test("REC-05, AI-05: 復元時も0以下の録音時間と月次予算は既定値に戻す")
+  func invalidNumbersRevertedOnDecode() throws {
+    let json = """
+      {
+        "version": 1,
+        "maxRecordingDuration": 0,
+        "monthlyBudget": -10
+      }
+      """.data(using: .utf8)!
+
+    let settings = try JSONDecoder().decode(AppSettings.self, from: json)
+
+    #expect(settings.maxRecordingDuration == 300)
+    #expect(settings.monthlyBudget == 10.0)
+  }
+
   @Test("2.3節: 全プロパティのラウンドトリップが保持される")
   func allPropertiesRoundTrip() throws {
     let targetID = InsertionTargetID(rawValue: "test.app")

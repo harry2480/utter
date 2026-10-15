@@ -49,16 +49,25 @@ public struct AppSettings: Codable, Sendable {
     historyEnabled: Bool = false
   ) {
     self.version = 1
-    self.maxRecordingDuration =
-      maxRecordingDuration.isFinite && maxRecordingDuration > 0 ? maxRecordingDuration : 300
+    self.maxRecordingDuration = Self.normalizedMaxRecordingDuration(maxRecordingDuration)
     self.refinementMode = refinementMode
     self.appStyleOverrides = appStyleOverrides
     self.refinementModel = refinementModel
     self.pricePerMillionTokens = pricePerMillionTokens
     self.priceTableUpdatedAt = priceTableUpdatedAt
-    self.monthlyBudget = monthlyBudget.isFinite && monthlyBudget > 0 ? monthlyBudget : 10.0
+    self.monthlyBudget = Self.normalizedMonthlyBudget(monthlyBudget)
     self.consentState = consentState
     self.historyEnabled = historyEnabled
+  }
+
+  /// 0 以下・非有限の値は既定値に戻す（REC-05）
+  private static func normalizedMaxRecordingDuration(_ value: Double) -> Double {
+    value.isFinite && value > 0 ? value : 300
+  }
+
+  /// 0 以下・非有限の値は既定値に戻す（AI-05）
+  private static func normalizedMonthlyBudget(_ value: Double) -> Double {
+    value.isFinite && value > 0 ? value : 10.0
   }
 
   // MARK: - Codable
@@ -83,9 +92,8 @@ public struct AppSettings: Codable, Sendable {
     switch version {
     case 1:
       self.version = version
-      self.maxRecordingDuration =
-        try container.decodeIfPresent(
-          Double.self, forKey: .maxRecordingDuration) ?? 300
+      self.maxRecordingDuration = Self.normalizedMaxRecordingDuration(
+        try container.decodeIfPresent(Double.self, forKey: .maxRecordingDuration) ?? 300)
       self.refinementMode =
         try container.decodeIfPresent(
           RefinementMode.self, forKey: .refinementMode) ?? .localBasic
@@ -101,9 +109,8 @@ public struct AppSettings: Codable, Sendable {
       self.priceTableUpdatedAt =
         try container.decodeIfPresent(
           Date.self, forKey: .priceTableUpdatedAt) ?? Date(timeIntervalSince1970: 0)
-      self.monthlyBudget =
-        try container.decodeIfPresent(
-          Double.self, forKey: .monthlyBudget) ?? 10.0
+      self.monthlyBudget = Self.normalizedMonthlyBudget(
+        try container.decodeIfPresent(Double.self, forKey: .monthlyBudget) ?? 10.0)
       self.consentState =
         try container.decodeIfPresent(
           ConsentState.self, forKey: .consentState) ?? ConsentState()
