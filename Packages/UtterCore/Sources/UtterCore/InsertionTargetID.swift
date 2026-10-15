@@ -2,7 +2,7 @@
 ///
 /// アプリ側が AX 要素などを不透明な値に対応づけて作る。同一性の比較だけに使い、
 /// 入力欄の内容やウィンドウタイトルを含めない。文字列表現には値を出さない。
-public struct InsertionTargetID: Hashable, Sendable {
+public struct InsertionTargetID: Hashable, Sendable, Codable {
   public let rawValue: String
 
   public init(rawValue: String) {

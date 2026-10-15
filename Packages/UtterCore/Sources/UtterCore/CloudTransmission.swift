@@ -1,7 +1,7 @@
 /// 端末の外へ送信する内容と送信先の組み合わせ（7章, 2.2節）。
 ///
 /// それぞれ別の同意を必要とする。値には送信する本文を持たない。
-public enum CloudTransmission: Hashable, Sendable, CaseIterable {
+public enum CloudTransmission: Hashable, Sendable, CaseIterable, Codable {
   /// AI 整形のため、STT テキストをクラウド AI へ送信する
   case textRefinement(CloudAIProviderKind)
   /// クラウド STT へ音声を送信する
