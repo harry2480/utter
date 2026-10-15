@@ -3,14 +3,14 @@ import UtterCore
 
 /// ユーザー辞書の保存層（TXT-03）。
 /// 
-/// UtterText の UserDictionary を永続化するメモリベースのストア。
+/// UtterText の UserDictionary を永続化するスレッドセーフなストア。
 public actor DictionaryStore: Sendable {
   private var entries: [String: String] = [:]
 
   public init() {}
 
   /// エントリを追加または更新
-  public func set(_ key: String, _ value: String) {
+  public func set(key: String, value: String) {
     entries[key] = value
   }
 
@@ -37,24 +37,46 @@ public actor DictionaryStore: Sendable {
 
 /// 月次推定費用の保存層（AI-05）。
 /// 
-/// MonthlyUsageLedger を永続化するメモリベースのストア。
-public struct MonthlyUsageStore: Sendable {
+/// MonthlyUsageLedger を永続化するスレッドセーフなストア。
+/// 操作は順序を保証する呼び出し側の責務。
+public actor MonthlyUsageStore: Sendable {
   private var ledger: [String: Double] = [:]
 
   public init() {}
 
-  /// 月のコスト合計を記録
-  mutating func record(month: String, cost: Double) {
+  /// 月のコスト合計に加算（正の値のみ）
+  /// - Parameters:
+  ///   - month: 月（例: "2024-10"）
+  ///   - cost: 追加コスト。負の値は拒否
+  public func add(month: String, cost: Double) throws {
+    guard cost >= 0 else {
+      throw CostError.negativeCost(cost)
+    }
     ledger[month] = (ledger[month] ?? 0) + cost
   }
 
   /// 月のコスト合計を取得
-  func total(month: String) -> Double {
+  public func total(month: String) -> Double {
     ledger[month] ?? 0
   }
 
   /// すべての月のコストを取得
-  func all() -> [String: Double] {
+  public func all() -> [String: Double] {
     ledger
   }
+
+  /// 月のコストをリセット
+  public func remove(month: String) {
+    ledger.removeValue(forKey: month)
+  }
+
+  /// すべてクリア
+  public func clear() {
+    ledger.removeAll()
+  }
+}
+
+/// コスト記録エラー
+public enum CostError: Error {
+  case negativeCost(Double)
 }
