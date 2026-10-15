@@ -97,10 +97,9 @@ struct CostEstimatorTests {
   @Test("AI-05: 単価表は利用者の設定値として渡し、通貨と更新日を保持する")
   func priceTableKeepsCurrencyAndUpdateDate() throws {
     let table = try priceTable(currency: usdLike)
-    let expectedDate = try CivilDate(year: 2026, month: 10, day: 1)
 
     #expect(table.currency == usdLike)
-    #expect(table.updatedOn == expectedDate)
+    #expect(table.updatedOn == (try CivilDate(year: 2026, month: 10, day: 1)))
     #expect(table.price(for: "small-model")?.inputPerMillionTokens == Decimal(100))
     #expect(table.price(for: "missing-model") == nil)
   }
