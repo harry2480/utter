@@ -8,11 +8,11 @@ struct AudioStreamBufferTests {
     #expect(buffer.maxBytes == 1_000_000)
   }
 
-  @Test("REC-05: 既定は5分分のPCM16kHz（約5.76MB）")
+  @Test("REC-05: 既定は5分分のPCM16kHz（9.6MB）")
   func defaultMaxBytesIs5Minutes() {
     let buffer = AudioStreamBuffer()
     #expect(buffer.maxBytes == AudioStreamBuffer.defaultMaxBytes)
-    #expect(buffer.maxBytes >= 5_000_000)
+    #expect(buffer.maxBytes == 9_600_000)
   }
 
   @Test("REC-05: 0以下の上限は1バイト以上に修正")
@@ -38,5 +38,11 @@ struct AudioStreamBufferTests {
     #expect(buffer.remainingBytes(currentSize: 500) == 500)
     #expect(buffer.remainingBytes(currentSize: 1000) == 0)
     #expect(buffer.remainingBytes(currentSize: 1500) == 0)
+  }
+
+  @Test("REC-05: 負の currentSize は全容量を返す")
+  func negativeCurrentSizeHandled() {
+    let buffer = AudioStreamBuffer(maxBytes: 1000)
+    #expect(buffer.remainingBytes(currentSize: -100) == 1000)
   }
 }

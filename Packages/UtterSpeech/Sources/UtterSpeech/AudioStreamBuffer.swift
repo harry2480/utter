@@ -6,19 +6,23 @@ public struct AudioStreamBuffer: Sendable {
   /// バッファの最大サイズ（バイト数）
   public let maxBytes: Int
 
-  /// 既定: 5分の PCM16kHz モノラル（約5.76MB）
+  /// 既定: 5分の PCM16kHz モノラル（16kHz × 2 bytes × 60s × 5 = 9.6MB）
   public static let defaultMaxBytes = 16_000 * 2 * 60 * 5
 
   /// バッファの上限を指定して初期化
   /// - Parameters:
-  ///   - maxBytes: 最大サイズ（バイト数）。0以下は拒否
+  ///   - maxBytes: 最大サイズ（バイト数）。0以下は1バイトに調整
   public init(maxBytes: Int = Self.defaultMaxBytes) {
     self.maxBytes = max(1, maxBytes)
   }
 
   /// 現在のデータサイズから、上限に達するまでのバイト数を計算
+  /// - Parameters:
+  ///   - currentSize: 現在のサイズ（バイト数）。0以上を想定
+  /// - Returns: 残り容量。負の値は0に調整
   public func remainingBytes(currentSize: Int) -> Int {
-    max(0, maxBytes - currentSize)
+    guard currentSize >= 0 else { return maxBytes }
+    return max(0, maxBytes - currentSize)
   }
 
   /// 上限に達したか判定
