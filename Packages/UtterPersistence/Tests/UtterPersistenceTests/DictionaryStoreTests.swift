@@ -5,7 +5,7 @@ import UtterCore
 
 struct DictionaryStoreTests {
   @Test("TXT-03: 辞書エントリを追加・取得・削除")
-  async func dictionaryOperations() async {
+  func dictionaryOperations() async {
     let store = DictionaryStore()
 
     await store.set(key: "key1", value: "value1")
@@ -16,7 +16,7 @@ struct DictionaryStoreTests {
   }
 
   @Test("TXT-03: すべてのエントリを一覧取得")
-  async func listAll() async {
+  func listAll() async {
     let store = DictionaryStore()
     await store.set(key: "a", value: "1")
     await store.set(key: "b", value: "2")
@@ -27,7 +27,7 @@ struct DictionaryStoreTests {
   }
 
   @Test("AI-05: 月次コスト合計を記録・集計")
-  async func monthlyUsage() async {
+  func monthlyUsage() async throws {
     let store = MonthlyUsageStore()
     try await store.add(month: "2024-10", cost: 5.0)
     try await store.add(month: "2024-10", cost: 3.0)
@@ -36,7 +36,7 @@ struct DictionaryStoreTests {
   }
 
   @Test("AI-05: 負のコスト値を拒否")
-  async func rejectNegativeCost() async {
+  func rejectNegativeCost() async {
     let store = MonthlyUsageStore()
     do {
       try await store.add(month: "2024-10", cost: -1.0)
@@ -49,7 +49,7 @@ struct DictionaryStoreTests {
   }
 
   @Test("AI-05: 無限大のコスト値を拒否")
-  async func rejectNonFiniteCost() async {
+  func rejectNonFiniteCost() async {
     let store = MonthlyUsageStore()
     do {
       try await store.add(month: "2024-10", cost: Double.infinity)
@@ -62,7 +62,7 @@ struct DictionaryStoreTests {
   }
 
   @Test("AI-05: 月次コストの削除")
-  async func removeMonth() async {
+  func removeMonth() async throws {
     let store = MonthlyUsageStore()
     try await store.add(month: "2024-10", cost: 5.0)
     await store.remove(month: "2024-10")
@@ -70,7 +70,7 @@ struct DictionaryStoreTests {
   }
 
   @Test("AI-05: 全コストクリア")
-  async func clearAll() async {
+  func clearAll() async throws {
     let store = MonthlyUsageStore()
     try await store.add(month: "2024-10", cost: 5.0)
     try await store.add(month: "2024-11", cost: 3.0)
