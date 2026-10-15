@@ -94,6 +94,22 @@ struct TemporaryAudioStoreTests {
     #expect(try store.load(latest) == Data([0x09]))
   }
 
+  @Test("AC-10: 同じミリ秒に同じセッションを保存しても置き換える")
+  func replacesSameSessionAtSameTime() throws {
+    let store = try store(clock: Clock(start))
+    let session = SessionID()
+
+    try store.save(audio, for: session)
+    let latest = try store.save(Data([0x09]), for: session)
+
+    #expect(try store.list() == [latest])
+    #expect(try store.load(latest) == Data([0x09]))
+    let files = try FileManager.default.contentsOfDirectory(atPath: directory.url.path)
+    #expect(files == [latest.url.lastPathComponent])
+    let attributes = try FileManager.default.attributesOfItem(atPath: latest.url.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+  }
+
   @Test("AC-10: 起動時に保持期限内のものを復旧候補、期限を過ぎたものを削除する")
   func sweepSeparatesRecoverableAndExpired() throws {
     let clock = Clock(start)

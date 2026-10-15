@@ -83,10 +83,12 @@ public struct TemporaryAudioStore: Sendable {
       try audio.write(to: partial, options: writeOptions)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: partial.path)
       try protectFile(partial)
-      if FileManager.default.fileExists(atPath: record.url.path) {
-        try FileManager.default.removeItem(at: record.url)
+      // 同じミリ秒に同じセッションを保存すると名前が重なる。先に消すと、名前の変更に失敗したときに
+      // 古い音声が残らないため、rename(2) で1回で差し替える。
+      // FileManager.replaceItemAt は Linux の Foundation で置き換え先を失うため使わない
+      guard rename(partial.path, record.url.path) == 0 else {
+        throw TemporaryAudioStoreError.writeFailed
       }
-      try FileManager.default.moveItem(at: partial, to: record.url)
     } catch {
       try? FileManager.default.removeItem(at: partial)
       throw .writeFailed
