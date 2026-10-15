@@ -12,7 +12,10 @@ public actor SharedResultStore: Sendable {
   /// - Parameters:
   ///   - groupIdentifier: App Group 識別子（iCloud 同期なし、本デバイス限定）
   public init?(groupIdentifier: String) {
-    guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) else {
+    guard
+      let url = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: groupIdentifier)
+    else {
       return nil
     }
     self.directory = url.appendingPathComponent("SharedResults")
@@ -21,7 +24,7 @@ public actor SharedResultStore: Sendable {
   /// 結果を保存（sessionID ごとに上書き）
   public func save(_ result: SharedResult) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    
+
     let url = fileURL(for: result.sessionID)
     let data = try JSONEncoder().encode(result)
     try data.write(to: url, options: [.atomic])
@@ -32,7 +35,7 @@ public actor SharedResultStore: Sendable {
   public func load(sessionID: SessionID) throws -> SharedResult? {
     let key = cacheKey(sessionID)
     if let cached = cache[key] { return cached }
-    
+
     let url = fileURL(for: sessionID)
     guard FileManager.default.fileExists(atPath: url.path) else { return nil }
     let data = try Data(contentsOf: url)
@@ -44,7 +47,11 @@ public actor SharedResultStore: Sendable {
   /// 結果を削除
   public func delete(sessionID: SessionID) throws {
     let url = fileURL(for: sessionID)
-    try? FileManager.default.removeItem(at: url)
+    do {
+      try FileManager.default.removeItem(at: url)
+    } catch let error as NSError {
+      guard error.code == NSFileNoSuchFileError else { throw error }
+    }
     cache.removeValue(forKey: cacheKey(sessionID))
   }
 
@@ -54,11 +61,10 @@ public actor SharedResultStore: Sendable {
   }
 
   private func fileURL(for sessionID: SessionID) -> URL {
-    let hash = sessionID.hashValue.description
-    return directory.appendingPathComponent("\(hash).json")
+    return directory.appendingPathComponent("\(sessionID.rawValue.uuidString).json")
   }
 
   private func cacheKey(_ sessionID: SessionID) -> String {
-    sessionID.hashValue.description
+    sessionID.rawValue.uuidString
   }
 }
