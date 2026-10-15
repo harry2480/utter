@@ -77,7 +77,7 @@ public struct AppSettings: Codable, Sendable {
 
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    let version = try container.decode(Int.self, forKey: .version)
+    let version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
 
     switch version {
     case 1:

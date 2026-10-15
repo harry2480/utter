@@ -116,6 +116,21 @@ struct AppSettingsTests {
     #expect(settings.monthlyBudget == 10.0)
   }
 
+  @Test("2.3節: バージョンフィールドも不足時は既定値で復元される")
+  func missingVersionRevertToDefault() throws {
+    let json = """
+      {
+      }
+      """.data(using: .utf8)!
+
+    let decoder = JSONDecoder()
+    let settings = try decoder.decode(AppSettings.self, from: json)
+
+    // バージョンが不足していても既定値（1）で復元
+    #expect(settings.version == 1)
+    #expect(settings.maxRecordingDuration == 300)
+  }
+
   @Test("未知の版は既定値で復元される")
   func unknownVersionRevertToDefaults() throws {
     let json = """
