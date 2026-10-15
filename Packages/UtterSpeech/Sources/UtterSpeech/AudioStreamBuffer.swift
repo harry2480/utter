@@ -16,6 +16,24 @@ public struct AudioStreamBuffer: Sendable {
     self.maxBytes = max(1, maxBytes)
   }
 
+  /// AudioChunk のバイト数を計算
+  /// - Parameters:
+  ///   - chunk: 音声チャンク
+  /// - Returns: Float 配列を PCM16 バイト数に変換（1 サンプル = 2 バイト）
+  public func sizeInBytes(of chunk: AudioChunk) -> Int {
+    chunk.samples.count * 2
+  }
+
+  /// チャンク受け入れ可否判定（バックプレッシャー）
+  /// - Parameters:
+  ///   - chunk: 受け入れを検討する音声チャンク
+  ///   - currentSize: 現在のバッファサイズ
+  /// - Returns: 受け入れ可否
+  public func canAccept(_ chunk: AudioChunk, currentSize: Int) -> Bool {
+    let chunkSize = sizeInBytes(of: chunk)
+    return currentSize + chunkSize <= maxBytes
+  }
+
   /// 現在のデータサイズから、上限に達するまでのバイト数を計算
   /// - Parameters:
   ///   - currentSize: 現在のサイズ（バイト数）。0以上を想定
