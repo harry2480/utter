@@ -49,21 +49,21 @@ struct AudioStreamBufferTests {
   @Test("REC-05: sizeInBytes は AudioChunk のバイト数を計算（PCM16 = 2 bytes/sample）")
   func sizeInBytesCalculation() {
     let buffer = AudioStreamBuffer()
-    let chunk = AudioChunk(samples: [0.0, 0.0, 0.0])
+    let chunk = AudioChunk(sampleRate: 16_000, samples: [0.0, 0.0, 0.0])
     #expect(buffer.sizeInBytes(of: chunk) == 6)
   }
 
   @Test("REC-05: sizeInBytes の負値サンプル数は0を返す")
   func sizeInBytesNegativeHandled() {
     let buffer = AudioStreamBuffer()
-    let emptyChunk = AudioChunk(samples: [])
+    let emptyChunk = AudioChunk(sampleRate: 16_000, samples: [])
     #expect(buffer.sizeInBytes(of: emptyChunk) == 0)
   }
 
   @Test("REC-05: canAccept は容量内でチャンク受け入れ可")
   func canAcceptWhenSpaceAvailable() {
     let buffer = AudioStreamBuffer(maxBytes: 1000)
-    let chunk = AudioChunk(samples: Array(repeating: 0.0, count: 100))
+    let chunk = AudioChunk(sampleRate: 16_000, samples: Array(repeating: 0.0, count: 100))
     #expect(buffer.canAccept(chunk, currentSize: 0) == true)
     #expect(buffer.canAccept(chunk, currentSize: 800) == true)
   }
@@ -71,7 +71,7 @@ struct AudioStreamBufferTests {
   @Test("REC-05: canAccept は容量満杯でチャンク拒否")
   func canAcceptWhenFull() {
     let buffer = AudioStreamBuffer(maxBytes: 100)
-    let chunk = AudioChunk(samples: Array(repeating: 0.0, count: 100))
+    let chunk = AudioChunk(sampleRate: 16_000, samples: Array(repeating: 0.0, count: 100))
     #expect(buffer.canAccept(chunk, currentSize: 0) == false)
     #expect(buffer.canAccept(chunk, currentSize: 50) == false)
   }
@@ -79,7 +79,7 @@ struct AudioStreamBufferTests {
   @Test("REC-05: canAccept は境界値（ちょうど上限）で受け入れ可")
   func canAcceptAtExactLimit() {
     let buffer = AudioStreamBuffer(maxBytes: 100)
-    let chunk = AudioChunk(samples: Array(repeating: 0.0, count: 50))
+    let chunk = AudioChunk(sampleRate: 16_000, samples: Array(repeating: 0.0, count: 50))
     let chunkSize = buffer.sizeInBytes(of: chunk)
     #expect(buffer.canAccept(chunk, currentSize: 100 - chunkSize) == true)
   }
@@ -87,7 +87,7 @@ struct AudioStreamBufferTests {
   @Test("REC-05: canAccept は負の currentSize を 0 として扱う")
   func canAcceptWithNegativeSize() {
     let buffer = AudioStreamBuffer(maxBytes: 1000)
-    let chunk = AudioChunk(samples: Array(repeating: 0.0, count: 100))
+    let chunk = AudioChunk(sampleRate: 16_000, samples: Array(repeating: 0.0, count: 100))
     #expect(buffer.canAccept(chunk, currentSize: -100) == true)
   }
 }
