@@ -49,13 +49,14 @@ public struct AppSettings: Codable, Sendable {
     historyEnabled: Bool = false
   ) {
     self.version = 1
-    self.maxRecordingDuration = maxRecordingDuration
+    self.maxRecordingDuration =
+      maxRecordingDuration.isFinite && maxRecordingDuration > 0 ? maxRecordingDuration : 300
     self.refinementMode = refinementMode
     self.appStyleOverrides = appStyleOverrides
     self.refinementModel = refinementModel
     self.pricePerMillionTokens = pricePerMillionTokens
     self.priceTableUpdatedAt = priceTableUpdatedAt
-    self.monthlyBudget = monthlyBudget
+    self.monthlyBudget = monthlyBudget.isFinite && monthlyBudget > 0 ? monthlyBudget : 10.0
     self.consentState = consentState
     self.historyEnabled = historyEnabled
   }

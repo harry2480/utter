@@ -214,4 +214,41 @@ struct AppSettingsTests {
     #expect(decoded.consentState.allows(.speechRecognition))
     #expect(!decoded.consentState.allows(.textRefinement(.chatGPT)))
   }
+
+  @Test("REC-05: 0以下の最大録音時間は既定値で復元される")
+  func invalidRecordingDurationReverted() {
+    #expect(AppSettings(maxRecordingDuration: 0).maxRecordingDuration == 300)
+    #expect(AppSettings(maxRecordingDuration: -100).maxRecordingDuration == 300)
+  }
+
+  @Test("AI-05: 負の月次予算は既定値で復元される")
+  func invalidMonthlyBudgetReverted() {
+    #expect(AppSettings(monthlyBudget: -10).monthlyBudget == 10.0)
+    #expect(AppSettings(monthlyBudget: 0).monthlyBudget == 10.0)
+  }
+
+  @Test("2.3節: 全プロパティのラウンドトリップが保持される") throws {
+    let targetID = InsertionTargetID(rawValue: "test.app")
+    var original = AppSettings()
+    original.maxRecordingDuration = 600
+    original.refinementMode = .cloudAI
+    original.appStyleOverrides[targetID] = .technical
+    original.refinementModel = "gpt-4"
+    original.pricePerMillionTokens = ["claude": 3.0]
+    original.monthlyBudget = 50.0
+    original.historyEnabled = true
+
+    let encoder = JSONEncoder()
+    let encoded = try encoder.encode(original)
+    let decoder = JSONDecoder()
+    let decoded = try decoder.decode(AppSettings.self, from: encoded)
+
+    #expect(decoded.maxRecordingDuration == 600)
+    #expect(decoded.refinementMode == .cloudAI)
+    #expect(decoded.appStyleOverrides[targetID] == .technical)
+    #expect(decoded.refinementModel == "gpt-4")
+    #expect(decoded.pricePerMillionTokens["claude"] == 3.0)
+    #expect(decoded.monthlyBudget == 50.0)
+    #expect(decoded.historyEnabled == true)
+  }
 }
