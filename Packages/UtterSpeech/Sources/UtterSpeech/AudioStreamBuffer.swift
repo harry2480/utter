@@ -37,7 +37,7 @@ public struct AudioStreamBuffer: Sendable {
   /// ```swift
   /// if buffer.canAccept(chunk, currentSize: currentSize) {
   ///   await stream.yield(chunk)
-  ///   currentSize &+ buffer.sizeInBytes(of: chunk)
+  ///   currentSize += buffer.sizeInBytes(of: chunk)
   /// } else {
   ///   // 停止通知、recording 中止、finish() を caller が実装する
   ///   return
