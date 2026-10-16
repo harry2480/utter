@@ -54,6 +54,23 @@ struct SharedResultStoreTests {
     #expect(try await app.load(sessionID: sessionID) == loadedByKeyboard)
   }
 
+  @Test("iOS-IPC-03: 保存済みの revision を指定しても、revision が進んでいない結果では巻き戻さない")
+  func rejectsSaveWithoutAdvancingRevision() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    let ready = result()
+    try await store.save(ready, expectedRevision: nil)
+    var inserting = ready
+    try inserting.beginInsertion(for: sessionID, at: createdAt.addingTimeInterval(1))
+    try await store.save(inserting, expectedRevision: 0)
+
+    for stale in [ready, inserting] {
+      await #expect(throws: SharedResultStoreError.revisionConflict) {
+        try await store.save(stale, expectedRevision: inserting.revision)
+      }
+    }
+    #expect(try await store.load(sessionID: sessionID) == inserting)
+  }
+
   @Test("iOS-IPC-04: 保存済みの結果があるときに新規として保存しない")
   func rejectsCreatingOverExistingResult() async throws {
     let store = SharedResultStore(directory: directory.url)

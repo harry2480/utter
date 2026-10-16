@@ -26,20 +26,25 @@ public actor SharedResultStore: Sendable {
     self.directory = directory
   }
 
-  /// 結果を保存する。保存済みの `revision` が `expectedRevision` と一致するときだけ書き込む（比較交換）。
+  /// 結果を保存する。保存済みの `revision` が `expectedRevision` と一致し、
+  /// 保存する結果の `revision` がそれより進んでいるときだけ書き込む（比較交換）。
   ///
   /// 照合と書き込みの間は、プロセス間で共有するファイルロックで排他にする。
   /// - Parameters:
   ///   - result: 保存する結果
   ///   - expectedRevision: 読み込んだときの `revision`。新しく作る結果なら `nil`（保存済みの結果がないこと）
-  /// - Throws: 保存済みの結果が別の `revision` なら `SharedResultStoreError.revisionConflict`
+  /// - Throws: 保存済みの結果が別の `revision` のとき、または保存する結果の `revision` が
+  ///   `expectedRevision` より進んでいないとき `SharedResultStoreError.revisionConflict`
   public func save(_ result: SharedResult, expectedRevision: UInt64?) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
     let url = fileURL(for: result.sessionID)
     try withFileLock(for: result.sessionID) {
       let storedRevision = try read(from: url)?.revision
-      guard storedRevision == expectedRevision else {
+      // 古い結果を新しい revision の前提で渡されても、状態を巻き戻さない
+      guard storedRevision == expectedRevision,
+        expectedRevision.map({ result.revision > $0 }) ?? true
+      else {
         throw SharedResultStoreError.revisionConflict
       }
       let data = try JSONEncoder().encode(result)
@@ -64,9 +69,14 @@ public actor SharedResultStore: Sendable {
     }
   }
 
+  /// 存在確認の後に別プロセスが削除する競合を避けるため、先に読み込み、ファイルがないときだけ `nil` にする
   private func read(from url: URL) throws -> SharedResult? {
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    let data = try Data(contentsOf: url)
+    let data: Data
+    do {
+      data = try Data(contentsOf: url)
+    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+      return nil
+    }
     return try JSONDecoder().decode(SharedResult.self, from: data)
   }
 
