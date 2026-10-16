@@ -4,9 +4,10 @@ import UtterCore
 /// iOS キーボード拡張と本体アプリ間で共有結果を保存・復元（iOS-IPC-04〜06）。
 ///
 /// App Group 経由のディレクトリを使用。全操作はスレッドセーフな actor で実装。
+/// 本体アプリとキーボード拡張は別プロセスで同じファイルを書き換えるため、
+/// 読み込みはキャッシュせず毎回ファイルから読み、保存は `revision` の比較交換で行う。
 public actor SharedResultStore: Sendable {
   private let directory: URL
-  private var cache: [String: SharedResult] = [:]
 
   /// App Group 経由のディレクトリを使用して初期化
   /// - Parameters:
@@ -18,53 +19,83 @@ public actor SharedResultStore: Sendable {
     else {
       return nil
     }
-    self.directory = url.appendingPathComponent("SharedResults")
+    self.init(directory: url.appendingPathComponent("SharedResults"))
   }
 
-  /// 結果を保存（sessionID ごとに上書き）
-  public func save(_ result: SharedResult) throws {
+  init(directory: URL) {
+    self.directory = directory
+  }
+
+  /// 結果を保存する。保存済みの `revision` が `expectedRevision` と一致するときだけ書き込む（比較交換）。
+  ///
+  /// 照合と書き込みの間は、プロセス間で共有するファイルロックで排他にする。
+  /// - Parameters:
+  ///   - result: 保存する結果
+  ///   - expectedRevision: 読み込んだときの `revision`。新しく作る結果なら `nil`（保存済みの結果がないこと）
+  /// - Throws: 保存済みの結果が別の `revision` なら `SharedResultStoreError.revisionConflict`
+  public func save(_ result: SharedResult, expectedRevision: UInt64?) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
     let url = fileURL(for: result.sessionID)
-    let data = try JSONEncoder().encode(result)
-    try data.write(to: url, options: [.atomic])
-    cache[cacheKey(result.sessionID)] = result
+    try withFileLock(for: result.sessionID) {
+      let storedRevision = try read(from: url)?.revision
+      guard storedRevision == expectedRevision else {
+        throw SharedResultStoreError.revisionConflict
+      }
+      let data = try JSONEncoder().encode(result)
+      try data.write(to: url, options: [.atomic])
+    }
   }
 
-  /// 結果を読み込む（存在しなければ nil）
+  /// 結果を読み込む（存在しなければ nil）。別プロセスの更新を反映するため、毎回ファイルから読む
   public func load(sessionID: SessionID) throws -> SharedResult? {
-    let key = cacheKey(sessionID)
-    if let cached = cache[key] { return cached }
-
-    let url = fileURL(for: sessionID)
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    let data = try Data(contentsOf: url)
-    let result = try JSONDecoder().decode(SharedResult.self, from: data)
-    cache[key] = result
-    return result
+    try read(from: fileURL(for: sessionID))
   }
 
   /// 結果を削除
   public func delete(sessionID: SessionID) throws {
     let url = fileURL(for: sessionID)
-    do {
-      try FileManager.default.removeItem(at: url)
-    } catch let error as NSError {
-      guard error.code == NSFileNoSuchFileError else { throw error }
+    try withFileLock(for: sessionID) {
+      do {
+        try FileManager.default.removeItem(at: url)
+      } catch let error as NSError {
+        guard error.code == NSFileNoSuchFileError else { throw error }
+      }
     }
-    cache.removeValue(forKey: cacheKey(sessionID))
   }
 
-  /// キャッシュをクリア
-  public func clearCache() {
-    cache.removeAll()
+  private func read(from url: URL) throws -> SharedResult? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    let data = try Data(contentsOf: url)
+    return try JSONDecoder().decode(SharedResult.self, from: data)
+  }
+
+  /// セッションごとのロックファイルを `flock` で排他ロックして `body` を実行する。
+  ///
+  /// `flock` は別プロセス間でも効くため、本体アプリとキーボード拡張の同時保存を直列化できる。
+  private func withFileLock<T>(for sessionID: SessionID, _ body: () throws -> T) throws -> T {
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let lockURL = directory.appendingPathComponent("\(sessionID.rawValue.uuidString).lock")
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
+    guard descriptor >= 0 else {
+      throw SharedResultStoreError.lockFailed
+    }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX) == 0 else {
+      throw SharedResultStoreError.lockFailed
+    }
+    defer { flock(descriptor, LOCK_UN) }
+    return try body()
   }
 
   private func fileURL(for sessionID: SessionID) -> URL {
     return directory.appendingPathComponent("\(sessionID.rawValue.uuidString).json")
   }
+}
 
-  private func cacheKey(_ sessionID: SessionID) -> String {
-    sessionID.rawValue.uuidString
-  }
+public enum SharedResultStoreError: Error, Hashable, Sendable {
+  /// 読み込んだ後に別のプロセスが結果を更新した。読み込み直してから状態を変える
+  case revisionConflict
+  /// プロセス間の排他ロックを取れなかった
+  case lockFailed
 }

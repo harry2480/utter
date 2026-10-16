@@ -45,16 +45,26 @@ public struct SharedResultConfiguration: Hashable, Sendable, Codable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    let ttl = try container.decode(TimeInterval.self, forKey: .timeToLive)
-    let gracePeriod = try container.decode(TimeInterval.self, forKey: .insertionGracePeriod)
     try self.init(
-      timeToLive: Duration(
-        secondsComponent: Int64(ttl),
-        attosecondsComponent: Int64((ttl.truncatingRemainder(dividingBy: 1)) * 1e18)),
-      insertionGracePeriod: Duration(
-        secondsComponent: Int64(gracePeriod),
-        attosecondsComponent: Int64((gracePeriod.truncatingRemainder(dividingBy: 1)) * 1e18))
+      timeToLive: Self.decodeDuration(forKey: .timeToLive, in: container),
+      insertionGracePeriod: Self.decodeDuration(forKey: .insertionGracePeriod, in: container)
     )
+  }
+
+  /// 秒数を `Duration` に復号する。`Int64` の秒に収まらない値（非有限・範囲外）は変換時に停止するため、復号エラーにする
+  private static func decodeDuration(
+    forKey key: CodingKeys,
+    in container: KeyedDecodingContainer<CodingKeys>
+  ) throws -> Duration {
+    let seconds = try container.decode(TimeInterval.self, forKey: key)
+    guard seconds.isFinite, seconds >= TimeInterval(Int64.min), seconds < TimeInterval(Int64.max)
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: key, in: container, debugDescription: "秒数が Duration で表せる範囲外")
+    }
+    return Duration(
+      secondsComponent: Int64(seconds),
+      attosecondsComponent: Int64(seconds.truncatingRemainder(dividingBy: 1) * 1e18))
   }
 
   private enum CodingKeys: String, CodingKey {
