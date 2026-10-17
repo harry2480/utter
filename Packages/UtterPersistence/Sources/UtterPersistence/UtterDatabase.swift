@@ -4,6 +4,7 @@ import GRDB
 /// 辞書・使用量を保存する SQLite データベース（3章, TXT-03, AI-05）。
 ///
 /// 開くたびにスキーマ移行（マイグレーション）を適用する。テストは `inMemory()` を使う。
+/// 読み書きは同期的にディスクへアクセスするため、メインスレッド以外から呼ぶ。
 public struct UtterDatabase: Sendable {
   let writer: any DatabaseWriter
 
@@ -11,7 +12,10 @@ public struct UtterDatabase: Sendable {
   public static func open(at url: URL) throws -> UtterDatabase {
     try FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    return try UtterDatabase(writer: DatabaseQueue(path: url.path))
+    // 同じファイルを別のインスタンスやプロセスが開いていても、書き込みのロックをしばらく待つ
+    var configuration = Configuration()
+    configuration.busyMode = .timeout(5)
+    return try UtterDatabase(writer: DatabaseQueue(path: url.path, configuration: configuration))
   }
 
   /// メモリ上のデータベースを開く。閉じると内容は消える

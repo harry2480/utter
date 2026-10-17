@@ -1,9 +1,12 @@
+import Foundation
 import GRDB
 
 /// ユーザー辞書の保存層（TXT-03）。
 ///
 /// 辞書語と用語置換ルールを保存する。読み出した値から UtterText の `UserDictionary` を組み立てるのは呼び出し側の責務で、
 /// ルール同士の競合の検証もそこで行う。UtterText に依存しないよう、ここでは文字列として扱う。
+///
+/// SQLite はバイト単位で比べるため、辞書語とパターンは Unicode の正規化形式（NFC）をそろえて保存・照合する。
 public struct DictionaryStore: Sendable {
   private let database: UtterDatabase
 
@@ -24,14 +27,15 @@ public struct DictionaryStore: Sendable {
     try database.writer.write { db in
       try db.execute(
         sql: "INSERT INTO dictionaryTerm (spelling) VALUES (?) ON CONFLICT(spelling) DO NOTHING",
-        arguments: [spelling])
+        arguments: [spelling.normalized])
     }
   }
 
   /// 辞書語を削除する。なければ何もしない
   public func removeTerm(_ spelling: String) throws {
     try database.writer.write { db in
-      try db.execute(sql: "DELETE FROM dictionaryTerm WHERE spelling = ?", arguments: [spelling])
+      try db.execute(
+        sql: "DELETE FROM dictionaryTerm WHERE spelling = ?", arguments: [spelling.normalized])
     }
   }
 
@@ -57,14 +61,15 @@ public struct DictionaryStore: Sendable {
           ON CONFLICT(pattern) DO UPDATE SET
             replacement = excluded.replacement, ignoresCase = excluded.ignoresCase
           """,
-        arguments: [rule.pattern, rule.replacement, rule.ignoresCase])
+        arguments: [rule.pattern.normalized, rule.replacement, rule.ignoresCase])
     }
   }
 
   /// パターンが一致する置換ルールを削除する。なければ何もしない
   public func removeRule(pattern: String) throws {
     try database.writer.write { db in
-      try db.execute(sql: "DELETE FROM replacementRule WHERE pattern = ?", arguments: [pattern])
+      try db.execute(
+        sql: "DELETE FROM replacementRule WHERE pattern = ?", arguments: [pattern.normalized])
     }
   }
 
@@ -88,6 +93,11 @@ public struct StoredReplacementRule: Hashable, Sendable {
     self.replacement = replacement
     self.ignoresCase = ignoresCase
   }
+}
+
+extension String {
+  /// 保存・照合に使う正規化形式（NFC）
+  fileprivate var normalized: String { precomposedStringWithCanonicalMapping }
 }
 
 /// 辞書の保存エラー。利用者の入力は含めない

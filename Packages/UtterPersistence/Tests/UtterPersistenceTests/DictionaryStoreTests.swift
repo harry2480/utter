@@ -57,6 +57,23 @@ struct DictionaryStoreTests {
       ])
   }
 
+  @Test("TXT-03: 正規化形式が違うだけの辞書語・パターンは同じものとして扱う")
+  func normalizesUnicode() throws {
+    try store.addTerm("が")
+    try store.addTerm("か\u{3099}")
+    try store.saveRule(StoredReplacementRule(pattern: "が", replacement: "1"))
+    try store.saveRule(StoredReplacementRule(pattern: "か\u{3099}", replacement: "2"))
+
+    #expect(try store.terms().count == 1)
+    #expect(try store.rules().map(\.replacement) == ["2"])
+
+    try store.removeTerm("か\u{3099}")
+    try store.removeRule(pattern: "か\u{3099}")
+
+    #expect(try store.terms().isEmpty)
+    #expect(try store.rules().isEmpty)
+  }
+
   @Test("TXT-03: すべての辞書語と置換ルールを削除できる")
   func removeAllClearsTermsAndRules() throws {
     try store.addTerm("utter")
@@ -138,6 +155,17 @@ struct MonthlyUsageStoreTests {
       }
     }
     #expect(try store.spent(in: october, currencyCode: "JPY") == 5)
+  }
+
+  @Test("AI-05: 加算後の累計が Decimal で表せなければ拒否し、既存の累計を保つ")
+  func rejectsOverflowingTotal() throws {
+    let october = try month(2026, 10)
+    try store.record(Decimal.greatestFiniteMagnitude, currencyCode: "JPY", in: october)
+
+    #expect(throws: MonthlyUsageStoreError.totalOverflow) {
+      try store.record(Decimal.greatestFiniteMagnitude, currencyCode: "JPY", in: october)
+    }
+    #expect(try store.spent(in: october, currencyCode: "JPY") == Decimal.greatestFiniteMagnitude)
   }
 
   @Test("AI-05: 範囲外の年月は作れない", arguments: [(2026, 0), (2026, 13), (0, 1), (10_000, 1)])

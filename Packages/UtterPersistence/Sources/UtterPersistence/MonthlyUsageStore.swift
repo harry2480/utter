@@ -20,12 +20,15 @@ public struct MonthlyUsageStore: Sendable {
     try Self.validate(currencyCode)
     try database.writer.write { db in
       let current = try Self.amount(db, monthIndex: month.index, currencyCode: currencyCode) ?? 0
+      // Decimal の表せる範囲を超えると NaN になる。既存の累計を残して拒否する
+      let total = current + amount
+      guard !total.isNaN else { throw MonthlyUsageStoreError.totalOverflow }
       try db.execute(
         sql: """
           INSERT INTO monthlyUsage (monthIndex, currencyCode, amount) VALUES (?, ?, ?)
           ON CONFLICT(monthIndex, currencyCode) DO UPDATE SET amount = excluded.amount
           """,
-        arguments: [month.index, currencyCode, Self.encode(current + amount)])
+        arguments: [month.index, currencyCode, Self.encode(total)])
     }
   }
 
@@ -102,7 +105,9 @@ public struct MonthlyUsageStore: Sendable {
   }
 
   private static func decode(_ text: String) throws -> Decimal {
-    guard let amount = Decimal(string: text, locale: posix), !amount.isNaN else {
+    // Decimal(string:) は読める先頭部分だけを解釈するため、保存形式と完全に一致するかも確かめる
+    guard let amount = Decimal(string: text, locale: posix), !amount.isNaN, encode(amount) == text
+    else {
       throw MonthlyUsageStoreError.corruptedAmount
     }
     return amount
@@ -158,6 +163,8 @@ public enum MonthlyUsageStoreError: Error, Hashable, Sendable {
   case invalidCurrencyCode
   /// 年が 1〜9999、月が 1〜12 の範囲外
   case invalidMonth
+  /// 加算後の累計が Decimal で表せる範囲を超える
+  case totalOverflow
   /// 保存されている金額を数値として読めない
   case corruptedAmount
 }
