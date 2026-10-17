@@ -46,13 +46,19 @@ public enum ModelRetention: Hashable, Sendable {
   case releaseNow
   /// 指定した時間だけ保持し、その間に入力がなければ解放する
   case keep(for: Duration)
-  /// 次に状態が変わるまで保持する
+  /// 端末の状態、またはポリシー（モード・高速モードの許可）が変わるまで保持する。
+  /// 呼び出し側は、どちらかが変わったら `retention(in:)` を呼び直す
   case keepUntilStateChanges
 }
 
 /// STT モデルのロードと保持の方針（6章, AC-11）。
 ///
 /// 時刻やタイマーは持たず、端末の状態から判定だけを返す。保持時間の既定値は暫定で、Phase 0 の実測後に見直す。
+///
+/// - メモリ圧迫時は、軽いモデルのロードは許可するが、推論後はモデルの重さによらず解放する（安定性を優先）。
+///   軽いモデルを圧迫中も保持するかは、ロードの遅延と電力の実測（Phase 0）で決める
+/// - 高速モードの「メモリ上限の範囲」（6章）は、モデルのサイズと上限を比べる判定をまだ持たない。
+///   上限の値は Phase 0 の実測後に決め、ここではメモリ圧迫の通知だけで判定する
 public struct ModelRetentionPolicy: Hashable, Sendable {
   /// バランスモードで推論後に保持する時間の既定値（暫定。6章では 30〜60 秒を検証候補とする）
   public static let defaultBalancedRetention: Duration = .seconds(30)

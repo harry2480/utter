@@ -68,6 +68,7 @@ struct ModelRetentionPolicyTests {
     #expect(
       performance.retention(in: DeviceResourceState())
         == .keep(for: ModelRetentionPolicy.defaultBalancedRetention))
+    #expect(performance.retention(in: DeviceResourceState(isBatteryLow: true)) == .releaseNow)
   }
 
   @Test("6章: 保持時間が0以下の設定は拒否する", arguments: [Duration.zero, .seconds(-1)])
