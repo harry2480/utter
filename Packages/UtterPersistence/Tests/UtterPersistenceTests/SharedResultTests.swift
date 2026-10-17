@@ -111,6 +111,30 @@ struct SharedResultTests {
     }
   }
 
+  @Test(
+    "iOS-IPC-02: Duration で表せない秒数の設定は、停止せず復号エラーにする",
+    arguments: ["1e20", "-1e20"]
+  )
+  func rejectsOutOfRangeDurationsOnDecode(_ seconds: String) {
+    for json in [
+      #"{"timeToLive":\#(seconds),"insertionGracePeriod":30}"#,
+      #"{"timeToLive":600,"insertionGracePeriod":\#(seconds)}"#,
+    ] {
+      #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(SharedResultConfiguration.self, from: Data(json.utf8))
+      }
+    }
+  }
+
+  @Test("iOS-IPC-02: 設定は符号化して復号すると同じ値に戻る")
+  func configurationRoundTrips() throws {
+    let configuration = try SharedResultConfiguration(
+      timeToLive: .milliseconds(1500), insertionGracePeriod: .seconds(45))
+    let data = try JSONEncoder().encode(configuration)
+
+    #expect(try JSONDecoder().decode(SharedResultConfiguration.self, from: data) == configuration)
+  }
+
   @Test("iOS-IPC-02: 期限内で同じセッションの未消費の結果は挿入可能")
   func insertableWithinExpiry() {
     #expect(result().insertability(for: sessionID, at: createdAt) == .insertable)

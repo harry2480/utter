@@ -9,7 +9,7 @@ import UtterCore
 /// 本体アプリとキーボード拡張は別プロセスのため、値型の状態遷移だけでは二重挿入を防げない。
 /// 保存層は、読み込んだときの `revision` と保存済みの `revision` が一致するときだけ書き込む
 /// （比較交換）ことで、挿入の確保をアトミックにする。
-public struct SharedResult: Hashable, Sendable {
+public struct SharedResult: Hashable, Sendable, Codable {
   public let sessionID: SessionID
   public let createdAt: Date
   public let expiresAt: Date
@@ -183,7 +183,7 @@ extension SharedResult: CustomStringConvertible, CustomReflectable {
 }
 
 /// 共有結果の状態（iOS-IPC-01, iOS-IPC-03）。
-public enum SharedResultStatus: Hashable, Sendable {
+public enum SharedResultStatus: Hashable, Sendable, Codable {
   /// 挿入を待っている
   case ready
   /// キーボード拡張が挿入を始めた。完了を記録する前に拡張が終了した場合もこの状態のまま残る

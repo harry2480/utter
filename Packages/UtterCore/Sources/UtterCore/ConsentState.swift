@@ -2,7 +2,7 @@
 ///
 /// 既定ではすべて未同意で、同意（`granted`）している対象だけを送信可と判定する。
 /// 撤回すると次の判定から送信不可になる。値型なので、利用側は送信の直前に最新の状態で判定する。
-public struct ConsentState: Hashable, Sendable {
+public struct ConsentState: Hashable, Sendable, Codable {
   private var statuses: [ConsentScope: ConsentStatus] = [:]
 
   /// すべて未同意の状態を作る。

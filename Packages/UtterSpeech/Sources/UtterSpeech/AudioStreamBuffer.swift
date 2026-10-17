@@ -22,11 +22,13 @@ public struct AudioStreamBuffer: Sendable {
 
   /// AudioChunk のバイト数を計算（PCM16 前提）
   /// - Parameters:
-  ///   - chunk: 音声チャンク（samples は PCM16 を想定）
+  ///   - chunk: 音声チャンク（samples は PCM16 を想定、sampleRate: 16_000）
   /// - Returns: PCM16 バイト数（1 サンプル = 2 バイト）。負の値は0に調整
   public func sizeInBytes(of chunk: AudioChunk) -> Int {
     guard chunk.samples.count >= 0 else { return 0 }
-    return chunk.samples.count * 2
+    let count = chunk.samples.count
+    guard count <= Int.max / 2 else { return Int.max }
+    return count * 2
   }
 
   /// チャンク受け入れ可否判定（バックプレッシャー）
@@ -42,14 +44,16 @@ public struct AudioStreamBuffer: Sendable {
   /// }
   /// ```
   /// - Parameters:
-  ///   - chunk: 受け入れを検討する音声チャンク
+  ///   - chunk: 受け入れを検討する音声チャンク（sampleRate: 16_000 想定）
   ///   - currentSize: 現在のバッファサイズ（バイト数）。負の値は 0 として扱う
-  /// - Returns: `true` = チャンク受け入れ可、`false` = バッファ満杯
+  /// - Returns: `true` = チャンク受け入れ可、`false` = バッファ満杯またはオーバーフロー検出
   public func canAccept(_ chunk: AudioChunk, currentSize: Int) -> Bool {
     guard currentSize >= 0 else { return canAccept(chunk, currentSize: 0) }
+    guard currentSize <= maxBytes else { return false }
     let chunkSize = sizeInBytes(of: chunk)
-    guard chunkSize >= 0, currentSize <= maxBytes else { return false }
-    return currentSize + chunkSize <= maxBytes
+    guard chunkSize >= 0 else { return false }
+    guard currentSize <= maxBytes - chunkSize else { return false }
+    return true
   }
 
   /// 現在のデータサイズから、上限に達するまでのバイト数を計算
