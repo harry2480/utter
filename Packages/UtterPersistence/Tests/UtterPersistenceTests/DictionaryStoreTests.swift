@@ -26,6 +26,19 @@ struct DictionaryStoreTests {
     #expect(all["a"] == "1")
   }
 
+  @Test("TXT-03: すべてのエントリをクリア")
+  func clearDictionary() async {
+    let store = DictionaryStore()
+    await store.set(key: "a", value: "1")
+    await store.set(key: "b", value: "2")
+
+    await store.clear()
+
+    #expect(await store.all().isEmpty)
+    #expect(await store.get("a") == nil)
+    #expect(await store.get("b") == nil)
+  }
+
   @Test("AI-05: 月次コスト合計を記録・集計")
   func monthlyUsage() async throws {
     let store = MonthlyUsageStore()
