@@ -4,7 +4,7 @@ public enum ModelRetentionMode: Hashable, Sendable, CaseIterable {
   case powerSaving
   /// 推論後に短時間保持し、メモリ圧迫・低バッテリーで解放する（標準）
   case balanced
-  /// 利用者の許可とメモリの範囲でモデルを保持する
+  /// 利用者の許可とメモリの範囲でモデルを保持する。低バッテリーでも保持し、メモリ圧迫時は解放する
   case performance
 }
 
@@ -88,15 +88,16 @@ public struct ModelRetentionPolicy: Hashable, Sendable {
 
   /// 推論が終わった後、または端末の状態が変わったときの、ロード済みモデルの扱い
   public func retention(in state: DeviceResourceState) -> ModelRetention {
-    // Mac 全体の安定性を優先し、深刻なメモリ圧迫ではどのモードでも解放する
-    guard state.memoryPressure < .critical else {
+    // Mac 全体の安定性を優先し、メモリ圧迫時はどのモードでも解放する。
+    // 高負荷モデルのロードを抑止する条件（loadDecision）とそろえ、圧迫中にロード済みのモデルを残さない
+    guard state.memoryPressure == .normal else {
       return .releaseNow
     }
     switch effectiveMode {
     case .powerSaving:
       return .releaseNow
     case .balanced:
-      guard state.memoryPressure == .normal, !state.isBatteryLow else {
+      guard !state.isBatteryLow else {
         return .releaseNow
       }
       return .keep(for: balancedRetention)

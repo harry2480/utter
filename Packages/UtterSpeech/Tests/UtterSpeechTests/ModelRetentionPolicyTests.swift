@@ -41,17 +41,23 @@ struct ModelRetentionPolicyTests {
     #expect(balanced.retention(in: DeviceResourceState(isBatteryLow: true)) == .releaseNow)
   }
 
-  @Test("6章: 高速モードは許可があれば保持し、深刻なメモリ圧迫では解放する")
+  @Test("6章: 高速モードは許可があれば、低バッテリーでも保持する")
   func performanceKeepsWithPermission() throws {
     let performance = try policy(.performance, performanceAllowed: true)
 
     #expect(performance.effectiveMode == .performance)
     #expect(performance.retention(in: DeviceResourceState()) == .keepUntilStateChanges)
     #expect(
-      performance.retention(in: DeviceResourceState(memoryPressure: .warning, isBatteryLow: true))
-        == .keepUntilStateChanges)
-    #expect(
-      performance.retention(in: DeviceResourceState(memoryPressure: .critical)) == .releaseNow)
+      performance.retention(in: DeviceResourceState(isBatteryLow: true)) == .keepUntilStateChanges)
+  }
+
+  @Test(
+    "6章, AC-11: メモリ圧迫時は、どのモードでもロード済みのモデルを解放する",
+    arguments: ModelRetentionMode.allCases, [MemoryPressure.warning, .critical])
+  func releasesUnderMemoryPressure(_ mode: ModelRetentionMode, _ pressure: MemoryPressure) throws {
+    let policy = try policy(mode, performanceAllowed: true)
+
+    #expect(policy.retention(in: DeviceResourceState(memoryPressure: pressure)) == .releaseNow)
   }
 
   @Test("6章: 高速モードを許可していなければバランスモードとして扱う")
