@@ -35,11 +35,15 @@ public struct RefinementRouter: Sendable {
   /// - 呼び出し元はキャンセルしていないのにプロバイダーが `.cancelled` を返した場合は、
   ///   発話を失わないよう他の失敗と同じく退避する
   ///
-  /// - Parameter cloudConsentGranted: クラウド整形への送信の同意。`false` ならプロバイダーを呼ばない（AC-06）
+  /// - Parameters:
+  ///   - cloudConsentGranted: クラウド整形への送信の同意。`false` ならプロバイダーを呼ばない（AC-06）
+  ///   - budget: 予算上限を確認する場合の設定（AI-04, AI-05）。送信前に見込み費用を予約し、上限を超えるなら
+  ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない
   public func refine(
     _ request: RefinementRequest,
-    cloudConsentGranted: Bool
+    cloudConsentGranted: Bool,
+    budget: RefinementBudget? = nil
   ) async throws(CancellationError) -> RefinementOutcome {
     if Task.isCancelled {
       throw CancellationError()
@@ -51,7 +55,20 @@ public struct RefinementRouter: Sendable {
       return fallback(request, reason: .consentNotGranted)
     }
 
+    var reservation: BudgetReservation?
+    if let budget {
+      do {
+        reservation = try await budget.guard.reserve(
+          model: budget.model, expectedUsage: budget.expectedUsage, in: budget.month)
+      } catch {
+        return fallback(request, reason: .providerFailed(.budgetExceeded))
+      }
+    }
+
     let result = await requestWithTimeout(request)
+    if let budget, let reservation {
+      await Self.resolve(reservation, with: result, in: budget.guard)
+    }
     if Task.isCancelled {
       throw CancellationError()
     }
@@ -66,6 +83,26 @@ public struct RefinementRouter: Sendable {
         text: Self.trimmingWhitespace(response.text), source: .cloud, usage: response.usage)
     case .failure(let error):
       return fallback(request, reason: .providerFailed(error))
+    }
+  }
+
+  /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
+  ///
+  /// 応答があれば実際の使用量で確定する。接続できない・認証や利用枠で拒否された場合は課金されないため取り消す。
+  /// 上限時間の超過・応答の解釈失敗・キャンセルは、課金されている可能性があるため見込み費用で確定する。
+  private static func resolve(
+    _ reservation: BudgetReservation,
+    with result: Result<RefinementResponse, AIProviderError>,
+    in guard: BudgetGuard
+  ) async {
+    switch result {
+    case .success(let response):
+      await `guard`.settle(reservation, actualUsage: response.usage)
+    case .failure(.networkUnavailable), .failure(.authenticationExpired),
+      .failure(.quotaExceeded), .failure(.budgetExceeded):
+      await `guard`.cancel(reservation)
+    case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled):
+      await `guard`.settle(reservation, actualUsage: nil)
     }
   }
 
@@ -173,6 +210,24 @@ final class Race: Sendable {
     for task in tasks {
       task.cancel()
     }
+  }
+}
+
+/// クラウド整形の前に予算上限を確認するための設定（AI-04, AI-05）。
+public struct RefinementBudget: Sendable {
+  public let `guard`: BudgetGuard
+  /// 送信先のモデル名。単価表の照合に使う
+  public let model: String
+  /// 送信前に予約する見込みのトークン使用量
+  public let expectedUsage: TokenUsage
+  /// 費用を計上する月
+  public let month: YearMonth
+
+  public init(guard: BudgetGuard, model: String, expectedUsage: TokenUsage, month: YearMonth) {
+    self.guard = `guard`
+    self.model = model
+    self.expectedUsage = expectedUsage
+    self.month = month
   }
 }
 
