@@ -63,6 +63,10 @@ public struct RefinementRouter: Sendable {
         reservation = try await budget.guard.reserve(
           model: budget.model, expectedUsage: budget.expectedUsage, in: budget.month)
       } catch {
+        // 予約を待つ間にキャンセルされていれば、予算超過でも退避の結果を返さない
+        if Task.isCancelled {
+          throw CancellationError()
+        }
         return fallback(request, reason: .providerFailed(.budgetExceeded))
       }
     }
