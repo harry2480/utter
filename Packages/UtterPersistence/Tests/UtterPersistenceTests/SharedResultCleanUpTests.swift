@@ -117,6 +117,28 @@ struct SharedResultCleanUpTests {
     #expect(try await store.load(sessionID: renamed) == nil)
   }
 
+  @Test("iOS-IPC-05: ファイル名の UUID が小文字の結果は、期限内でも列挙した名前のまま削除する")
+  func removesResultWithNonCanonicalFileName() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    let lowercased = ready()
+    let fresh = ready()
+    try await save(lowercased, fresh, in: store)
+    let canonicalName = "\(lowercased.sessionID.rawValue.uuidString).json"
+    // 大文字・小文字を区別しないファイルシステムでも名前を変えられるよう、別の名前を経由する
+    try FileManager.default.moveItem(
+      at: directory.url.appendingPathComponent(canonicalName),
+      to: directory.url.appendingPathComponent("moving"))
+    try FileManager.default.moveItem(
+      at: directory.url.appendingPathComponent("moving"),
+      to: directory.url.appendingPathComponent(canonicalName.lowercased()))
+
+    #expect(try await store.cleanUp(at: after(1)) == SharedResultCleanUpReport(removedCount: 1))
+    let names = try FileManager.default.contentsOfDirectory(atPath: directory.url.path)
+    #expect(
+      names.filter { $0.hasSuffix(".json") } == ["\(fresh.sessionID.rawValue.uuidString).json"])
+    #expect(try await store.load(sessionID: fresh.sessionID) == fresh)
+  }
+
   @Test("iOS-IPC-02: 端末の時刻が作成時より前なら、期限を判定できないため削除しない")
   func keepsResultWhenClockMovedBackwards() async throws {
     let store = SharedResultStore(directory: directory.url)

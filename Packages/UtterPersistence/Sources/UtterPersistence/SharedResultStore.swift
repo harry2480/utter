@@ -81,16 +81,23 @@ public actor SharedResultStore: Sendable {
   /// - 挿入済みの結果と、有効期限を過ぎた結果は削除する（共有テキストを残さない）
   /// - 猶予時間を過ぎても挿入中のままの結果は `insertionUnknown` にする。利用者の確認なしには再挿入できない
   /// - 復号できない・値が矛盾している（壊れた）結果は、挿入に使えないため削除する
+  /// - ファイル名が保存時の形（大文字の UUID）でない結果は、`load(sessionID:)` で読めないため削除する
   /// - 端末のロック中などで読み書きできない結果は、変更せずに残して次の結果へ進む
   /// - 端末の時刻が作成時より前の結果は、期限を判定できないため削除しない
   /// - 1つの結果で失敗しても、残りの結果の整理は続ける
   @discardableResult
   public func cleanUp(at now: Date) throws -> SharedResultCleanUpReport {
     var report = SharedResultCleanUpReport()
-    for sessionID in try storedSessionIDs() {
+    for (sessionID, storedURL) in try storedFiles() {
       let url = fileURL(for: sessionID)
       do {
         try withFileLock(for: sessionID) {
+          // 大文字・小文字を区別するファイルシステムでは、作り直した URL では開けない。列挙した URL で削除する
+          guard storedURL.lastPathComponent == url.lastPathComponent else {
+            try removeFile(at: storedURL)
+            report.removedCount += 1
+            return
+          }
           let stored: SharedResult?
           do {
             stored = try read(sessionID: sessionID)
@@ -119,8 +126,8 @@ public actor SharedResultStore: Sendable {
     return report
   }
 
-  /// 保存されている結果のセッションID。ディレクトリがなければ空
-  private func storedSessionIDs() throws -> [SessionID] {
+  /// 保存されている結果のセッションIDと、列挙したファイルの URL。ディレクトリがなければ空
+  private func storedFiles() throws -> [(SessionID, URL)] {
     let names: [String]
     do {
       names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -131,7 +138,7 @@ public actor SharedResultStore: Sendable {
       guard name.hasSuffix(".json"), let uuid = UUID(uuidString: String(name.dropLast(5))) else {
         return nil
       }
-      return SessionID(rawValue: uuid)
+      return (SessionID(rawValue: uuid), directory.appendingPathComponent(name))
     }
   }
 
