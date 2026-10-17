@@ -1,108 +1,113 @@
 # Phase 0 検証: Accessibility 挿入の成功率・Undo・クリップボード復元（#41）
 
-## 目的
+## 環境
 
-macOS の Accessibility API による入力欄挿入が以下を満たすことを確認（INS-01, INS-05, AC-20）：
-- 主要アプリでの挿入成功率（≥ 95% 目標）
-- 成功を確認できるか（読み戻し）
-- Undo 挙動の安全性
-- クリップボード履歴（Transient 設定）の効果
+- **OS**: macOS 26.0 以降（Apple Silicon）
+- **権限**: システム設定 → プライバシーとセキュリティ → アクセシビリティ（有効化必須）
+- **テスト用文字列**: 固定のダミー文字列のみ使用。機密情報は使わない
 
-## テスト環境
+## 検証目的
 
-- OS: macOS 12.0 以上（Monterey+）
-- Accessibility 権限: **有効化必須**（System Preferences → Security & Privacy → Accessibility）
-- テスト対象アプリ: Safari, Chrome, Slack, Zoom, TextEdit, Xcode Terminal
+主要アプリでの Accessibility 挿入について：
+- 成功可否とその理由
+- 成功確認可否（読み戻し）
+- Undo 安全性
+- クリップボード復元安全性
 
-## テスト項目
+の4項目を測定し、各アプリの**既定経路（AX / Pasteboard / CGEvent / プレビュー退避）** を決定する（AC-20, INS-01-07）。
 
-### 1. アプリ別挿入成功率
+## テスト手順
+
+### 1. 検証ハーネス準備
+
+```
+Phase 0 には HUD がないため、以下の検証ハーネスを用意：
+- CLI ツール（ホットキー待機）または
+- 最小構成の検証アプリ
+  起動: `./verify-accessibility [app-name] [insertion-method: ax|pasteboard|cgevent]`
+```
+
+### 2. アプリ・入力欄別テスト
+
+対象アプリと入力欄の種類（経路別）:
+
+| アプリ | 入力欄種別 | 経路 | N 試行 |
+|-------|----------|------|--------|
+| Safari | `<input type="text">` | AX, Pasteboard | 20+ |
+| Safari | contenteditable | AX | 20+ |
+| Chrome（Chromium） | `<input>` | AX* | 20+ |
+| Slack (Electron) | メッセージ欄 | Pasteboard | 20+ |
+| TextEdit | NSTextView | AX | 20+ |
+| Terminal.app | ターミナル | Pasteboard+ | 20+ |
+| Xcode | ソースエディタ | AX, Pasteboard | 20+ |
+| Zoom | チャット欄 | Pasteboard | 20+ |
+
+\* Chrome: `AXEnhancedUserInterface` 有効化が前提
+\+ Terminal: Enter が自動送信されないことが必須（INS-03）
+
+### 3. 成功定義
+
+```
+成功 = 以下のいずれか:
+- 読み戻しで完全一致
+- 目視で完全一致
+- ❌ 失敗 = 挿入されない / 一部欠落 / 誤文字
+- ❓ 成功不明 = 挿入は見えるが確認不可（権限制限など）
+```
+
+### 4. 記録テンプレート
+
+```
+日時: YYYY-MM-DD, OS build: XX.0.XXXXX, 実施者: XXX
+
+| アプリ | Ver | 入力欄 | 経路 | N | 成功数 | 成功% | 読み戻し | Undo | 失敗理由 | 既定経路 |
+|--------|-----|--------|------|---|--------|-------|----------|------|---------|----------|
+| Safari | 17.X | <input> | AX | 20 | 19 | 95% | 可 | 1回可 | AX接続失敗1件 | AX |
+| Chrome | 120 | <input> | AX* | 20 | 0 | 0% | 不可 | N/A | TreeDisabled | Pasteboard |
+| Terminal | 3.X | ターミナル | Paste | 20 | 18 | 90% | 不可 | 不可 | 改行が Enter | Pasteboard |
+```
+
+### 5. 異常系テスト（INS-01, INS-03）
+
+```
+✓ フォーカス移動: 挿入前に別ウィンドウへ移動 → 対象アプリへ挿入しない
+✓ ウィンドウ消失: 挿入前にウィンドウを閉じる → 挿入しない
+✓ パスワード欄: Secure 入力欄では挿入しない
+✓ Terminal: Enter を含む文字列を挿入 → 改行として送信されない
+✓ 二重挿入防止: キーボードのダブルクリックで再挿入なし（短時間での重複実行）
+```
+
+### 6. クリップボード復元テスト（INS-04, INS-06）
 
 ```
 手順:
-1. 各アプリで入力欄にフォーカス
-2. utter HUD で「Insert」を実行
-3. 成功・失敗を記録
+1. 元のクリップボード（画像またはファイル）を設定
+2. 挿入実行（Pasteboard 経路）
+3. 挿入完了後、元のクリップボードを復元
+4. Maccy / Raycast / Alfred で履歴確認
 
-期待結果:
-- Safari/Chrome: ≥ 95%
-- Slack/Zoom: ≥ 90%（複雑な要素）
-- IDE/Terminal: ≥ 85%（特殊文字制限あり）
-
-合格基準: 全体 ≥ 95%
+期待:
+✅ 復元されたデータは変わらない（種類・内容）
+✅ Transient / Concealed フラグの有効性を記録
+❓ 別アプリが挿入中にクリップボードを更新した場合の安全性
 ```
 
-### 2. 成功確認の可否（INS-05）
+## Go/No-Go 判定
+
+**判定目的**: アプリ別の既定経路を決定し、成果物 AC-20（互換性表）を完成させる
+
+**No-Go になるのは**:
+- 主要対象アプリ（Safari, Chrome, Slack）が全て失敗
+- 読み戻し・Undo の両方が不可なアプリが 3 個以上
+
+**それ以外は Go** → 失敗したアプリは Pasteboard / プレビュー退避を既定経路とする
+
+## 成果物（AC-20 互換性表）
 
 ```
-手順:
-1. 挿入実行
-2. 入力欄の値を読み戻す
-3. 挿入されたテキストと一致確認
-
-期待結果:
-✅ Safari, TextEdit: 読み戻し可能（UITextView）
-⚠️ Slack, Chrome: 権限制限で読み戻し不可の可能性
-❌ Terminal: 読み戻し不可（特殊制御）
-
-記録: アプリ別の成功確認可否表
+| アプリ | 成功率 | 読み戻し | Undo | 推奨経路 | 代替経路 |
+|-------|--------|----------|------|----------|----------|
+| Safari | 95% | 可 | 1回可 | AX | Pasteboard |
+| Chrome | 0% | 不可 | N/A | Pasteboard | プレビュー |
+| Terminal | 90% | 不可 | 不可 | Pasteboard+ | プレビュー |
 ```
-
-### 3. Undo 挙動（INS-07）
-
-```
-手順:
-1. 挿入実行後、Cmd+Z（Undo）
-2. 挿入されたテキストが削除されるか確認
-3. 2回目の Undo で さらに遡行できるか
-
-期待結果:
-- 1回の Undo で取り消し可能
-- 追加操作なし（Pasteboard 復元不要）
-
-記録: アプリ別 Undo 挙動
-```
-
-### 4. クリップボード管理（INS-06）
-
-```
-手順:
-1. utter がコピー・貼り付けを実行
-2. 1Password 等のクリップボード管理アプリで履歴確認
-3. Transient フラグ設定の効果を検証
-
-期待結果:
-✅ Transient = true で履歴に非表示
-✅ Concealed = true で内容マスク
-
-記録: 設定効果の確認
-```
-
-## 検証結果テンプレート
-
-### 日時: YYYY-MM-DD, 実施者: XXX
-
-| アプリ | 成功率 | 読み戻し可 | Undo 可 | 備考 |
-|-------|-------|----------|--------|------|
-| Safari | XX% | ✅/❌ | ✅/❌ | |
-| Chrome | XX% | ✅/❌ | ✅/❌ | |
-| Slack | XX% | ✅/❌ | ✅/❌ | DM vs Channel |
-| Zoom | XX% | ✅/❌ | ✅/❌ | チャット機能 |
-| TextEdit | XX% | ✅/❌ | ✅/❌ | Plain text |
-| Xcode | XX% | ✅/❌ | ✅/❌ | コードエディタ |
-| Terminal | XX% | ✅/❌ | ✅/❌ | 改行制御 |
-
-## Phase 0 Go/No-Go 判定
-
-| 項目 | 基準 | 実測 | 判定 |
-|------|------|------|------|
-| 全体成功率 | ≥ 95% | XX% | ✅/❌ |
-| 読み戻し可アプリ | ≥ 3個 | X個 | ✅/❌ |
-| Undo 安全性 | 全て可 | XX% | ✅/❌ |
-
-**全て ✅ で Phase 1 着手許可**
-
-## 次フェーズ
-
-- 成功確認できないアプリの Pasteboard 退避実装（Phase 1, INS-02）
-- アプリ別既定経路の決定（AX / Pasteboard / CGEvent）
