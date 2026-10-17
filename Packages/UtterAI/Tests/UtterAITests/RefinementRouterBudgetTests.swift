@@ -80,7 +80,7 @@ struct RefinementRouterBudgetTests {
 
   @Test(
     "AI-05: 課金されない失敗は予約を取り消し、記録しない",
-    arguments: [AIProviderError.networkUnavailable, .authenticationExpired, .quotaExceeded])
+    arguments: [AIProviderError.authenticationExpired, .quotaExceeded])
   func cancelsReservationWhenNotCharged(_ error: AIProviderError) async throws {
     let budgetGuard = try makeGuard(spent: 70)
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .fail(error)))
@@ -97,7 +97,7 @@ struct RefinementRouterBudgetTests {
 
   @Test(
     "AI-05: 課金されている可能性がある失敗は、見込み費用で記録する",
-    arguments: [AIProviderError.timeout, .invalidResponse])
+    arguments: [AIProviderError.timeout, .invalidResponse, .cancelled, .networkUnavailable])
   func settlesExpectedCostWhenPossiblyCharged(_ error: AIProviderError) async throws {
     let budgetGuard = try makeGuard(spent: 10)
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .fail(error)))
@@ -121,5 +121,41 @@ struct RefinementRouterBudgetTests {
 
     #expect(outcome.fallbackReason != nil)
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
+  }
+
+  @Test("AI-05: 応答に使用量がなければ、見込み費用で記録する")
+  func settlesExpectedCostWithoutUsage() async throws {
+    let budgetGuard = try makeGuard(spent: 10)
+    let router = try RefinementRouter(provider: StubAIProvider(behavior: .echo))
+
+    let outcome = try await router.refine(
+      request, cloudConsentGranted: true, budget: budget(budgetGuard, expected: 30))
+
+    #expect(outcome.source == .cloud)
+    #expect(await budgetGuard.ledger.spent(in: october) == 40)
+  }
+
+  @Test(
+    "AI-05: 送信中に呼び出し元がキャンセルしても、見込み費用で記録してから CancellationError を投げる",
+    .timeLimit(.minutes(1)))
+  func settlesBeforeThrowingCancellation() async throws {
+    let budgetGuard = try makeGuard(spent: 10)
+    let stub = StubAIProvider(behavior: .echo, delay: .seconds(60))
+    let router = try RefinementRouter(provider: stub)
+    let request = request
+    let budget = budget(budgetGuard, expected: 30)
+    let task = Task {
+      try await router.refine(request, cloudConsentGranted: true, budget: budget)
+    }
+    while await stub.callCount == 0 {
+      await Task.yield()
+    }
+
+    task.cancel()
+
+    await #expect(throws: CancellationError.self) {
+      try await task.value
+    }
+    #expect(await budgetGuard.ledger.spent(in: october) == 40)
   }
 }
