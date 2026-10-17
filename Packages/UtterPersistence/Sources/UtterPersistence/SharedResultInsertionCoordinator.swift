@@ -51,11 +51,14 @@ extension SharedResultPreview: CustomStringConvertible {
   }
 }
 
-/// キーボード拡張で、共有結果のプレビューと明示的な挿入を行う（iOS-05, iOS-IPC-03, iAC-04）。
+/// キーボード拡張で、共有結果のプレビューと明示的な挿入を行う（iOS-05, iOS-IPC-03, iOS-IPC-05, iAC-04）。
 ///
 /// 挿入の前に `inserting` を比較交換で保存して確保するため、連打・キーボードの再生成・本体アプリとの同時操作でも
 /// 1回しか挿入しない。挿入を確認できなければ `insertionUnknown` を記録し、自動では再挿入しない。
 /// 挿入後の記録が別プロセスの更新（整理で `insertionUnknown` にされた等）と競合したら、読み直して記録し直す。
+/// 挿入済みを記録した結果と、期限切れの結果は削除し、共有テキストを残さない。
+///
+/// 前提: 本体アプリは削除したセッションIDで結果を作り直さない（セッションごとに新しい ID を使う）。
 public actor SharedResultInsertionCoordinator {
   private let store: SharedResultStore
   private let inserter: any SharedResultTextInserter
@@ -74,7 +77,7 @@ public actor SharedResultInsertionCoordinator {
     self.now = now
   }
 
-  /// 待っているセッションの結果を、挿入前に表示する内容にする
+  /// 待っているセッションの結果を、挿入前に表示する内容にする。期限切れの結果はこのとき削除する
   public func preview(sessionID: SessionID) async throws -> SharedResultPreview {
     guard let result = try await store.load(sessionID: sessionID) else {
       return .notFound
@@ -84,28 +87,39 @@ public actor SharedResultInsertionCoordinator {
       return .insertable(text: result.text)
     case .needsConfirmation:
       return .needsConfirmation(text: result.text)
+    case .expired:
+      // 挿入に使えないため、共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
+      try? await store.delete(sessionID: sessionID)
+      return .notInsertable(.expired)
     case let other:
       return .notInsertable(other)
     }
   }
 
   /// 利用者の明示的な挿入操作を受けて挿入する。
+  ///
+  /// 投げるのは挿入する前の読み書きに失敗した場合だけで、そのときは挿入していない。
+  /// 挿入した後に記録できなくても、投げずに挿入の確認結果に応じた値を返す。
   /// - Parameter confirmedReinsertion: 挿入結果が不明な結果を、利用者が確認したうえで挿入し直す場合に `true`
   public func insert(
     sessionID: SessionID, confirmedReinsertion: Bool = false
   ) async throws -> SharedResultInsertionOutcome {
+    let now = now()
     guard let loaded = try await store.load(sessionID: sessionID) else {
       return .notFound
     }
     var claimed = loaded
     do {
-      if confirmedReinsertion {
-        try claimed.beginInsertionAfterConfirmation(for: sessionID, at: now())
+      // 確認つきの再挿入でも、結果がそのまま挿入できる状態なら通常の挿入として扱う
+      if confirmedReinsertion, loaded.insertability(for: sessionID, at: now) != .insertable {
+        try claimed.beginInsertionAfterConfirmation(for: sessionID, at: now)
       } else {
-        try claimed.beginInsertion(for: sessionID, at: now())
+        try claimed.beginInsertion(for: sessionID, at: now)
       }
+    } catch .notInsertable(let reason) {
+      return .notInserted(reason)
     } catch {
-      return .notInserted(loaded.insertability(for: sessionID, at: now()))
+      return .notInserted(loaded.insertability(for: sessionID, at: now))
     }
 
     // 挿入する前に確保する。別の操作が先に確保していれば挿入しない
@@ -113,17 +127,21 @@ public actor SharedResultInsertionCoordinator {
       try await store.save(claimed, expectedRevision: loaded.revision)
     } catch SharedResultStoreError.revisionConflict {
       let current = try await store.load(sessionID: sessionID)
-      return current.map { .notInserted($0.insertability(for: sessionID, at: now())) } ?? .notFound
+      return current.map { .notInserted($0.insertability(for: sessionID, at: now)) } ?? .notFound
     }
 
     let confirmation = await inserter.insert(claimed.text)
-    return try await record(confirmation, for: claimed)
+    return await record(confirmation, for: claimed)
   }
 
-  /// 挿入の結果を記録する。競合したら読み直し、挿入済みの記録を失わないようにする
+  /// 挿入の結果を記録する。競合したら読み直し、挿入済みの記録を失わないようにする。
+  ///
+  /// 挿入はすでに済んでいるため、記録に失敗しても投げずに、挿入の確認結果に応じた値を返す。
   private func record(
     _ confirmation: SharedResultInsertionConfirmation, for claimed: SharedResult
-  ) async throws -> SharedResultInsertionOutcome {
+  ) async -> SharedResultInsertionOutcome {
+    let outcome: SharedResultInsertionOutcome =
+      confirmation == .confirmed ? .inserted : .insertionUnknown
     var base = claimed
     for _ in 0..<Self.maxRecordAttempts {
       var updated = base
@@ -135,34 +153,28 @@ public actor SharedResultInsertionCoordinator {
           try updated.markInsertionUnknown()
         }
       } catch {
-        // 読み直した結果がすでに目的の状態か、記録できない状態（ready など）になっている
-        return Self.outcome(of: base, confirmation: confirmation)
-      }
-      guard updated.revision != base.revision else {
-        return Self.outcome(of: updated, confirmation: confirmation)
+        // 読み直した結果が、記録できない状態（挿入済みに対する結果不明など）になっている
+        return outcome
       }
       do {
-        try await store.save(updated, expectedRevision: base.revision)
-        return Self.outcome(of: updated, confirmation: confirmation)
+        if updated.revision != base.revision {
+          try await store.save(updated, expectedRevision: base.revision)
+        }
+        if case .consumed = updated.status {
+          // 挿入済みの共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
+          try? await store.delete(sessionID: claimed.sessionID)
+        }
+        return outcome
       } catch SharedResultStoreError.revisionConflict {
-        guard let current = try await store.load(sessionID: claimed.sessionID) else {
-          // 期限切れなどで削除された。挿入は済んでいるため、再挿入の対象は残っていない
-          return confirmation == .confirmed ? .inserted : .insertionUnknown
+        guard let current = try? await store.load(sessionID: claimed.sessionID) else {
+          // 期限切れなどで削除された、または読めない。挿入は済んでいる
+          return outcome
         }
         base = current
+      } catch {
+        return outcome
       }
     }
-    return .insertionUnknown
-  }
-
-  private static func outcome(
-    of result: SharedResult, confirmation: SharedResultInsertionConfirmation
-  ) -> SharedResultInsertionOutcome {
-    switch result.status {
-    case .consumed:
-      return .inserted
-    case .insertionUnknown, .inserting, .ready:
-      return confirmation == .confirmed ? .inserted : .insertionUnknown
-    }
+    return outcome
   }
 }

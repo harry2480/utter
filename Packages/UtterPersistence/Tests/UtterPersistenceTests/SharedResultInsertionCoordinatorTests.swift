@@ -28,7 +28,11 @@ struct SharedResultInsertionCoordinatorTests {
 
     func insert(_ text: String) async -> SharedResultInsertionConfirmation {
       inserted.withLock { $0.append(text) }
-      try? await duringInsertion()
+      do {
+        try await duringInsertion()
+      } catch {
+        Issue.record(error, "挿入中の割り込みに失敗した")
+      }
       return confirmation
     }
   }
@@ -46,7 +50,8 @@ struct SharedResultInsertionCoordinatorTests {
   }
 
   private func saveReady() async throws -> SharedResult {
-    let result = SharedResult(sessionID: sessionID, text: "明日の会議は10時からです。", createdAt: createdAt)
+    let result = SharedResult(
+      sessionID: sessionID, text: "明日の会議は10時からです。", createdAt: createdAt)
     try await SharedResultStore(directory: directory.url).save(result, expectedRevision: nil)
     return result
   }
@@ -67,29 +72,44 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(try await stored() == ready)
   }
 
-  @Test("iOS-IPC-02: 結果がない・期限切れ・別セッションは挿入可能としてプレビューしない")
+  @Test("iOS-IPC-02, iOS-IPC-05: 結果がない・別セッションは挿入せず、期限切れは検出したときに削除する")
   func previewsNonInsertableResults() async throws {
     let inserter = RecordingInserter()
     #expect(try await coordinator(inserter).preview(sessionID: sessionID) == .notFound)
 
     _ = try await saveReady()
-    #expect(
-      try await coordinator(inserter, at: 600).preview(sessionID: sessionID)
-        == .notInsertable(.expired))
     #expect(try await coordinator(inserter).preview(sessionID: SessionID()) == .notFound)
+
+    let expired = try await coordinator(inserter, at: 600).preview(sessionID: sessionID)
+    #expect(expired == .notInsertable(.expired))
+    #expect(try await stored() == nil)
   }
 
-  @Test("iAC-04: 明示的な挿入操作で1回だけ挿入し、挿入済みを記録する")
-  func insertsOnceAndRecordsConsumed() async throws {
+  @Test("iAC-04, iOS-IPC-05: 明示的な挿入操作で1回だけ挿入し、挿入後は共有テキストを削除する")
+  func insertsOnceAndDeletesAfterInsertion() async throws {
     let ready = try await saveReady()
     let inserter = RecordingInserter()
     let coordinator = coordinator(inserter)
 
     #expect(try await coordinator.insert(sessionID: sessionID) == .inserted)
-    #expect(try await coordinator.insert(sessionID: sessionID) == .notInserted(.consumed))
+    #expect(try await coordinator.insert(sessionID: sessionID) == .notFound)
 
     #expect(inserter.insertedTexts == [ready.text])
-    #expect(try await stored()?.consumedAt == after(1))
+    #expect(try await stored() == nil)
+  }
+
+  @Test("iAC-04: 挿入済みが記録されている結果は挿入しない")
+  func doesNotInsertConsumedResult() async throws {
+    var consumed = try await saveReady()
+    try consumed.beginInsertion(for: sessionID, at: after(1))
+    try consumed.markConsumed(at: after(2))
+    try await SharedResultStore(directory: directory.url).save(consumed, expectedRevision: 0)
+    let inserter = RecordingInserter()
+
+    let outcome = try await coordinator(inserter, at: 3).insert(sessionID: sessionID)
+
+    #expect(outcome == .notInserted(.consumed))
+    #expect(inserter.insertedTexts.isEmpty)
   }
 
   @Test("iAC-04: 挿入ボタンを同時に連打しても、挿入は1回だけ")
@@ -97,28 +117,37 @@ struct SharedResultInsertionCoordinatorTests {
     _ = try await saveReady()
     let inserter = RecordingInserter()
     let coordinator = coordinator(inserter)
+    let sessionID = sessionID
 
     let outcomes = await withTaskGroup(of: SharedResultInsertionOutcome?.self) { group in
       for _ in 0..<5 {
-        group.addTask { try? await coordinator.insert(sessionID: self.sessionID) }
+        group.addTask { try? await coordinator.insert(sessionID: sessionID) }
       }
       return await group.reduce(into: []) { $0.append($1) }
     }
 
     #expect(inserter.insertedTexts.count == 1)
     #expect(outcomes.filter { $0 == .inserted }.count == 1)
-    #expect(try await stored()?.consumedAt != nil)
+    #expect(try await stored() == nil)
   }
 
-  @Test("iAC-04: キーボードが再生成されても（別の調整役でも）、挿入済みの結果は挿入しない")
-  func regeneratedKeyboardDoesNotReinsert() async throws {
+  @Test("iAC-04: 挿入中にキーボードが再生成されても、別の調整役は挿入しない")
+  func regeneratedKeyboardDoesNotInsertWhileInProgress() async throws {
     _ = try await saveReady()
-    let first = RecordingInserter()
+    let directory = directory.url
+    let sessionID = sessionID
     let second = RecordingInserter()
+    let secondOutcome = Mutex<SharedResultInsertionOutcome?>(nil)
+    let now = after(2)
+    let first = RecordingInserter {
+      let regenerated = SharedResultInsertionCoordinator(
+        store: SharedResultStore(directory: directory), inserter: second, now: { now })
+      let outcome = try await regenerated.insert(sessionID: sessionID)
+      secondOutcome.withLock { $0 = outcome }
+    }
 
     #expect(try await coordinator(first).insert(sessionID: sessionID) == .inserted)
-    #expect(
-      try await coordinator(second, at: 2).insert(sessionID: sessionID) == .notInserted(.consumed))
+    #expect(secondOutcome.withLock { $0 } == .notInserted(.inProgress))
     #expect(second.insertedTexts.isEmpty)
   }
 
@@ -136,9 +165,10 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(try await later.insert(sessionID: sessionID) == .notInserted(.needsConfirmation))
     #expect(retry.insertedTexts.isEmpty)
 
-    #expect(try await later.insert(sessionID: sessionID, confirmedReinsertion: true) == .inserted)
+    let confirmed = try await later.insert(sessionID: sessionID, confirmedReinsertion: true)
+    #expect(confirmed == .inserted)
     #expect(retry.insertedTexts == [ready.text])
-    #expect(try await stored()?.consumedAt == after(5))
+    #expect(try await stored() == nil)
   }
 
   @Test("iOS-IPC-06: 挿入中に別プロセスが結果不明にしても、読み直して挿入済みを記録する")
@@ -146,16 +176,20 @@ struct SharedResultInsertionCoordinatorTests {
     _ = try await saveReady()
     let directory = directory.url
     let sessionID = sessionID
+    let interrupted = Mutex(false)
     // 本体アプリの整理が、挿入中の結果を結果不明にした状況を再現する
     let inserter = RecordingInserter {
       let other = SharedResultStore(directory: directory)
       var current = try #require(try await other.load(sessionID: sessionID))
       try current.markInsertionUnknown()
       try await other.save(current, expectedRevision: current.revision - 1)
+      interrupted.withLock { $0 = true }
     }
 
     #expect(try await coordinator(inserter).insert(sessionID: sessionID) == .inserted)
-    #expect(try await stored()?.consumedAt == after(1))
+    #expect(interrupted.withLock { $0 })
+    // 読み直して挿入済みを記録できた場合だけ、削除まで進む
+    #expect(try await stored() == nil)
   }
 
   @Test("iOS-IPC-05: 挿入中に結果が削除されても、挿入済みとして扱い作り直さない")
