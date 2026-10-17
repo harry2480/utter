@@ -168,6 +168,21 @@ struct MonthlyUsageStoreTests {
     #expect(try store.spent(in: october, currencyCode: "JPY") == Decimal.greatestFiniteMagnitude)
   }
 
+  @Test("AI-05: 月をまたいだ合計が Decimal で表せなければ、期間の集計を拒否する")
+  func rejectsOverflowingRangeTotal() throws {
+    let november = try month(2026, 11)
+    let december = try month(2026, 12)
+    try store.record(Decimal.greatestFiniteMagnitude, currencyCode: "JPY", in: november)
+    try store.record(Decimal.greatestFiniteMagnitude, currencyCode: "JPY", in: december)
+
+    #expect(throws: MonthlyUsageStoreError.totalOverflow) {
+      try store.spent(from: november, through: december, currencyCode: "JPY")
+    }
+    #expect(
+      try store.spent(from: november, through: november, currencyCode: "JPY")
+        == Decimal.greatestFiniteMagnitude)
+  }
+
   @Test("AI-05: 範囲外の年月は作れない", arguments: [(2026, 0), (2026, 13), (0, 1), (10_000, 1)])
   func rejectsInvalidMonth(_ year: Int, _ month: Int) {
     #expect(throws: MonthlyUsageStoreError.invalidMonth) {

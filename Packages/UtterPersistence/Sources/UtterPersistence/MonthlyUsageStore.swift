@@ -54,7 +54,12 @@ public struct MonthlyUsageStore: Sendable {
           WHERE currencyCode = ? AND monthIndex BETWEEN ? AND ?
           """,
         arguments: [currencyCode, start.index, end.index]
-      ).reduce(Decimal(0)) { total, text in total + (try Self.decode(text)) }
+      ).reduce(Decimal(0)) { total, text in
+        // 月ごとには表せても、月をまたいだ合計は範囲を超えて NaN になりうる
+        let next = total + (try Self.decode(text))
+        guard !next.isNaN else { throw MonthlyUsageStoreError.totalOverflow }
+        return next
+      }
     }
   }
 
@@ -163,7 +168,7 @@ public enum MonthlyUsageStoreError: Error, Hashable, Sendable {
   case invalidCurrencyCode
   /// 年が 1〜9999、月が 1〜12 の範囲外
   case invalidMonth
-  /// 加算後の累計が Decimal で表せる範囲を超える
+  /// 加算後の累計、または期間の合計が Decimal で表せる範囲を超える
   case totalOverflow
   /// 保存されている金額を数値として読めない
   case corruptedAmount
