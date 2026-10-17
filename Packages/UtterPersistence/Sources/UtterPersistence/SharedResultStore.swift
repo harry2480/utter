@@ -50,7 +50,7 @@ public actor SharedResultStore: Sendable {
   public func save(_ result: SharedResult, expectedRevision: UInt64?) throws {
     let url = fileURL(for: result.sessionID)
     try withFileLock(for: result.sessionID) {
-      let storedRevision = try read(from: url)?.revision
+      let storedRevision = try read(sessionID: result.sessionID)?.revision
       // 古い結果を新しい revision の前提で渡されても、状態を巻き戻さない
       guard storedRevision == expectedRevision,
         expectedRevision.map({ result.revision > $0 }) ?? true
@@ -64,7 +64,7 @@ public actor SharedResultStore: Sendable {
   /// 結果を読み込む（存在しなければ nil）。別プロセスの更新を反映するため、毎回ファイルから読む
   /// - Throws: 端末のロック中などで読めなければ `SharedResultStoreError.fileAccessDenied`
   public func load(sessionID: SessionID) throws -> SharedResult? {
-    try read(from: fileURL(for: sessionID))
+    try read(sessionID: sessionID)
   }
 
   /// 結果を削除
@@ -93,7 +93,7 @@ public actor SharedResultStore: Sendable {
         try withFileLock(for: sessionID) {
           let stored: SharedResult?
           do {
-            stored = try read(from: url)
+            stored = try read(sessionID: sessionID)
           } catch SharedResultStoreError.corruptedResult {
             try removeFile(at: url)
             report.removedCount += 1
@@ -136,7 +136,8 @@ public actor SharedResultStore: Sendable {
   }
 
   /// 存在確認の後に別プロセスが削除する競合を避けるため、先に読み込み、ファイルがないときだけ `nil` にする
-  private func read(from url: URL) throws -> SharedResult? {
+  private func read(sessionID: SessionID) throws -> SharedResult? {
+    let url = fileURL(for: sessionID)
     let data: Data
     do {
       data = try Data(contentsOf: url)
@@ -146,9 +147,10 @@ public actor SharedResultStore: Sendable {
       throw SharedResultStoreError.fileAccessDenied
     }
     // 独自の init(from:) が投げるエラーは DecodingError に包まれないため、種類を問わず壊れた結果として扱う。
-    // 合成された復号は有効期限と作成時刻の前後を検証しないため、ここで確かめる
+    // 合成された復号は有効期限と作成時刻の前後を検証しないため、ここで確かめる。
+    // ファイル名と中身のセッションが食い違う結果も、照合や復旧に使えないため壊れた結果とする
     guard let result = try? JSONDecoder().decode(SharedResult.self, from: data),
-      result.expiresAt > result.createdAt
+      result.expiresAt > result.createdAt, result.sessionID == sessionID
     else {
       throw SharedResultStoreError.corruptedResult
     }

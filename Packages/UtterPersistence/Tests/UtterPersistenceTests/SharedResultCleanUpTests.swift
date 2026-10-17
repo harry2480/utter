@@ -100,6 +100,23 @@ struct SharedResultCleanUpTests {
     #expect(try await store.load(sessionID: sessionID) == nil)
   }
 
+  @Test("iOS-IPC-06: ファイル名と中身のセッションが食い違う結果は壊れた結果として削除する")
+  func removesResultWithMismatchedSessionID() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    let interrupted = try inserting(at: 1)
+    try await save(interrupted, in: store)
+    let renamed = SessionID()
+    try FileManager.default.moveItem(
+      at: directory.url.appendingPathComponent("\(interrupted.sessionID.rawValue.uuidString).json"),
+      to: directory.url.appendingPathComponent("\(renamed.rawValue.uuidString).json"))
+
+    await #expect(throws: SharedResultStoreError.corruptedResult) {
+      try await store.load(sessionID: renamed)
+    }
+    #expect(try await store.cleanUp(at: after(32)) == SharedResultCleanUpReport(removedCount: 1))
+    #expect(try await store.load(sessionID: renamed) == nil)
+  }
+
   @Test("iOS-IPC-02: 端末の時刻が作成時より前なら、期限を判定できないため削除しない")
   func keepsResultWhenClockMovedBackwards() async throws {
     let store = SharedResultStore(directory: directory.url)
