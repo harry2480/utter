@@ -153,13 +153,40 @@ struct SharedResultCleanUpTests {
     #expect(protection.writingOption == option)
   }
 
-  @Test("iOS-IPC-05: ファイル保護クラスを指定しても保存・読み込みできる")
-  func savesWithFileProtection() async throws {
-    let store = SharedResultStore(directory: directory.url, fileProtection: .complete)
+  // .complete / .completeUnlessOpen は macOS ではロック状態に関係なく読み書きが拒否されることがあるため、
+  // 実際の挙動は iOS 実機の検証手順で確認する（AC-19）
+  @Test(
+    "iOS-IPC-05: ファイル保護クラスを指定しても保存・読み込みできる",
+    arguments: [SharedResultFileProtection.completeUntilFirstUserAuthentication, .none])
+  func savesWithFileProtection(_ protection: SharedResultFileProtection) async throws {
+    let store = SharedResultStore(directory: directory.url, fileProtection: protection)
     let result = ready()
 
     try await store.save(result, expectedRevision: nil)
 
     #expect(try await store.load(sessionID: result.sessionID) == result)
+  }
+
+  @Test("iOS-IPC-06: 値が矛盾した結果は壊れた結果として扱い、整理で削除して残りの整理を続ける")
+  func removesInconsistentResultAndContinues() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    var consumed = try inserting(at: 1)
+    try consumed.markConsumed(at: after(2))
+    try await save(consumed, in: store)
+
+    // 有効期限の設定が0秒（独自の復号で拒否される）の結果
+    let broken = SessionID()
+    let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(ready(broken)))
+    var object = try #require(json as? [String: Any])
+    object["configuration"] = ["timeToLive": 0, "insertionGracePeriod": 30]
+    try JSONSerialization.data(withJSONObject: object).write(
+      to: directory.url.appendingPathComponent("\(broken.rawValue.uuidString).json"))
+
+    await #expect(throws: SharedResultStoreError.corruptedResult) {
+      try await store.load(sessionID: broken)
+    }
+    #expect(try await store.cleanUp(at: after(3)) == SharedResultCleanUpReport(removedCount: 2))
+    #expect(try await store.load(sessionID: broken) == nil)
+    #expect(try await store.load(sessionID: consumed.sessionID) == nil)
   }
 }

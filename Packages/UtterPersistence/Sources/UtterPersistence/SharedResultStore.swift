@@ -80,9 +80,10 @@ public actor SharedResultStore: Sendable {
   /// 状態が矛盾せず、自動で再挿入されない状態にそろえる。
   /// - 挿入済みの結果と、有効期限を過ぎた結果は削除する（共有テキストを残さない）
   /// - 猶予時間を過ぎても挿入中のままの結果は `insertionUnknown` にする。利用者の確認なしには再挿入できない
-  /// - 読み込めない（壊れた）結果は、挿入に使えないため削除する
-  /// - 端末のロック中などで読み書きできない結果は、変更せずに残す
+  /// - 復号できない・値が矛盾している（壊れた）結果は、挿入に使えないため削除する
+  /// - 端末のロック中などで読み書きできない結果は、変更せずに残して次の結果へ進む
   /// - 端末の時刻が作成時より前の結果は、期限を判定できないため削除しない
+  /// - 1つの結果で失敗しても、残りの結果の整理は続ける
   @discardableResult
   public func cleanUp(at now: Date) throws -> SharedResultCleanUpReport {
     var report = SharedResultCleanUpReport()
@@ -93,13 +94,13 @@ public actor SharedResultStore: Sendable {
           let stored: SharedResult?
           do {
             stored = try read(from: url)
-          } catch is DecodingError {
+          } catch SharedResultStoreError.corruptedResult {
             try removeFile(at: url)
             report.removedCount += 1
             return
           }
           guard var result = stored else { return }
-          if result.consumedAt != nil || (now >= result.createdAt && now >= result.expiresAt) {
+          if result.consumedAt != nil || now >= result.expiresAt {
             try removeFile(at: url)
             report.removedCount += 1
           } else if case .inserting = result.status,
@@ -110,7 +111,8 @@ public actor SharedResultStore: Sendable {
             report.markedInsertionUnknownCount += 1
           }
         }
-      } catch SharedResultStoreError.fileAccessDenied {
+      } catch {
+        // ロック中・ロックの失敗・その他の I/O エラーは、この結果を変えずに次へ進む
         report.skippedCount += 1
       }
     }
@@ -143,7 +145,14 @@ public actor SharedResultStore: Sendable {
     } catch let error as CocoaError where error.code == .fileReadNoPermission {
       throw SharedResultStoreError.fileAccessDenied
     }
-    return try JSONDecoder().decode(SharedResult.self, from: data)
+    // 独自の init(from:) が投げるエラーは DecodingError に包まれないため、種類を問わず壊れた結果として扱う。
+    // 合成された復号は有効期限と作成時刻の前後を検証しないため、ここで確かめる
+    guard let result = try? JSONDecoder().decode(SharedResult.self, from: data),
+      result.expiresAt > result.createdAt
+    else {
+      throw SharedResultStoreError.corruptedResult
+    }
+    return result
   }
 
   private func write(_ result: SharedResult, to url: URL) throws {
@@ -160,6 +169,8 @@ public actor SharedResultStore: Sendable {
       try FileManager.default.removeItem(at: url)
     } catch let error as CocoaError where error.code == .fileNoSuchFile {
       return
+    } catch let error as CocoaError where error.code == .fileWriteNoPermission {
+      throw SharedResultStoreError.fileAccessDenied
     }
   }
 
@@ -171,7 +182,9 @@ public actor SharedResultStore: Sendable {
     let lockURL = directory.appendingPathComponent("\(sessionID.rawValue.uuidString).lock")
     let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
     guard descriptor >= 0 else {
-      throw SharedResultStoreError.lockFailed
+      // 端末のロック中（ファイル保護）は EPERM / EACCES になる
+      throw errno == EPERM || errno == EACCES
+        ? SharedResultStoreError.fileAccessDenied : SharedResultStoreError.lockFailed
     }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX) == 0 else {
@@ -233,4 +246,6 @@ public enum SharedResultStoreError: Error, Hashable, Sendable {
   case lockFailed
   /// 端末のロック中（ファイル保護）やアクセス権限のため、結果を読み書きできない
   case fileAccessDenied
+  /// 保存されている結果を復号できない、または値が矛盾している
+  case corruptedResult
 }
