@@ -34,11 +34,15 @@ public struct AudioCapture: Sendable {
   }
 
   /// チャンクを受け入れる。上限を超える場合は、収まる先頭のサンプルだけを残して停止する。
-  /// - Returns: 結果と、処理対象として残すチャンク（受け入れなかった場合は `nil`）
+  /// - Returns: 結果と、処理対象として残すチャンク（受け入れなかった場合と空のチャンクは `nil`）
   public mutating func append(_ chunk: AudioChunk) -> (result: AudioAppendResult, kept: AudioChunk?)
   {
     if let stopReason {
       return (.stopped(stopReason), nil)
+    }
+    // 空のチャンクは音声を持たないため流さない。バイト数が増えないまま溜まり続けるのを防ぐ
+    guard !chunk.samples.isEmpty else {
+      return (.accepted, nil)
     }
     if buffer.canAccept(chunk, currentSize: byteCount) {
       byteCount += buffer.sizeInBytes(of: chunk)

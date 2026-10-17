@@ -151,12 +151,17 @@ struct BoundedAudioStreamTests {
     #expect(stream.byteCount == 100)
   }
 
-  @Test("REC-05: 空のチャンクは受け入れ、上限の判定に影響しない")
-  func acceptsEmptyChunk() {
-    let (stream, _) = BoundedAudioStream.make(buffer: AudioStreamBuffer(maxBytes: 100))
+  @Test("REC-05: 空のチャンクは流さず、上限の判定にも影響しない")
+  func doesNotEnqueueEmptyChunks() async {
+    let (stream, chunks) = BoundedAudioStream.make(buffer: AudioStreamBuffer(maxBytes: 100))
 
-    #expect(stream.yield(chunk(0)) == .accepted)
-    #expect(stream.byteCount == 0)
-    #expect(stream.stopReason == nil)
+    for _ in 0..<1_000 {
+      #expect(stream.yield(chunk(0)) == .accepted)
+    }
+    stream.yield(chunk(10))
+    stream.finish()
+
+    #expect(await collect(chunks) == [chunk(10)])
+    #expect(stream.byteCount == 20)
   }
 }
