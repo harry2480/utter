@@ -80,6 +80,36 @@ public struct SessionStateMachine: Sendable {
     return finishRecording(reason: .bufferLimitReached)
   }
 
+  /// 録音中の割り込みを `policy` に従って処理する（iOS-PERF-03）。
+  ///
+  /// - 録音を止める割り込みで音声があれば、自動停止として認識へ進む（REC-05: 音声を破棄しない）
+  /// - 処理できる音声がなければ、録音段階の失敗（`error(.recording)`）として表示する
+  /// - 録音を止めない割り込み、または録音中以外では状態を変えない
+  ///
+  /// 停止・中止の原因は `activeSession.stopReason` に `.interrupted` として残る。
+  /// - Parameters:
+  ///   - interruption: OS の通知をアプリ側で変換した値
+  ///   - capturedAudioDuration: その時点までに取得できた音声の長さ
+  ///   - policy: 割り込みへの対応方針
+  @discardableResult
+  public mutating func handleInterruption(
+    _ interruption: RecordingInterruption,
+    capturedAudioDuration: Duration,
+    policy: RecordingInterruptionPolicy
+  ) -> RecordingInterruptionOutcome {
+    guard phase == .recording else { return .ignored }
+    switch policy.decision(for: interruption, capturedAudioDuration: capturedAudioDuration) {
+    case .continueRecording:
+      return .continued
+    case .stopAndProcess(let cause):
+      guard let token = finishRecording(reason: .interrupted(cause)) else { return .ignored }
+      return .stopped(token)
+    case .abort(let cause):
+      advance(to: .error(.recording), stopReason: .interrupted(cause))
+      return .aborted(cause)
+    }
+  }
+
   /// 非同期処理の結果を反映する。
   ///
   /// 現在のトークンと一致しないイベントは遅延イベントとして破棄する。
@@ -158,5 +188,17 @@ public enum SessionStartOutcome: Hashable, Sendable {
   /// 録音中だったため停止した。値は認識段階のトークン
   case stopped(SessionToken)
   /// 処理中のため無視した
+  case ignored
+}
+
+/// 録音中の割り込みを処理した結果（iOS-PERF-03）。
+public enum RecordingInterruptionOutcome: Hashable, Sendable {
+  /// 録音を続ける
+  case continued
+  /// 録音を止めて認識へ進んだ。値は認識段階のトークン。アプリは録音を止め、取得済みの音声を認識へ渡す
+  case stopped(SessionToken)
+  /// 処理できる音声がないため録音を中止し、失敗の表示へ進んだ。アプリは録音を止めて理由を表示する
+  case aborted(RecordingInterruptionCause)
+  /// 録音中ではないため何もしなかった
   case ignored
 }

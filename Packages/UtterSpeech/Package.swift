@@ -3,7 +3,8 @@ import PackageDescription
 
 let package = Package(
   name: "UtterSpeech",
-  platforms: [.macOS(.v26)],
+  // iOS の最低バージョンは Phase i0（#54）で確定するまでの仮の値。確定したら全 Package をそろえて直す
+  platforms: [.macOS(.v26), .iOS(.v26)],
   products: [
     .library(name: "UtterSpeech", targets: ["UtterSpeech"])
   ],
