@@ -1,94 +1,97 @@
-import Foundation
-import UtterCore
+import GRDB
 
 /// ユーザー辞書の保存層（TXT-03）。
 ///
-/// UtterText の UserDictionary を永続化するスレッドセーフなストア。
-public actor DictionaryStore: Sendable {
-  private var entries: [String: String] = [:]
+/// 辞書語と用語置換ルールを保存する。読み出した値から UtterText の `UserDictionary` を組み立てるのは呼び出し側の責務で、
+/// ルール同士の競合の検証もそこで行う。UtterText に依存しないよう、ここでは文字列として扱う。
+public struct DictionaryStore: Sendable {
+  private let database: UtterDatabase
 
-  public init() {}
-
-  /// エントリを追加または更新
-  public func set(key: String, value: String) {
-    entries[key] = value
+  public init(database: UtterDatabase) {
+    self.database = database
   }
 
-  /// エントリを取得
-  public func get(_ key: String) -> String? {
-    entries[key]
+  /// 追加した順の辞書語
+  public func terms() throws -> [String] {
+    try database.writer.read { db in
+      try String.fetchAll(db, sql: "SELECT spelling FROM dictionaryTerm ORDER BY id")
+    }
   }
 
-  /// エントリを削除
-  public func remove(_ key: String) {
-    entries.removeValue(forKey: key)
+  /// 辞書語を追加する。すでにあれば何もしない
+  public func addTerm(_ spelling: String) throws {
+    guard !spelling.isEmpty else { throw DictionaryStoreError.emptySpelling }
+    try database.writer.write { db in
+      try db.execute(
+        sql: "INSERT INTO dictionaryTerm (spelling) VALUES (?) ON CONFLICT(spelling) DO NOTHING",
+        arguments: [spelling])
+    }
   }
 
-  /// すべてのエントリを取得
-  public func all() -> [String: String] {
-    entries
+  /// 辞書語を削除する。なければ何もしない
+  public func removeTerm(_ spelling: String) throws {
+    try database.writer.write { db in
+      try db.execute(sql: "DELETE FROM dictionaryTerm WHERE spelling = ?", arguments: [spelling])
+    }
   }
 
-  /// すべてクリア
-  public func clear() {
-    entries.removeAll()
+  /// 定義順の置換ルール
+  public func rules() throws -> [StoredReplacementRule] {
+    try database.writer.read { db in
+      try Row.fetchAll(
+        db, sql: "SELECT pattern, replacement, ignoresCase FROM replacementRule ORDER BY id"
+      ).map { row in
+        StoredReplacementRule(
+          pattern: row["pattern"], replacement: row["replacement"], ignoresCase: row["ignoresCase"])
+      }
+    }
+  }
+
+  /// 置換ルールを追加する。同じパターンのルールがあれば、定義順を保ったまま置換後の表記と大文字小文字の扱いを更新する
+  public func saveRule(_ rule: StoredReplacementRule) throws {
+    guard !rule.pattern.isEmpty else { throw DictionaryStoreError.emptyPattern }
+    try database.writer.write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO replacementRule (pattern, replacement, ignoresCase) VALUES (?, ?, ?)
+          ON CONFLICT(pattern) DO UPDATE SET
+            replacement = excluded.replacement, ignoresCase = excluded.ignoresCase
+          """,
+        arguments: [rule.pattern, rule.replacement, rule.ignoresCase])
+    }
+  }
+
+  /// パターンが一致する置換ルールを削除する。なければ何もしない
+  public func removeRule(pattern: String) throws {
+    try database.writer.write { db in
+      try db.execute(sql: "DELETE FROM replacementRule WHERE pattern = ?", arguments: [pattern])
+    }
+  }
+
+  /// 辞書語と置換ルールをすべて削除する
+  public func removeAll() throws {
+    try database.writer.write { db in
+      try db.execute(sql: "DELETE FROM dictionaryTerm")
+      try db.execute(sql: "DELETE FROM replacementRule")
+    }
   }
 }
 
-/// 月次推定費用の保存層（AI-05）。
-///
-/// MonthlyUsageLedger を永続化するスレッドセーフなストア。
-/// 操作は順序を保証する呼び出し側の責務。
-public actor MonthlyUsageStore: Sendable {
-  private var ledger: [String: Double] = [:]
+/// 保存された用語置換ルール（TXT-03）。UtterText の `ReplacementRule` と同じ項目を持つ
+public struct StoredReplacementRule: Hashable, Sendable {
+  public let pattern: String
+  public let replacement: String
+  public let ignoresCase: Bool
 
-  public init() {}
-
-  /// 月のコスト合計に加算（正の値のみ）
-  /// - Parameters:
-  ///   - month: 月（例: "2024-10"）
-  ///   - cost: 追加コスト。非有限値（NaN・無限大）と負の値は拒否
-  /// - Throws: 加算後の合計が有限でなければ `CostError.nonFiniteTotal`。このとき既存の合計は変えない
-  public func add(month: String, cost: Double) throws {
-    // NaN は `>= 0` が false になるため、負の値より先に有限性を確認する
-    guard cost.isFinite else {
-      throw CostError.nonFiniteCost(cost)
-    }
-    guard cost >= 0 else {
-      throw CostError.negativeCost(cost)
-    }
-    let total = (ledger[month] ?? 0) + cost
-    guard total.isFinite else {
-      throw CostError.nonFiniteTotal
-    }
-    ledger[month] = total
-  }
-
-  /// 月のコスト合計を取得
-  public func total(month: String) -> Double {
-    ledger[month] ?? 0
-  }
-
-  /// すべての月のコストを取得
-  public func all() -> [String: Double] {
-    ledger
-  }
-
-  /// 月のコストをリセット
-  public func remove(month: String) {
-    ledger.removeValue(forKey: month)
-  }
-
-  /// すべてクリア
-  public func clear() {
-    ledger.removeAll()
+  public init(pattern: String, replacement: String, ignoresCase: Bool = false) {
+    self.pattern = pattern
+    self.replacement = replacement
+    self.ignoresCase = ignoresCase
   }
 }
 
-/// コスト記録エラー
-public enum CostError: Error {
-  case negativeCost(Double)
-  case nonFiniteCost(Double)
-  /// 加算後の月次合計が有限でない
-  case nonFiniteTotal
+/// 辞書の保存エラー。利用者の入力は含めない
+public enum DictionaryStoreError: Error, Hashable, Sendable {
+  case emptySpelling
+  case emptyPattern
 }
