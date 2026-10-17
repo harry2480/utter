@@ -47,15 +47,21 @@ public actor MonthlyUsageStore: Sendable {
   /// 月のコスト合計に加算（正の値のみ）
   /// - Parameters:
   ///   - month: 月（例: "2024-10"）
-  ///   - cost: 追加コスト。負の値は拒否
+  ///   - cost: 追加コスト。非有限値（NaN・無限大）と負の値は拒否
+  /// - Throws: 加算後の合計が有限でなければ `CostError.nonFiniteTotal`。このとき既存の合計は変えない
   public func add(month: String, cost: Double) throws {
-    guard cost >= 0 else {
-      throw CostError.negativeCost(cost)
-    }
+    // NaN は `>= 0` が false になるため、負の値より先に有限性を確認する
     guard cost.isFinite else {
       throw CostError.nonFiniteCost(cost)
     }
-    ledger[month] = (ledger[month] ?? 0) + cost
+    guard cost >= 0 else {
+      throw CostError.negativeCost(cost)
+    }
+    let total = (ledger[month] ?? 0) + cost
+    guard total.isFinite else {
+      throw CostError.nonFiniteTotal
+    }
+    ledger[month] = total
   }
 
   /// 月のコスト合計を取得
@@ -83,4 +89,6 @@ public actor MonthlyUsageStore: Sendable {
 public enum CostError: Error {
   case negativeCost(Double)
   case nonFiniteCost(Double)
+  /// 加算後の月次合計が有限でない
+  case nonFiniteTotal
 }

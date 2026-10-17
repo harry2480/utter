@@ -61,6 +61,34 @@ struct DictionaryStoreTests {
     }
   }
 
+  @Test("AI-05: NaN のコスト値は負の値ではなく非有限値として拒否")
+  func rejectNaNCostAsNonFinite() async {
+    let store = MonthlyUsageStore()
+    do {
+      try await store.add(month: "2024-10", cost: Double.nan)
+      #expect(Bool(false), "NaN のコストが拒否されるはず")
+    } catch CostError.nonFiniteCost(let cost) {
+      #expect(cost.isNaN)
+    } catch {
+      #expect(Bool(false), "予期しないエラー: \(error)")
+    }
+  }
+
+  @Test("AI-05: 加算後の合計が有限でなければ拒否し、既存の合計を保つ")
+  func rejectNonFiniteTotal() async throws {
+    let store = MonthlyUsageStore()
+    try await store.add(month: "2024-10", cost: Double.greatestFiniteMagnitude)
+    do {
+      try await store.add(month: "2024-10", cost: Double.greatestFiniteMagnitude)
+      #expect(Bool(false), "有限でない合計が拒否されるはず")
+    } catch CostError.nonFiniteTotal {
+      // 期待通り
+    } catch {
+      #expect(Bool(false), "予期しないエラー: \(error)")
+    }
+    #expect(await store.total(month: "2024-10") == Double.greatestFiniteMagnitude)
+  }
+
   @Test("AI-05: 月次コストの削除")
   func removeMonth() async throws {
     let store = MonthlyUsageStore()
