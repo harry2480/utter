@@ -42,6 +42,9 @@ func runStatus(locale: Locale) async {
   print(
     "プリセット transcription の reportingOptions: \(describe(PresetName.transcription.preset.reportingOptions))"
   )
+  print(
+    "プリセット timeIndexedProgressive の reportingOptions: "
+      + "\(describe(PresetName.timeIndexedProgressive.preset.reportingOptions))")
 
   // SpeechTranscriber が使えない場合の参考（DictationTranscriber は従来の音声入力相当のモデル）
   let dictation = await DictationTranscriber.supportedLocale(equivalentTo: locale)
@@ -98,8 +101,12 @@ func runInstall(locale: Locale) async throws {
   let reserved = await AssetInventory.reservedLocales
   if !contains(reserved, supported) {
     do {
-      let result = try await AssetInventory.reserve(locale: supported)
-      print("ロケールを予約しました: \(supported.identifier)（\(result)）")
+      if try await AssetInventory.reserve(locale: supported) {
+        print("ロケールを予約しました: \(supported.identifier)")
+      } else {
+        printError(
+          "ロケールを予約できませんでした（上限 \(AssetInventory.maximumReservedLocales)）: \(supported.identifier)")
+      }
     } catch {
       // 予約できなくても、ダウンロード要求の側で扱われる場合があるため続ける
       printError("ロケールを予約できません: \(error.localizedDescription)")

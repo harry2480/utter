@@ -24,9 +24,9 @@ struct RunOptions {
   var locale = Locale(identifier: "ja_JP")
   var preset: PresetName = .progressive
   var pace: Pace = .realtime
-  var retention: SpeechAnalyzer.Options.ModelRetention?
-  /// 記録用の名前（省略時は OS の既定）
-  var retentionName = "default"
+  var retention: SpeechAnalyzer.Options.ModelRetention = .whileInUse
+  /// 記録用の名前
+  var retentionName = "whileInUse"
   var cancelAfter: Double?
   var memoryInterval: Double = 0.5
   var logPath: String?
@@ -66,7 +66,7 @@ let usage = """
     --locale <id>             既定 ja_JP
     --preset <名前>           progressive（既定）| transcription | timeIndexedProgressive
     --pace <realtime|fast>    realtime: 音声の長さどおりに渡す（遅延を計測） / fast: 待たずに渡す（実時間比のみ）
-    --retention <名前>        whileInUse | lingering | processLifetime（省略時は OS の既定）
+    --retention <名前>        whileInUse（既定）| lingering | processLifetime
     --cancel-after <秒>       入力開始からこの秒数で cancelAndFinishNow() を呼び、応答時間を計測する
     --memory-interval <秒>    物理メモリ（phys_footprint）の記録間隔。既定 0.5
     --log <path.jsonl>        結果・メモリのイベントを JSON Lines で保存する（認識本文を含む）
@@ -89,7 +89,7 @@ func parseCommand(_ arguments: [String]) throws -> Command {
   }
   func number(for flag: String) throws -> Double {
     let text = try value(for: flag)
-    guard let number = Double(text), number > 0 else {
+    guard let number = Double(text), number.isFinite, number > 0 else {
       throw UsageError(description: "\(flag) には正の数を指定してください: \(text)")
     }
     return number

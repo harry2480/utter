@@ -97,10 +97,10 @@ func feedFile(
     }
     try file.read(into: buffer, frameCount: chunkFrames)
     guard buffer.frameLength > 0 else { break }
-    fedFrames += AVAudioFramePosition(buffer.frameLength)
+    let chunkEndFrames = fedFrames + AVAudioFramePosition(buffer.frameLength)
     if pace == .realtime {
       // マイクと同じく、チャンクの終わりの時刻になってから渡す
-      let chunkEnd = start + .seconds(Double(fedFrames) / inputFormat.sampleRate)
+      let chunkEnd = start + .seconds(Double(chunkEndFrames) / inputFormat.sampleRate)
       do {
         try await Task.sleep(until: chunkEnd, clock: .continuous)
       } catch {
@@ -111,6 +111,8 @@ func feedFile(
     if converted.frameLength > 0 {
       continuation.yield(AnalyzerInput(buffer: converted))
     }
+    // 渡したチャンクだけを音声の長さに数える（キャンセルで渡さなかった分は含めない）
+    fedFrames = chunkEndFrames
   }
   if let rest = try converter.flush(), rest.frameLength > 0, !Task.isCancelled {
     continuation.yield(AnalyzerInput(buffer: rest))
@@ -130,6 +132,8 @@ func feedMicrophone(
   guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
     throw ProbeError("入力デバイスがありません（マイクの権限と入力デバイスを確認してください）")
   }
+  // 変換器はタップのスレッドで使い、flush はタップを外してエンジンを止めた後にだけ呼ぶ
+  // （AVAudioConverter はスレッド安全でないため、同時に触らない順序で使う）
   let converter = try BufferConverter(from: inputFormat, to: format)
   let capturedFrames = Mutex<AVAudioFramePosition>(0)
   let conversionFailed = Mutex(false)
@@ -156,8 +160,9 @@ func feedMicrophone(
   } catch {
     // キャンセル（--cancel-after）。ここまでの音声で終える
   }
-  engine.stop()
+  // 先にタップを外してからエンジンを止め、タップのスレッドが変換器を触らなくなってから flush する
   input.removeTap(onBus: 0)
+  engine.stop()
   // サンプルレート変換器に残った末尾のフレームも渡す（発話の終わりを欠かさない）
   if let rest = try converter.flush(), rest.frameLength > 0 {
     continuation.yield(AnalyzerInput(buffer: rest))

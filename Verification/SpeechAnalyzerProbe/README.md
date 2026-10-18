@@ -81,9 +81,9 @@ $probe file eval/audio/ja-001.m4a --cancel-after 1
 | prepareToAnalyze | モデルのロードを含む準備時間（初回と2回目以降で差を見る） |
 | 最初の結果（音声0から） | 最初の結果を受け取るまでの秒。発話前の無音を含む |
 | 遅延 volatile / final | 上の `lag` の p50 / p95 / 最大 |
-| 入力終了→最後の確定 | 入力を止めてから最後の確定結果が届くまで（6章「停止→挿入」の STT 部分） |
-| 入力終了→finish 完了 | `finalizeAndFinishThroughEndOfInput()` が戻るまで |
-| 実時間比 | 処理時間 ÷ 音声の長さ。`--pace fast` のときの処理速度の目安 |
+| 入力終了→最後の確定 | 入力を止めてから最後の確定結果が届くまで（6章「停止→挿入」の STT 部分）。`--pace realtime` と `mic` のときだけ |
+| 入力終了→finish 完了 | `finalizeAndFinishThroughEndOfInput()` が戻るまで。`--pace realtime` と `mic` のときだけ |
+| 実時間比 | 音声時刻 0 から結果のストリームが終わる（すべての結果を受け取る）までの時間 ÷ 音声の長さ。`--pace fast` のときの処理速度の目安。失敗した実行では出さない |
 | phys_footprint | 開始時・計測中の最大・プロセス生涯の最大（MB） |
 | キャンセル | `cancelAndFinishNow()` の戻りまでの時間、結果のストリームが終わるまでの時間、呼び出し後に届いた結果の数 |
 
@@ -92,8 +92,9 @@ $probe file eval/audio/ja-001.m4a --cancel-after 1
 - 遅延は `--pace realtime`（`file` の既定）と `mic` のときだけ出す。`--pace fast` では音声を待たずに渡すため遅延は意味を持たず、`-` になる
 - `file --pace realtime` は 100ms ごとに、そのチャンクの終わりの時刻になってから渡す。マイクの入力遅延は含まない
 - `mic` は最初のバッファの先頭を音声時刻 0 とする。入力デバイスのハードウェア遅延は含まない
-- 6章の目標は「準備済みモデル（ロード済み）」の条件。初回（コールドスタート）は別に記録する。`--retention processLifetime` などでモデル保持の違いも比べられる
+- 6章の目標は「準備済みモデル（ロード済み）」の条件。初回（コールドスタート）は別に記録する。`--retention`（既定 `whileInUse`）でモデル保持の違いを比べられる。優先度は常に `userInitiated` に固定しているので、変わるのはモデル保持だけ。モデル保持はプロセスの中でしか効かず、`file` / `mic` は1回の実行で解析器を1つしか作らないため、比較は `batch --pace realtime --retention ...` の2件目以降の `prepareToAnalyze` と遅延で見る
 - `--preset` は `progressive`（既定。`volatileResults` と `fastResults`）、`transcription`（確定のみ）、`timeIndexedProgressive`。各プリセットの `reportingOptions` は `status` に出る
+- 指定したロケールは `SpeechTranscriber.supportedLocale(equivalentTo:)` で対応ロケールに解決してから使う（`status` / `install` と同じ）。ログの `run` イベントに、指定した値（`requestedLocale`）と解決後の値（`locale`）の両方を残す
 
 ### 3. 精度（完了条件: 日本語・日英混在・開発用語の精度の傾向）
 

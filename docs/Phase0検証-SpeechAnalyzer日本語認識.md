@@ -55,8 +55,8 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 
 ```
 手順:
-1. 認識開始後 1 秒で stop() 呼び出し
-2. 結果受け取りまでの時間を計測
+1. 認識開始後 1 秒で cancelAndFinishNow() を呼ぶ（検証用 CLI では `--cancel-after 1`。`--pace realtime` か `mic` のときだけ指定できる）
+2. cancelAndFinishNow() が戻るまでの時間と、結果のストリームが終わるまでの時間を計測する（呼び出し後に届いた結果の数も記録する）
 
 期待結果:
 - 応答時間 < 100ms

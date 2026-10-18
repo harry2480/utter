@@ -21,6 +21,9 @@ struct RunStartEvent: Encodable {
   let type = "run"
   let sampleID: String?
   let source: String
+  /// 指定したロケール
+  let requestedLocale: String
+  /// `supportedLocale(equivalentTo:)` で解決した、実際に使うロケール
   let locale: String
   let preset: String
   let reportingOptions: [String]
@@ -67,11 +70,11 @@ struct RunSummary: Codable, Sendable {
   var firstResultWallTime: Double?
   var volatileLatency: LatencyStats?
   var finalLatency: LatencyStats?
-  /// 入力の終わり → 最後の確定結果の受信
+  /// 入力の終わり → 最後の確定結果の受信（pace=realtime / mic のときだけ）
   var stopToLastFinalSeconds: Double?
-  /// 入力の終わり → `finalizeAndFinishThroughEndOfInput()` の完了
+  /// 入力の終わり → `finalizeAndFinishThroughEndOfInput()` の完了（pace=realtime / mic のときだけ）
   var stopToFinishSeconds: Double?
-  /// 処理時間 ÷ 音声の長さ（音声時刻 0 から finish 完了まで）。pace=fast のときの処理速度の目安
+  /// 処理時間 ÷ 音声の長さ（音声時刻 0 から結果のストリームの終了まで）。pace=fast のときの処理速度の目安
   var realTimeFactor: Double?
   var cancel: CancelSummary?
   var baselinePhysFootprintMB: Double?
@@ -194,11 +197,15 @@ struct RunOutput {
 func transcribe(
   source: AudioSource, options: RunOptions, sampleID: String? = nil, log: EventLog
 ) async throws -> RunOutput {
-  let transcriber = SpeechTranscriber(locale: options.locale, preset: options.preset.preset)
+  // status / install と同じく、対応ロケールへ解決してから使う
+  guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: options.locale) else {
+    throw ProbeError("\(options.locale.identifier) は SpeechTranscriber の対応ロケールではありません")
+  }
+  let transcriber = SpeechTranscriber(locale: locale, preset: options.preset.preset)
   let status = await AssetInventory.status(forModules: [transcriber])
   guard status == .installed else {
     throw ProbeError(
-      "\(options.locale.identifier) の SpeechTranscriber のアセットが使えません（状態: \(describe(status))）。"
+      "\(locale.identifier) の SpeechTranscriber のアセットが使えません（状態: \(describe(status))）。"
         + "status で対応を確認し、install でダウンロードしてください")
   }
   guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
@@ -208,7 +215,8 @@ func transcribe(
   let baseline = MemoryUsage.current()
   await log.write(
     RunStartEvent(
-      sampleID: sampleID, source: source.label, locale: options.locale.identifier,
+      sampleID: sampleID, source: source.label, requestedLocale: options.locale.identifier,
+      locale: locale.identifier,
       preset: options.preset.rawValue,
       reportingOptions: describe(options.preset.preset.reportingOptions),
       pace: options.pace.rawValue, retention: options.retentionName,
@@ -235,9 +243,9 @@ func transcribe(
   // 準備や開始で失敗しても、記録を止める（batch で次の発話に混ざらないように）
   defer { sampler.cancel() }
 
-  let analyzerOptions = options.retention.map {
-    SpeechAnalyzer.Options(priority: .userInitiated, modelRetention: $0)
-  }
+  // 比べるのはモデル保持だけにするため、優先度は常に同じ値を明示する
+  let analyzerOptions = SpeechAnalyzer.Options(
+    priority: .userInitiated, modelRetention: options.retention)
   let analyzer = SpeechAnalyzer(modules: [transcriber], options: analyzerOptions)
   let prepareStart = ContinuousClock.now
   try await analyzer.prepareToAnalyze(in: format)
@@ -248,14 +256,26 @@ func transcribe(
     sampleID: sampleID, origin: origin, measuresLatency: options.pace == .realtime,
     printsText: options.printsText, log: log)
   let resultsTask = Task<ContinuousClock.Instant, any Error> {
-    for try await result in transcriber.results {
-      await recorder.record(result, receivedAt: .now)
+    do {
+      for try await result in transcriber.results {
+        await recorder.record(result, receivedAt: .now)
+      }
+    } catch is CancellationError {
+      // cancelAndFinishNow() 後に CancellationError で終わる場合も、正常な終了として扱う
     }
     return .now
   }
 
   let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
-  try await analyzer.start(inputSequence: stream)
+  do {
+    try await analyzer.start(inputSequence: stream)
+  } catch {
+    // 結果の待ち受けと解析器を残さない（batch で次の発話に影響しないように）
+    continuation.finish()
+    await analyzer.cancelAndFinishNow()
+    resultsTask.cancel()
+    throw error
+  }
 
   let feedTask = Task {
     switch source {
@@ -330,12 +350,15 @@ func transcribe(
   let summary = await recorder.finish { summary in
     summary.audioSeconds = audioSeconds
     summary.prepareSeconds = prepareSeconds
-    if cancelled == nil {
+    // pace=fast では入力が一瞬で終わるため、入力終了からの時間は意味を持たない
+    if cancelled == nil, options.pace == .realtime {
       summary.stopToLastFinalSeconds = lastFinal.map { max(0, toSeconds($0 - inputEnd)) }
       summary.stopToFinishSeconds = finishReturned.map { toSeconds($0 - inputEnd) }
     }
-    if let originInstant, let finishReturned, audioSeconds > 0 {
-      summary.realTimeFactor = toSeconds(finishReturned - originInstant) / audioSeconds
+    // 終点は結果のストリームの終了（すべての結果を受け取った時刻）。finish の戻りより後になりうるため
+    if let originInstant, finishReturned != nil, let resultsEnded, runError == nil, audioSeconds > 0
+    {
+      summary.realTimeFactor = toSeconds(resultsEnded - originInstant) / audioSeconds
     }
     if let cancelled {
       summary.cancel = CancelSummary(
