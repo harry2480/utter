@@ -73,7 +73,7 @@ cd Verification/HotkeyProbe
 - 起動時に、システムのショートカット（`CopySymbolicHotKeys`）と `UtterCore.ShortcutValidator` で競合を判定して表示する
 - `登録N ... → noErr / eventHotKeyExistsErr` が登録結果。登録が成功しても、システムが先に処理する組み合わせは届かないため、**実際に押して `pressed` が出るか** を確かめる
 - Fn / 地球儀キーの割り当て（絵文字・入力ソースの切り替え・音声入力）と、Control 2回押し等の音声入力ショートカットは `CopySymbolicHotKeys` の一覧に出ない。システム設定 > キーボード で別途確認して記録する
-- `CopySymbolicHotKeys` の修飾キーの値が 0x20000 だけのときは、Carbon の Fn か NSEvent の Shift かを判別できない（ログに「判別不能」と出す。Shift として判定する）
+- `CopySymbolicHotKeys` の修飾キーの値 0x20000 は、Carbon 形式なら Fn、NSEvent 形式なら Shift になる。形式は一覧全体から決める（Cmd = 0x100 等の Carbon のビットを持つ項目があれば Carbon 形式）。決まらないときはログに「判別不能」と出し、Carbon 形式として判定する。開発機（macOS 26）では Carbon 形式で、Fn / 地球儀キーの項目（Globe+F 等）が 0x20000 だった
 - 押下・解放は `ShortcutInterpreter`（`--mode toggle|ptt`）と `SessionStateMachine` に通し、判定結果（`interp`）と状態（`session`）を表示する
 
 ### 3. 修飾キー単独

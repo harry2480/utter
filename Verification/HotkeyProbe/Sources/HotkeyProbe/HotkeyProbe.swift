@@ -124,7 +124,7 @@ enum HotkeyProbe {
     for entry in entries {
       log.write(
         "system",
-        "\(entry.binding.id) 有効=\(entry.enabled) key=\(entry.binding.combination.key?.rawValue ?? "-") modifiers=\(describe(entry.binding.combination.modifiers)) raw=0x\(String(entry.rawModifiers, radix: 16))\(SystemShortcuts.isAmbiguous(entry.rawModifiers) ? "（判別不能: Carbon の Fn か NSEvent の Shift）" : "")"
+        "\(entry.binding.id) 有効=\(entry.enabled) key=\(entry.binding.combination.key?.rawValue ?? "-") modifiers=\(describe(entry.binding.combination.modifiers)) raw=0x\(String(entry.rawModifiers, radix: 16))\(entry.ambiguous ? "（判別不能: Carbon の Fn か NSEvent の Shift）" : "")"
       )
     }
     if let candidate {
