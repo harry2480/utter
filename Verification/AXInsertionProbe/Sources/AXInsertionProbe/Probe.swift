@@ -104,22 +104,23 @@ enum Probe {
       return record
     }
 
-    guard var target = FocusedTarget.current() else { return skip("no-focus") }
-    fill(&record, with: target)
-
+    // --ax-flag は、挿入対象を記録する前に最前面のアプリへ設定する。設定後に AX ツリーが作り直されて
+    // 要素が入れ替わるため、設定前に記録した要素とは同一性を比べられない。対象の記録は設定後の1回だけにする
     var restoreFlag: (() -> Void)?
+    var flaggedPID: pid_t?
     if let flag = options.axFlag {
-      restoreFlag = enableAppFlag(flag, pid: target.pid)
-      // 属性を有効にするとアプリが AX ツリーを作り直すため、少し待って取り直す
-      Thread.sleep(forTimeInterval: 1.0)
-      guard let refreshed = FocusedTarget.current(), refreshed.pid == target.pid else {
-        restoreFlag?()
-        return skip("target-changed")
+      guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+        return skip("no-focus")
       }
-      target = refreshed
-      fill(&record, with: target)
+      restoreFlag = enableAppFlag(flag, pid: pid)
+      flaggedPID = pid
+      Thread.sleep(forTimeInterval: 1.0)
     }
     defer { restoreFlag?() }
+
+    guard let target = FocusedTarget.current() else { return skip("no-focus") }
+    fill(&record, with: target)
+    if let flaggedPID, target.pid != flaggedPID { return skip("target-changed") }
 
     if Permissions.isSecureEventInputEnabled { return skip("secure-input") }
     if target.isSecureField { return skip("secure-field") }
@@ -159,7 +160,10 @@ enum Probe {
       record.clipboardItems = pending.snapshot.items.count
       record.clipboardTypes = pending.snapshot.typeCount
       record.clipboardUnreadableTypes = pending.snapshot.unreadableTypeCount
+      // 読み戻しで貼り付けを確かめられないアプリでは、アプリが貼り付けを処理する前に復元してしまう可能性がある。
+      // 復元までの時間は計測対象のパラメータとして記録し、貼り付けが欠けたら --restore-delay を延ばして比べる
       Thread.sleep(forTimeInterval: options.restoreDelay)
+      record.restoreAfterMs = milliseconds(clock.now - start)
       record.restore =
         PasteboardRestorer.restore(
           pending.snapshot, on: NSPasteboard.general, policy: pending.policy

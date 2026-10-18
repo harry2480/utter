@@ -79,7 +79,7 @@ $BIN run --route pasteboard --markers both --interactive --label "markers both"
   - `result`（`classify` の結果: verified / unconfirmed / failed / skipped）
   - `outcome`: success（読み戻し一致）/ success-visual（目視で一致）/ failure / unknown（成功不明）/ skipped
   - `skipReason`, `insertMs`（挿入呼び出しの時間）, `confirmMs`（挿入開始から読み戻しの判定まで）
-  - `markers`, `clipboardItems`, `clipboardTypes`, `clipboardUnreadableTypes`, `restore`（restored / restored-mismatch / skipped-changed / failed / n/a）
+  - `markers`, `clipboardItems`, `clipboardTypes`, `clipboardUnreadableTypes`, `restore`（restored / restored-partial（読み出せない種別が失われた）/ restored-mismatch / skipped-changed / failed / n/a）, `restoreAfterMs`（Cmd+V の送信から復元までの時間）
   - 人の記録: `visualMatch`, `undo`（once / multiple / partial / none）, `clipboardHistory`, `note`
 - 入力欄の値・クリップボードの中身・挿入した文字列そのものは出力しない（プリセット名だけを残す）。値はメモリ上の比較にだけ使う
 
@@ -90,10 +90,12 @@ $BIN run --route pasteboard --markers both --interactive --label "markers both"
 - 挿入するのは固定のダミー文字列だけ。実在の個人情報・仕事の文章・パスワードを入れた入力欄で試さない。検証用の新しい文書・下書き・テスト用のチャンネルを使う
 - `ax-value` は入力欄の値全体を書き換えるため、長い文書や書式付きの文書では書式が失われることがある。検証用の文書でだけ使う
 - Pasteboard 経路は実際のクリップボードを書き換える。退避できない種別（`clipboardUnreadableTypes` > 0。遅延提供・ファイルプロミスなど）は復元できない。大事なものをコピーした状態で試さない
+- 復元は「読み戻しの判定が出た後（一致するか `--readback-timeout` 秒の時間切れ）＋ `--restore-delay` 秒」に行う。読み戻せないアプリでは貼り付けの処理を確かめられないため、アプリが貼り付けを処理する前に復元してしまうことがある。貼り付けが欠けた・元の内容が貼られた場合は `--restore-delay` を延ばして比べ、安全な待ち時間を `note` と手順書の記録に残す
 - 復元のための書き戻し自体も、クリップボード管理アプリには新しいコピーとして見える。履歴に「元の内容」が重複して残るかも `note` に書く
 - Cmd+V は仮想キーコード 9（ANSI / JIS 配列の V）で送る。Dvorak などの配列では、配列を一時的に ABC / 日本語に切り替える
 - 日本語入力（IME）がオンのとき、CGEvent 経路の文字が変換待ちになることがある。経路ごとに IME の状態を `note` に書く
 - `--ax-flag` はアプリの AX の動作を変える。試行後に元の値へ戻すが、Chrome の表示が遅くなる等の影響があれば `note` に書く
+- `skipReason=secure-input` が続く場合は、どこかのアプリがセキュア入力を有効にしている（ターミナルの「セキュアキーボード入力」、パスワード欄へのフォーカスなど）。それを外してから試す
 - スクリーンショットや画面収録はコミットしない
 
 ## 片付け

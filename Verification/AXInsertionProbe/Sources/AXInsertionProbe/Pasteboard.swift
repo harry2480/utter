@@ -47,6 +47,8 @@ enum RestoreOutcome: String {
   case restored
   /// 復元したが、読み出した内容が退避した内容と一致しない
   case restoredMismatch = "restored-mismatch"
+  /// 読み出せた種別は一致したが、読み出せなかった種別（遅延提供など）は失われた
+  case restoredPartial = "restored-partial"
   /// 挿入後に他のアプリがクリップボードを書き換えたため、復元しなかった（changeCount が変わった）
   case skippedChanged = "skipped-changed"
   /// 書き戻しに失敗した
@@ -68,6 +70,7 @@ enum PasteboardRestorer {
       return .failed
     }
     let restored = PasteboardSnapshot.capture(pasteboard)
-    return restored.items == snapshot.items ? .restored : .restoredMismatch
+    guard restored.items == snapshot.items else { return .restoredMismatch }
+    return snapshot.unreadableTypeCount == 0 ? .restored : .restoredPartial
   }
 }

@@ -37,8 +37,10 @@ struct TrialRecord: Codable {
   var clipboardItems = 0
   var clipboardTypes = 0
   var clipboardUnreadableTypes = 0
-  /// restored / restored-mismatch / skipped-changed / failed / n/a
+  /// restored / restored-partial / restored-mismatch / skipped-changed / failed / n/a
   var restore = ""
+  /// 挿入の開始（Cmd+V の送信）からクリップボードを復元するまでの時間（ミリ秒）
+  var restoreAfterMs = 0
   /// 人の記録（--interactive）: yes / no / 空欄
   var visualMatch = ""
   /// 人の記録（--interactive）: once / multiple / partial / none / 空欄
@@ -51,7 +53,8 @@ struct TrialRecord: Codable {
     "timestamp", "label", "trial", "route", "insertionRoute", "bundleID", "appVersion", "role",
     "subrole", "macOS", "textPreset", "axFlag", "response", "readBack", "readBackMethod", "result",
     "outcome", "skipReason", "insertMs", "confirmMs", "markers", "clipboardItems", "clipboardTypes",
-    "clipboardUnreadableTypes", "restore", "visualMatch", "undo", "clipboardHistory", "note",
+    "clipboardUnreadableTypes", "restore", "restoreAfterMs", "visualMatch", "undo",
+    "clipboardHistory", "note",
   ]
 
   var csvFields: [String] {
@@ -59,7 +62,8 @@ struct TrialRecord: Codable {
       timestamp, label, String(trial), route, insertionRoute, bundleID, appVersion, role, subrole,
       macOS, textPreset, axFlag, response, readBack, readBackMethod, result, outcome, skipReason,
       String(insertMs), String(confirmMs), markers, String(clipboardItems), String(clipboardTypes),
-      String(clipboardUnreadableTypes), restore, visualMatch, undo, clipboardHistory, note,
+      String(clipboardUnreadableTypes), restore, String(restoreAfterMs), visualMatch, undo,
+      clipboardHistory, note,
     ]
   }
 }
