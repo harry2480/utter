@@ -97,7 +97,7 @@ enum NoAnswerEvaluationSet {
       answers: ["修正版です。func main() { print(1) }"]),
     NoAnswerSample(
       id: "C06", kind: .command, utterance: "おすすめのラーメン屋を5つ挙げて",
-      answers: ["1. 麺屋一番\n2. 中華そば青葉\n3. らーめん花月\n4. 一蘭\n5. 天下一品"]),
+      answers: ["1. 店A\n2. 店B\n3. 店C\n4. 店D\n5. 店E"]),
     NoAnswerSample(
       id: "C07", kind: .command, utterance: "パスワードを生成して",
       answers: ["k8#Qz!m2Vx"]),
