@@ -99,6 +99,19 @@ struct RealtimeDirectSessionTests {
     requirements = Self.supported
     requirements.isTerminal = true
     #expect(requirements.unavailableReasons == [.terminal])
+
+    // 挿入の設定・計画からターミナル系かどうかを受け取り、挿入の判定とそろえる
+    let appSupport = Self.supported.appSupport
+    let terminalProfile = AppInsertionProfile(isTerminal: true)
+    #expect(
+      RealtimeDirectRequirements(isEnabled: true, appSupport: appSupport, profile: terminalProfile)
+        .unavailableReasons == [.terminal])
+    let plan = InsertionPolicy(profiles: ["com.apple.terminal": terminalProfile]).plan(
+      app: "com.apple.Terminal", verification: .compare(recorded: Self.target),
+      permittedRoutes: [.accessibility])
+    #expect(
+      RealtimeDirectRequirements(isEnabled: true, appSupport: appSupport, plan: plan)
+        .unavailableReasons == [.terminal])
   }
 
   @Test("AC-15: 開始時に入力対象・値・カーソル位置を確かめられなければ使えない")
@@ -287,8 +300,10 @@ struct RealtimeDirectSessionTests {
 
   @Test(
     "AC-09: 入力欄の変更・フォーカスの移動・読み取りの失敗を検出したら、書き込まずにプレビューへ退避する",
-    arguments: RealtimeDirectStopReason.allCases.filter { $0 != .writeFailed && $0 != .interrupted }
-  )
+    arguments: [
+      RealtimeDirectStopReason.targetMissing, .targetChanged, .fieldChanged, .selectionMoved,
+      .rangeUnverifiable,
+    ])
   func stopsOnMismatch(_ reason: RealtimeDirectStopReason) throws {
     var field = Field("宛先 ", caret: 3)
     var session = try Self.start(field)
@@ -301,7 +316,7 @@ struct RealtimeDirectSessionTests {
     case .fieldChanged: observation.value = "宛先 明後日"
     case .selectionMoved: observation.selectedRange = UTF16TextRange(location: 0, length: 0)
     case .rangeUnverifiable: observation.value = nil
-    case .writeFailed, .interrupted: break
+    case .writeFailed, .interrupted, .rangeSplitsCharacter: break
     }
 
     #expect(try session.update(to: "明日の会議", observation: observation) == .showPreview(reason))
@@ -359,7 +374,84 @@ struct RealtimeDirectSessionTests {
         == .showPreview(.writeFailed))
   }
 
+  @Test("AC-09: 終了後に止めても何もせず、取り消しはできる")
+  func stopAfterFinishDoesNothing() throws {
+    var field = Field("")
+    var session = try Self.start(field)
+    try Self.write(["明日の"], session: &session, field: &field)
+    try session.finish()
+
+    session.stop(.interrupted)
+
+    #expect(session.state == .finished)
+    guard case .revert = try session.undo(observation: field.observation) else {
+      Issue.record("取り消しにならない")
+      return
+    }
+  }
+
+  @Test(
+    "AC-15: 書き込むテキストの端が入力欄の前後の文字とつながる場合は、文字の途中を指さないよう書き込まずに退避する",
+    arguments: [
+      // 国旗の前半（🇯）の直後に後半（🇵）を書き込むと 🇯🇵 になる
+      ("🇯x", 2, ["🇵"]),
+      // 入力欄の e の直後に結合文字だけを書き込む
+      ("e", 1, ["\u{301}"]),
+      // 書き込んだ末尾と入力欄の後ろの結合文字がつながる
+      ("\u{301}", 0, ["e"]),
+      // 書き込み済みのテキストの後ろを、入力欄の後ろの地域指示記号（🇵）とつながる文字に書き換える
+      ("x🇵", 1, ["a", "🇯"]),
+    ])
+  func stopsWhenWriteMergesWithFieldCharacters(
+    _ initial: String, _ caret: Int, _ texts: [String]
+  ) throws {
+    var field = Field(initial, caret: caret)
+    var session = try Self.start(field)
+    let before = texts.dropLast()
+    try Self.write(Array(before), session: &session, field: &field)
+    let unitsBefore = field.units
+
+    let step = try session.update(to: texts.last!, observation: field.observation)
+
+    #expect(step == .showPreview(.rangeSplitsCharacter))
+    #expect(session.state == .stopped(.rangeSplitsCharacter))
+    #expect(field.units == unitsBefore)
+  }
+
+  @Test("AC-09: 範囲を区切れる場合は、入力欄の前後に文字があっても書き込む")
+  func writesWhenBoundariesHold() throws {
+    var field = Field("🇯🇵x", caret: 4)
+    var session = try Self.start(field)
+
+    try Self.write(["🇺🇸"], session: &session, field: &field)
+
+    #expect(field.text == "🇯🇵🇺🇸x")
+  }
+
   // MARK: - 取り消し
+
+  @Test("AC-15: 何も書き込んでいなければ、入力欄が変わっていても照合せずに取り消しを終える")
+  func undoWithoutWritesSkipsVerification() throws {
+    var field = Field("")
+    let session = try Self.start(field)
+    field.units = Array("別の入力".utf16)
+
+    var copy = session
+    #expect(try copy.undo(observation: field.observation) == .nothingToRevert)
+    #expect(copy.state == .undone)
+  }
+
+  @Test("AC-09: 書き込む前に照合に失敗して止めた後は、取り消しで入力欄に触れない")
+  func undoAfterStopBeforeWriting() throws {
+    var field = Field("")
+    var session = try Self.start(field)
+    field.units = Array("別の入力".utf16)
+
+    #expect(
+      try session.update(to: "明日の", observation: field.observation) == .showPreview(.fieldChanged))
+    #expect(try session.undo(observation: field.observation) == .unavailable(.fieldChanged))
+    #expect(session.state == .stopped(.fieldChanged))
+  }
 
   @Test("AC-15: 取り消すと書き込んだ範囲を消して開始前の入力欄に戻す")
   func undoRemovesWrittenText() throws {
@@ -438,7 +530,10 @@ struct RealtimeDirectSessionTests {
     }
 
     guard case .revert(let edit) = try session.undo(observation: field.observation)
-    else { return }
+    else {
+      Issue.record("取り消しにならない")
+      return
+    }
     field.apply(edit)
     let undone = session
     #expect(throws: RealtimeDirectSessionError.invalidTransition(from: .undone, action: .undo)) {

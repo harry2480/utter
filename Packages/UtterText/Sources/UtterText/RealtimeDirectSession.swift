@@ -2,27 +2,30 @@ import UtterCore
 
 /// 入力欄の値の中の範囲。位置と長さは UTF-16 のコード単位で数える（AX の `NSRange` / `CFRange` と同じ単位）。
 ///
-/// 書記素クラスター（Character）の途中を指さないよう、`RealtimeDirectSession` は Character の境界から求めた範囲だけを返す。
+/// `RealtimeDirectSession` が返す範囲は、置き換える前の入力欄の値でも置き換えた後の値でも書記素クラスター
+/// （Character）の境界にある。書き込むテキストが入力欄の前後の文字とつながる場合は、書き込まずに止める。
 public struct UTF16TextRange: Hashable, Sendable {
   public let location: Int
   public let length: Int
-  /// 範囲の終わり（含まない）
-  public let upperBound: Int
 
   /// 負の値や、終わりが `Int` に収まらない範囲は `nil`。読み取った範囲が不正なら、確かめられない範囲として扱う。
   public init?(location: Int, length: Int) {
-    let (upperBound, overflow) = location.addingReportingOverflow(length)
-    guard location >= 0, length >= 0, !overflow else { return nil }
+    guard location >= 0, length >= 0, !location.addingReportingOverflow(length).overflow else {
+      return nil
+    }
     self.location = location
     self.length = length
-    self.upperBound = upperBound
   }
 
   /// 入力欄の値の中から求めた、正しいとわかっている範囲。
   init(validLocation location: Int, length: Int) {
     self.location = location
     self.length = length
-    upperBound = location + length
+  }
+
+  /// 範囲の終わり（含まない）
+  public var upperBound: Int {
+    location + length
   }
 }
 
@@ -61,6 +64,9 @@ public enum RealtimeDirectStopReason: Hashable, Sendable, CaseIterable {
   case writeFailed
   /// 呼び出し側がフォーカスの変化などを検出した
   case interrupted
+  /// 書き込むテキストの端が入力欄の前後の文字と書記素クラスターとしてつながり、範囲が文字の途中を指す
+  /// （例: 国旗の前半の地域指示記号の直後に後半を書き込む）
+  case rangeSplitsCharacter
 }
 
 /// Realtime Direct の1セッション分の、入力欄への逐次の書き込み（2.2節, AC-15）。
@@ -204,8 +210,32 @@ public struct RealtimeDirectSession: Hashable, Sendable {
     guard let edit = Self.edit(anchor: anchor, from: writtenText, to: text) else {
       return .unchanged
     }
+    guard keepsCharacterBoundaries(edit, writing: text) else {
+      state = .stopped(.rangeSplitsCharacter)
+      return .showPreview(.rangeSplitsCharacter)
+    }
     writtenText = text
     return .write(edit)
+  }
+
+  /// 置き換える範囲の両端が置き換え前の値で、置き換えた範囲と書き込んだ範囲の両端が置き換え後の値で、
+  /// どちらも Character の境界にあるか。照合に通った直後（入力欄の値が記録どおり）に呼ぶ。
+  private func keepsCharacterBoundaries(_ edit: RealtimeDirectEdit, writing text: String) -> Bool {
+    let current = value(writing: writtenText)
+    let next = value(writing: text)
+    let replacedEnd = edit.range.location + edit.replacement.utf16.count
+    return [edit.range.location, edit.range.upperBound].allSatisfy {
+      Self.isCharacterBoundary($0, in: current)
+    }
+      && [anchor, edit.range.location, replacedEnd, edit.caretLocation].allSatisfy {
+        Self.isCharacterBoundary($0, in: next)
+      }
+  }
+
+  /// 開始時の値の `anchor` の位置に `text` を挟んだ値。
+  private func value(writing text: String) -> String {
+    let split = String.Index(utf16Offset: anchor, in: initialValue)
+    return String(initialValue[..<split]) + text + String(initialValue[split...])
   }
 
   /// 認識を終え、書き込みを締める。直接の書き込みをやめた後なら何もしない。
@@ -242,6 +272,11 @@ public struct RealtimeDirectSession: Hashable, Sendable {
     case .undone:
       throw .invalidTransition(from: state.kind, action: .undo)
     }
+    // 何も書き込んでいなければ入力欄に触れないため、照合しない
+    guard !writtenText.isEmpty else {
+      state = .undone
+      return .nothingToRevert
+    }
     if let reason = mismatch(observation) {
       state = .stopped(reason)
       return .unavailable(reason)
@@ -255,8 +290,14 @@ public struct RealtimeDirectSession: Hashable, Sendable {
   /// 読み取った入力欄の状態が記録と合わなければ、その理由を返す。
   private func mismatch(_ observation: RealtimeDirectFieldObservation) -> RealtimeDirectStopReason?
   {
-    guard let current = observation.target else { return .targetMissing }
-    guard current == target else { return .targetChanged }
+    // 入力対象の照合は挿入と同じ規則（INS-01）を使う。記録した対象は必ずあるため、理由は消失か変更だけ
+    switch InsertionTargetVerification.compare(recorded: target).previewReason(
+      current: observation.target)
+    {
+    case nil: break
+    case .targetMissing: return .targetMissing
+    default: return .targetChanged
+    }
     guard let value = observation.value, let selection = observation.selectedRange else {
       return .rangeUnverifiable
     }

@@ -1,3 +1,5 @@
+import UtterCore
+
 /// Realtime Direct に対する前面アプリの対応状況（2.2節, AC-15, AC-20）。互換性表の検証結果を呼び出し側が渡す。
 ///
 /// どちらも実機で確かめたアプリだけ `true` にする。未検証・不明のアプリは `unsupported` のままにし、
@@ -42,13 +44,23 @@ public struct RealtimeDirectRequirements: Hashable, Sendable {
   /// 利用者が実験機能を有効にした
   public var isEnabled: Bool
   public var appSupport: RealtimeDirectAppSupport
-  /// ターミナル系のアプリ（`InsertionPlan.isTerminal`）
+  /// ターミナル系のアプリ。挿入の判定とずれないよう、`AppInsertionProfile` か `InsertionPlan` から受け取る入口を使う
   public var isTerminal: Bool
 
   public init(isEnabled: Bool, appSupport: RealtimeDirectAppSupport, isTerminal: Bool) {
     self.isEnabled = isEnabled
     self.appSupport = appSupport
     self.isTerminal = isTerminal
+  }
+
+  /// 挿入の設定（互換性表の1行）からターミナル系かどうかを受け取る。挿入と Realtime Direct で判定をそろえる。
+  public init(isEnabled: Bool, appSupport: RealtimeDirectAppSupport, profile: AppInsertionProfile) {
+    self.init(isEnabled: isEnabled, appSupport: appSupport, isTerminal: profile.isTerminal)
+  }
+
+  /// 挿入の計画からターミナル系かどうかを受け取る。
+  public init(isEnabled: Bool, appSupport: RealtimeDirectAppSupport, plan: InsertionPlan) {
+    self.init(isEnabled: isEnabled, appSupport: appSupport, isTerminal: plan.isTerminal)
   }
 
   /// 使えない理由をすべて返す。空なら使える。
