@@ -12,6 +12,11 @@ iOS デバイスでの STT（音声認識）実装可否を確認：
 - OS: iOS 15.0 以上（iPhone 12 以上推奨）
 - 権限: Microphone, Speech Recognition
 
+## 検証用アプリ
+
+実機での計測には [Verification/iOSSTTProbe](../Verification/iOSSTTProbe/README.md) を使う（SpeechAnalyzer / SpeechTranscriber・DictationTranscriber の対応状況とアセット、マイク・音声ファイルの認識と遅延、`phys_footprint` と `thermalState` の推移、`utter-eval` が読める結果の書き出し）。
+SpeechAnalyzer は iOS 26 以降のため、このアプリの配備ターゲットは iOS 26.0。WhisperKit を足す場合の差し替え点は同 README に書いた。
+
 ## テスト項目
 
 ### 1. STT フレームワークの選択
