@@ -72,6 +72,8 @@ cd Verification/HotkeyProbe
 
 - 起動時に、システムのショートカット（`CopySymbolicHotKeys`）と `UtterCore.ShortcutValidator` で競合を判定して表示する
 - `登録N ... → noErr / eventHotKeyExistsErr` が登録結果。登録が成功しても、システムが先に処理する組み合わせは届かないため、**実際に押して `pressed` が出るか** を確かめる
+- Fn / 地球儀キーの割り当て（絵文字・入力ソースの切り替え・音声入力）と、Control 2回押し等の音声入力ショートカットは `CopySymbolicHotKeys` の一覧に出ない。システム設定 > キーボード で別途確認して記録する
+- `CopySymbolicHotKeys` の修飾キーの値が 0x20000 だけのときは、Carbon の Fn か NSEvent の Shift かを判別できない（ログに「判別不能」と出す。Shift として判定する）
 - 押下・解放は `ShortcutInterpreter`（`--mode toggle|ptt`）と `SessionStateMachine` に通し、判定結果（`interp`）と状態（`session`）を表示する
 
 ### 3. 修飾キー単独
@@ -90,6 +92,7 @@ cd Verification/HotkeyProbe
 - 押下中に他のキーが押されたかは `押下中の他キー入力=true/false` だけを記録する（どのキーかは記録しない）。右 Option で記号を入力する等の併用と、単独押下を区別できるかの判断材料にする
 - `--fire-on down`（既定）は押下で開始、`clean-up` は単独で離したときだけ開始する（Toggle のみ）
 - UtterCore の `ShortcutModifiers` は左右を区別しないため、競合判定は左右をまとめた修飾キーで行う
+- 要実機確認: 外付けキーボード（Apple 純正以外を含む）の地球儀 / Fn キーが flagsChanged の keycode 63 で届くか。届かない場合は `fn` で検出できない
 
 ### 4. セッション中だけ Esc を捕捉
 
@@ -102,7 +105,8 @@ cd Verification/HotkeyProbe
 
 - トリガーで録音開始（模擬）→ もう一度で停止 → 認識・整形をそれぞれ `--processing-seconds / 2` 秒で完了扱い → 挿入は即完了扱い → 待機
 - 録音〜整形中（`ShortcutInterpreter.capturesEscape(in:)` が true）だけ Esc を捕捉し、セッションをキャンセルして他アプリへ渡さない。止めた Esc の keyUp とキーリピートも止める
-- 修飾キー付きの Esc（Cmd+Esc、Option+Cmd+Esc 等）は常に通す
+- 修飾キー付きの Esc（Cmd+Esc、Option+Cmd+Esc 等）は通す。ただし `--mode ptt` ではトリガーを押したまま Esc を押すため、トリガーの修飾キー（例: `right-option` なら Option 全体）付きの Esc も捕捉対象にする
+- Esc の keyUp を取りこぼした場合（タップの無効化など）は、次のリピートでない Esc 押下またはタップの無効化で捕捉状態をリセットする
 - `toggle-tap` では待機中はタップが無効なので、待機中の Esc はログに出ない。**他アプリ側で Esc が効くこと** を人が確かめる
 
 #### 他アプリへ渡っていないかの確かめ方の例
@@ -116,7 +120,7 @@ TextEdit 等で「保存」ダイアログやフルスクリーン表示を開�
 
 ## ログ
 
-各行は `時刻（ローカル、ミリ秒） up=起動からの経過ms [区分] 本文`。
+各行は `時刻（ローカル、ミリ秒） up=OS 起動からの経過ms（スリープ中は進まない） [区分] 本文`。
 
 - キー入力として記録するのは **対象の修飾キーと Esc だけ**。通常の文字キーのキーコード・文字は記録しない
 - 修飾キーのログに出す `flags` は修飾キーの状態ビットだけで、入力した文字は含まない

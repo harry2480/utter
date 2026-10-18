@@ -124,7 +124,7 @@ enum HotkeyProbe {
     for entry in entries {
       log.write(
         "system",
-        "\(entry.binding.id) 有効=\(entry.enabled) key=\(entry.binding.combination.key?.rawValue ?? "-") modifiers=\(describe(entry.binding.combination.modifiers)) raw=0x\(String(entry.rawModifiers, radix: 16))"
+        "\(entry.binding.id) 有効=\(entry.enabled) key=\(entry.binding.combination.key?.rawValue ?? "-") modifiers=\(describe(entry.binding.combination.modifiers)) raw=0x\(String(entry.rawModifiers, radix: 16))\(SystemShortcuts.isAmbiguous(entry.rawModifiers) ? "（判別不能: Carbon の Fn か NSEvent の Shift）" : "")"
       )
     }
     if let candidate {
@@ -210,7 +210,18 @@ enum HotkeyProbe {
 
     Permissions.log(Permissions.snapshot(), to: log)
     let simulator = SessionSimulator(mode: mode, processingSeconds: processingSeconds, log: log)
-    let escape = EscapeCapture(strategy: strategy, simulator: simulator, log: log)
+    let triggerModifiers: ShortcutModifiers
+    if let target = ModifierTarget.named(trigger) {
+      triggerModifiers = target.modifier
+    } else {
+      triggerModifiers = try ParsedCombination.parse(trigger).combination.modifiers
+    }
+    let ignored = mode == .pushToTalk ? eventFlags(triggerModifiers) : []
+    if !ignored.isEmpty {
+      log.write("esc", "Push-to-talk のため、トリガーの修飾キー（\(describe(triggerModifiers))）付きの Esc も捕捉対象にする")
+    }
+    let escape = EscapeCapture(
+      strategy: strategy, simulator: simulator, ignoredModifiers: ignored, log: log)
     simulator.onPhaseChange = { _ in escape.update() }
     guard escape.install(mode: escTapMode) else {
       throw .failed(
@@ -371,6 +382,15 @@ enum HotkeyProbe {
     if issues.count > 10 {
       log.write("validate", "  ほか \(issues.count - 10) 件（system-shortcuts で一覧を確認）")
     }
+  }
+
+  private static func eventFlags(_ modifiers: ShortcutModifiers) -> CGEventFlags {
+    var flags: CGEventFlags = []
+    if modifiers.contains(.command) { flags.insert(.maskCommand) }
+    if modifiers.contains(.option) { flags.insert(.maskAlternate) }
+    if modifiers.contains(.control) { flags.insert(.maskControl) }
+    if modifiers.contains(.shift) { flags.insert(.maskShift) }
+    return flags
   }
 
   private static func describe(_ modifiers: ShortcutModifiers) -> String {

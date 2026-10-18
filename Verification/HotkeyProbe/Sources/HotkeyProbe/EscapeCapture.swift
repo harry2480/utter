@@ -17,12 +17,19 @@ final class EscapeCapture {
   private let strategy: Strategy
   private let simulator: SessionSimulator
   private let log: ProbeLog
+  /// 修飾キー付きの Esc か判定するときに除く修飾キー。
+  /// Push-to-talk ではトリガーを押したまま Esc を押すため、トリガーの修飾キーを除く
+  private let ignoredModifiers: CGEventFlags
   private var tap: EventTap?
   /// 押下を止めた Esc の解放（とキーリピート）も止めるため、解放まで捕捉を続ける
   private var swallowingUntilKeyUp = false
 
-  init(strategy: Strategy, simulator: SessionSimulator, log: ProbeLog) {
+  init(
+    strategy: Strategy, simulator: SessionSimulator, ignoredModifiers: CGEventFlags,
+    log: ProbeLog
+  ) {
     self.strategy = strategy
+    self.ignoredModifiers = ignoredModifiers
     self.simulator = simulator
     self.log = log
   }
@@ -69,10 +76,16 @@ final class EscapeCapture {
       return false
     }
     if swallowingUntilKeyUp {
-      log.write("esc", "Esc keyDown（リピート=\(event.isRepeat)）を止めた \(flags)")
-      return false
+      if event.isRepeat {
+        log.write("esc", "Esc のキーリピートを止めた \(flags)")
+        return false
+      }
+      // リピートでない押下が来たら、前回の keyUp を取りこぼしたとみなす
+      swallowingUntilKeyUp = false
+      log.write("esc", "前回の Esc keyUp を取りこぼしたとみなしてリセット")
     }
-    let modifiers: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+    let modifiers = CGEventFlags([.maskCommand, .maskAlternate, .maskControl, .maskShift])
+      .subtracting(ignoredModifiers)
     if event.flags & modifiers.rawValue != 0 {
       log.write("esc", "修飾キー付きの Esc は通す \(flags)")
       return true
@@ -96,6 +109,8 @@ final class EscapeCapture {
 
   private func handleDisabled(_ type: CGEventType) {
     log.write("tap", "Esc タップが無効化された: \(type == .tapDisabledByTimeout ? "timeout" : "userInput")")
+    // 無効化中に keyUp を取りこぼした可能性があるため、止める状態を解除する
+    swallowingUntilKeyUp = false
     if shouldEnable {
       tap?.setEnabled(true)
       log.write("tap", "Esc タップを再有効化した")

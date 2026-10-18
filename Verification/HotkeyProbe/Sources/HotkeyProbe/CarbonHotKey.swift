@@ -63,6 +63,10 @@ final class CarbonHotKeys {
     return (status, id)
   }
 
+  isolated deinit {
+    unregisterAll()
+  }
+
   func unregisterAll() {
     for ref in hotKeys.values {
       UnregisterEventHotKey(ref)
@@ -150,6 +154,12 @@ enum SystemShortcuts {
   ///
   /// Carbon 形式（cmdKey = 0x100 等）か NSEvent 形式（command = 0x100000 等）かが
   /// 確かでないため、Carbon 形式のビット（0x1F00）の有無で判別する。生の値もログに出す。
+  /// 0x20000 だけの値は Carbon の Fn（kEventKeyModifierFnMask）と NSEvent の Shift を区別できない。
+  /// その場合は NSEvent の Shift として扱い、`isAmbiguous` で判別不能として表示する。
+  static func isAmbiguous(_ raw: Int) -> Bool {
+    raw == Int(kEventKeyModifierFnMask)
+  }
+
   static func modifiers(fromRaw raw: Int) -> ShortcutModifiers {
     var result: ShortcutModifiers = []
     if raw & 0x1F00 == 0 {

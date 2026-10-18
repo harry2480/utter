@@ -11,7 +11,7 @@ final class SessionSimulator {
   private var interpreter: ShortcutInterpreter
   private let processingSeconds: Double
   private let log: ProbeLog
-  /// 状態が変わるたびに呼ぶ。引数は Esc を捕捉する状態か
+  /// 状態が変わるたびに呼ぶ。引数は変化後の状態
   var onPhaseChange: (@MainActor (SessionPhase) -> Void)?
 
   init(mode: ShortcutTriggerMode, processingSeconds: Double, log: ProbeLog) {

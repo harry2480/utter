@@ -73,6 +73,10 @@ final class EventTap {
     CGEvent.tapEnable(tap: port, enable: enabled)
   }
 
+  isolated deinit {
+    invalidate()
+  }
+
   func invalidate() {
     if let port {
       CGEvent.tapEnable(tap: port, enable: false)
