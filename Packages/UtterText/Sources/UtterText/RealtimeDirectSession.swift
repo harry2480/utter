@@ -6,23 +6,24 @@ import UtterCore
 public struct UTF16TextRange: Hashable, Sendable {
   public let location: Int
   public let length: Int
+  /// 範囲の終わり（含まない）
+  public let upperBound: Int
 
-  /// 負の値は 0 として扱う。
-  public init(location: Int, length: Int) {
-    self.location = max(0, location)
-    self.length = max(0, length)
+  /// 負の値や、終わりが `Int` に収まらない範囲は `nil`。読み取った範囲が不正なら、確かめられない範囲として扱う。
+  public init?(location: Int, length: Int) {
+    let (upperBound, overflow) = location.addingReportingOverflow(length)
+    guard location >= 0, length >= 0, !overflow else { return nil }
+    self.location = location
+    self.length = length
+    self.upperBound = upperBound
   }
 
-  /// 範囲の終わり（含まない）。あふれる場合は `Int.max`。
-  public var upperBound: Int {
-    saturatingSum(location, length)
+  /// 入力欄の値の中から求めた、正しいとわかっている範囲。
+  init(validLocation location: Int, length: Int) {
+    self.location = location
+    self.length = length
+    upperBound = location + length
   }
-}
-
-/// あふれる場合は `Int.max` にする和。呼び出し側から受け取った位置で異常終了しないようにする。
-func saturatingSum(_ lhs: Int, _ rhs: Int) -> Int {
-  let (sum, overflow) = lhs.addingReportingOverflow(rhs)
-  return overflow ? (rhs < 0 ? Int.min : Int.max) : sum
 }
 
 /// 書き込みの直前・取り消しの直前に読み取った入力欄の状態（AC-15）。アプリ側が AX などから作る。
@@ -167,7 +168,7 @@ public struct RealtimeDirectSession: Hashable, Sendable {
 
   /// これまでに書き込んだ範囲（入力欄全体での位置）。
   public var trackedRange: UTF16TextRange {
-    UTF16TextRange(location: anchor, length: writtenText.utf16.count)
+    UTF16TextRange(validLocation: anchor, length: writtenText.utf16.count)
   }
 
   /// 書き込んだ範囲の末尾にあるはずのカーソル位置。
@@ -265,7 +266,7 @@ public struct RealtimeDirectSession: Hashable, Sendable {
     let split = initial.index(initial.startIndex, offsetBy: anchor)
     let expected = [initial[..<split], Substring(writtenText).utf16, initial[split...]].joined()
     guard value.utf16.elementsEqual(expected) else { return .fieldChanged }
-    guard selection == UTF16TextRange(location: caretLocation, length: 0) else {
+    guard selection == UTF16TextRange(validLocation: caretLocation, length: 0) else {
       return .selectionMoved
     }
     return nil
@@ -296,13 +297,13 @@ public struct RealtimeDirectSession: Hashable, Sendable {
     guard oldStart != oldEnd || newStart != newEnd else { return nil }
 
     let range = UTF16TextRange(
-      location: saturatingSum(anchor, old.utf16.distance(from: old.startIndex, to: oldStart)),
+      validLocation: anchor + old.utf16.distance(from: old.startIndex, to: oldStart),
       length: old.utf16.distance(from: oldStart, to: oldEnd))
     return RealtimeDirectEdit(
       range: range,
       expectedText: String(old[oldStart..<oldEnd]),
       replacement: String(new[newStart..<newEnd]),
-      caretLocation: saturatingSum(anchor, new.utf16.count))
+      caretLocation: anchor + new.utf16.count)
   }
 }
 

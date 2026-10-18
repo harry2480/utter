@@ -160,6 +160,21 @@ struct RealtimeDirectSessionTests {
     }
   }
 
+  @Test(
+    "AC-15: 負の値やあふれる範囲は不正として扱い、開始時なら使えない",
+    arguments: [(-1, 0), (0, -1), (Int.max, 1)])
+  func rejectsInvalidRanges(_ location: Int, _ length: Int) {
+    let range = UTF16TextRange(location: location, length: length)
+
+    #expect(range == nil)
+    #expect(throws: RealtimeDirectSessionError.unavailable([.fieldUnreadable])) {
+      try RealtimeDirectSession(
+        requirements: Self.supported,
+        observation: RealtimeDirectFieldObservation(
+          target: Self.target, value: "abc", selectedRange: range))
+    }
+  }
+
   // MARK: - 書き込み
 
   @Test("2.2節: 確定済みチャンクの連結を受け取るたびに、増えた部分だけをカーソル位置へ書き込む")
@@ -172,7 +187,7 @@ struct RealtimeDirectSessionTests {
       first
         == .write(
           RealtimeDirectEdit(
-            range: UTF16TextRange(location: 4, length: 0), expectedText: "",
+            range: UTF16TextRange(validLocation: 4, length: 0), expectedText: "",
             replacement: "明日の", caretLocation: 7)))
     guard case .write(let edit) = first else { return }
     field.apply(edit)
@@ -197,7 +212,7 @@ struct RealtimeDirectSessionTests {
       step
         == .write(
           RealtimeDirectEdit(
-            range: UTF16TextRange(location: 3, length: 1), expectedText: "3", replacement: "4",
+            range: UTF16TextRange(validLocation: 3, length: 1), expectedText: "3", replacement: "4",
             caretLocation: 9)))
     guard case .write(let edit) = step else { return }
     field.apply(edit)
