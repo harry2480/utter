@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
+import UtterCore
 
 @testable import UtterAI
 
@@ -227,7 +228,7 @@ struct ClaudeProviderTests {
     let router = try RefinementRouter(
       provider: provider(StubTransport(.response(status: 200, body: body))))
 
-    let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
     #expect(outcome.source == .localFallback(.validationFailed(.empty)))
     #expect(outcome.usage == TokenUsage(inputTokens: 3, outputTokens: 5))
@@ -395,7 +396,7 @@ struct ClaudeProviderTests {
     let router = try RefinementRouter(
       provider: provider(StubTransport(.failure(.notConnectedToInternet))))
 
-    let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
     #expect(outcome.source == .localFallback(.providerFailed(.networkUnavailable)))
   }
@@ -405,7 +406,7 @@ struct ClaudeProviderTests {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))
     let router = try RefinementRouter(provider: provider(transport))
 
-    _ = try await router.refine(request, cloudConsentGranted: false, budget: nil)
+    _ = try await router.refine(request, consent: ConsentState(), budget: nil)
 
     #expect(transport.requests.withLock { $0.isEmpty })
   }

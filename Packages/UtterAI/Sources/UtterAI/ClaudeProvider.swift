@@ -1,4 +1,5 @@
 import Foundation
+import UtterCore
 
 #if canImport(FoundationNetworking)
   import FoundationNetworking
@@ -46,6 +47,7 @@ public struct ClaudeProvider: AIProvider {
     }
   }
 
+  public var destination: CloudAIProviderKind { .claude }
   public let configuration: Configuration
   private let apiKey: String
   private let transport: any HTTPTransport

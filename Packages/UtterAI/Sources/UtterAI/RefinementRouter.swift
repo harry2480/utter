@@ -1,4 +1,5 @@
 import Synchronization
+import UtterCore
 
 /// 選択されたクラウドプロバイダーへ1回だけ送信し、応答を検証して返す（4.1節, AC-16）。
 ///
@@ -36,7 +37,8 @@ public struct RefinementRouter: Sendable {
   ///   発話を失わないよう他の失敗と同じく退避する
   ///
   /// - Parameters:
-  ///   - cloudConsentGranted: クラウド整形への送信の同意。`false` ならプロバイダーを呼ばない（AC-06）
+  ///   - consent: 送信直前の同意状態。プロバイダーの送信先への整形の同意がなければ、プロバイダーを呼ばない（AC-06）。
+  ///     別の送信先・別の送信内容（音声・Edit の選択テキスト）への同意では送信しない
   ///   - budget: 予算上限の設定（AI-04, AI-05）。送信前に見込み費用を予約し、上限を超えるなら
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
@@ -44,7 +46,7 @@ public struct RefinementRouter: Sendable {
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない
   public func refine(
     _ request: RefinementRequest,
-    cloudConsentGranted: Bool,
+    consent: ConsentState,
     budget: RefinementBudget?
   ) async throws(CancellationError) -> RefinementOutcome {
     if Task.isCancelled {
@@ -53,7 +55,7 @@ public struct RefinementRouter: Sendable {
     if request.mode == .raw {
       return RefinementOutcome(text: request.text, source: .raw)
     }
-    guard cloudConsentGranted else {
+    guard consent.allows(.textRefinement(provider.destination)) else {
       return fallback(request, reason: .consentNotGranted)
     }
 

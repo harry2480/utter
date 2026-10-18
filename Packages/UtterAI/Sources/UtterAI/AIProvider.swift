@@ -1,8 +1,14 @@
+import UtterCore
+
 /// AI 整形プロバイダーの共通インターフェース（AI-01, AI-06）。
 ///
-/// Claude / ChatGPT / Local Basic の各実装と `StubAIProvider` がこれに準拠し、呼び出し側から差し替えられる。
+/// クラウド AI（Claude / ChatGPT）の各実装と `StubAIProvider` がこれに準拠し、呼び出し側から差し替えられる。
+/// 送信しないローカル整形（Raw / Local Basic）は `LocalRefiner` で扱う。
 /// 実装は `request.text` を整形対象のデータとして扱い、指示として実行しない（TXT-04）。
 public protocol AIProvider: Sendable {
+  /// 送信先。`RefinementRouter` が送信前に、この送信先への整形の同意を確認する（AC-06）
+  var destination: CloudAIProviderKind { get }
+
   /// STT テキストを整形して返す。応答の検証（空応答・保護対象など）は呼び出し側が行う。
   ///
   /// 呼び出し元の Task がキャンセルされた場合は、送信中の通信も止めて速やかに `AIProviderError.cancelled` を投げる。
