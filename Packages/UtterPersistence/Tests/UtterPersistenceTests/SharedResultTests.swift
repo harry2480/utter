@@ -301,6 +301,54 @@ struct SharedResultTests {
     }
   }
 
+  @Test("iOS-07: 期限内の未挿入・挿入結果不明の結果はコピーでき、コピー後は挿入できない")
+  func copyConsumesResult() throws {
+    var ready = result()
+    try ready.markCopied(at: after(5))
+    #expect(ready.consumedAt == after(5))
+    #expect(ready.revision == 1)
+    #expect(ready.insertability(for: sessionID, at: after(6)) == .consumed)
+
+    var unknown = try unknown()
+    try unknown.markCopied(at: after(5))
+    #expect(unknown.consumedAt == after(5))
+
+    // 猶予時間を過ぎた挿入中（拡張の強制終了）は、挿入結果不明と同じくコピーできる
+    var stale = try inserting(at: 1)
+    try stale.markCopied(at: after(40))
+    #expect(stale.consumedAt == after(40))
+  }
+
+  @Test("iOS-07: 挿入中（猶予時間内）・挿入済み・期限切れ・時刻の逆行ではコピーしない")
+  func copyRejectsNonCopyableResults() throws {
+    var inProgress = try inserting(at: 1)
+    #expect(throws: SharedResultError.notInsertable(.inProgress)) {
+      try inProgress.markCopied(at: after(2))
+    }
+
+    var consumed = try inserting()
+    try consumed.markConsumed(at: after(2))
+    #expect(throws: SharedResultError.notInsertable(.consumed)) {
+      try consumed.markCopied(at: after(3))
+    }
+
+    var expired = result()
+    #expect(throws: SharedResultError.notInsertable(.expired)) {
+      try expired.markCopied(at: after(600))
+    }
+
+    var expiredUnknown = try unknown()
+    #expect(throws: SharedResultError.notInsertable(.expired)) {
+      try expiredUnknown.markCopied(at: after(600))
+    }
+
+    var rewound = try unknown()
+    #expect(throws: SharedResultError.notInsertable(.invalidTimestamp)) {
+      try rewound.markCopied(at: after(-1))
+    }
+    #expect(rewound.status == .insertionUnknown)
+  }
+
   @Test("iOS-IPC-01: 文字列表現とリフレクションに本文を含めない")
   func redactsText() {
     let result = result(text: "秘密の発話内容")

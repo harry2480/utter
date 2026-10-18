@@ -20,7 +20,7 @@ public struct SharedResult: Hashable, Sendable, Codable {
   public private(set) var revision: UInt64
   public let configuration: SharedResultConfiguration
 
-  /// 挿入を確定した時刻（iOS-IPC-01）
+  /// 挿入を確定した時刻（iOS-IPC-01）。本体アプリでコピーした時刻も含む（iOS-07）
   public var consumedAt: Date? {
     guard case .consumed(let at) = status else {
       return nil
@@ -132,6 +132,23 @@ public struct SharedResult: Hashable, Sendable, Codable {
     }
   }
 
+  /// 本体アプリの救済導線で本文をコピーしたことを記録する（iOS-07）。
+  ///
+  /// コピーした結果は利用者の手で貼り付けられるため、挿入済みと同じく `consumed` にし、
+  /// キーボードからの挿入と二重にならないようにする。未挿入・挿入結果不明（猶予時間を過ぎた挿入中を含む）で、
+  /// 期限内の結果だけコピーできる。挿入中（猶予時間内）・挿入済み・期限切れはコピーしない。
+  public mutating func markCopied(at now: Date) throws(SharedResultError) {
+    let insertability = insertability(for: sessionID, at: now)
+    guard insertability == .insertable || insertability == .needsConfirmation else {
+      throw .notInsertable(insertability)
+    }
+    // 挿入結果不明は時刻を見ずに判定されるため、ここで期限を確かめる
+    if let invalid = timeValidity(at: now) {
+      throw .notInsertable(invalid)
+    }
+    transition(to: .consumed(at: now))
+  }
+
   /// 挿入を試みたが成功を確認できなかったことを記録する。この状態からは自動で再挿入できない（iOS-IPC-03）。
   public mutating func markInsertionUnknown() throws(SharedResultError) {
     switch status {
@@ -190,7 +207,7 @@ public enum SharedResultStatus: Hashable, Sendable, Codable {
   case inserting(startedAt: Date)
   /// 挿入を試みたが成功を確認できなかった
   case insertionUnknown
-  /// 挿入済み
+  /// 挿入済み（本体アプリでコピーした場合も含む）
   case consumed(at: Date)
 }
 
