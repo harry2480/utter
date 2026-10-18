@@ -68,8 +68,11 @@ else
 fi
 
 echo "==> 記録: $trace"
-# Ctrl-C で記録を止めても、後続の集計まで進める
+# Ctrl-C で記録を止めても、後続の集計まで進める。
+# trap '' だと子プロセス（xctrace）も SIGINT を無視してしまうため、何もしないハンドラを置く
+trap ':' INT
 "${record[@]}" || echo "xctrace が終了コード $? で終わりました。保存済みの trace を集計します。" >&2
+trap - INT
 
 summarize=("$script_dir/summarize-signposts.sh" "$trace")
 if [[ -n "$process_filter" ]]; then

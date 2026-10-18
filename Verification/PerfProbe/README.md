@@ -82,6 +82,7 @@ scripts/record-signposts.sh --label demo-check --process perf-probe-demo \
 scripts/record-signposts.sh --label local-builtin-mic-01 --attach <PID またはプロセス名> --time-limit 15m
 ```
 
+- `--attach` にプロセス名を渡して同名のプロセスが複数あると xctrace が失敗する。その場合は PID を渡す
 - 条件ごとに `--label` を分けて別の trace にする（例: `local-builtin-mic`、`ai-claude-builtin-mic`、`cold-start`、`bt-mic`）。集計は trace 単位なので、条件を混ぜない
 - p95 を見るため、1条件あたり 20 回以上（できれば 40 回以上）繰り返す。集計は最近傍順位法で、n < 20 では p95 = 最大値になる
 - コールドスタート（モデル未ロード）は別ラベルで記録し、6章どおり目標とは比較しない（計測のみ）
@@ -109,6 +110,8 @@ scripts/sample-process.sh --name <アプリ> --interval 1 --duration 120 --outpu
 列: `timestamp, elapsed_s, pid, name, footprint_mb, footprint_peak_mb, rss_mb, cpu_time_s, cpu_percent`。終了時に、プロセスごとの平均 CPU 使用率（最初と最後のサンプル間の CPU 時間 ÷ 経過時間）と footprint の最大値を表示する。
 
 - `footprint_mb` は `vmmap --summary` の Physical footprint（Activity Monitor の「メモリ」列と同じ指標）。6章のメモリ目標はこの値で比べる
+- `footprint_mb` が空になる場合は `vmmap` が対象を読めていない。同じユーザーで動くプロセスか確かめ、必要なら `sudo` で実行する
+- `--name` は開始時に一度だけ `pgrep -x` で PID を引く。計測中にアプリを再起動したら記録し直す
 - `cpu_percent` は1コア = 100%。`ps` の CPU 時間は 0.01 秒単位なので、待機時 CPU（目標 0.1%）は 60 秒以上の間隔で見る
 - Apple STT はシステムのプロセスで処理される部分があり、6章は「OS管理領域は別計測」としている。どのプロセスが対象かは Activity Monitor で確かめて `--name` に追加する。WhisperKit のモデル・GPU 領域も同様に別に記録する
 - 負荷復帰（目標 5 秒以内）は、挿入完了の時刻から `cpu_percent` が待機時の水準に戻るまでの時間を CSV から読む
