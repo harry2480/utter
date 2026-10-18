@@ -27,8 +27,22 @@ final class AppProbeModel {
   private(set) var outcomes: [ProbeOutcome] = []
   private(set) var events: [String] = []
   private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+  private var lockTestTask: Task<Void, Never>?
+  /// 画面表示用。保護データの通知・scenePhase の変化・ロック中テストの実行時に更新する。
+  private(set) var protectedDataAvailable = UIApplication.shared.isProtectedDataAvailable
 
-  var protectedDataAvailable: Bool { UIApplication.shared.isProtectedDataAvailable }
+  /// バックグラウンド実行は通常30秒前後で打ち切られるため、待ち時間の上限はそれより短くする。
+  static let lockTestDelayRange = 5...25
+
+  func refreshProtectedDataAvailability() {
+    protectedDataAvailable = UIApplication.shared.isProtectedDataAvailable
+  }
+
+  func protectedDataChanged(available: Bool) {
+    refreshProtectedDataAvailability()
+    appendEvent(
+      available ? "保護データが利用可能になった（解除）" : "保護データが利用不可になる（ロック）")
+  }
 
   // MARK: 共有コンテナ（#56）
 
@@ -76,14 +90,19 @@ final class AppProbeModel {
     backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "LockTest") { [weak self] in
       self?.finishLockTest(reason: "バックグラウンド実行時間が切れて打ち切られた")
     }
-    Task { [weak self] in
-      try? await Task.sleep(for: .seconds(delay))
+    lockTestTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(delay))
+      } catch {
+        return  // 打ち切り・再開始でキャンセルされた回は本体を実行しない
+      }
       self?.runLockTestBody()
     }
   }
 
   private func runLockTestBody() {
-    guard isLockTestRunning else { return }
+    guard isLockTestRunning, !Task.isCancelled else { return }
+    refreshProtectedDataAvailability()
     let remaining = UIApplication.shared.backgroundTimeRemaining
     let remainingText = remaining > 10_000 ? "前面" : String(format: "%.1f秒", remaining)
     appendEvent(
@@ -103,6 +122,8 @@ final class AppProbeModel {
   private func finishLockTest(reason: String) {
     guard isLockTestRunning else { return }
     isLockTestRunning = false
+    lockTestTask?.cancel()
+    lockTestTask = nil
     lockTestStatus = "\(reason) \(ProbeTime.format(Date()))"
     appendEvent("ロック中テスト: \(reason)")
     if backgroundTask != .invalid {

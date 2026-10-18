@@ -23,19 +23,20 @@ struct ContentView: View {
       }
     }
     .onChange(of: scenePhase, initial: true) { _, phase in
+      model.refreshProtectedDataAvailability()
       model.appendEvent("scenePhase: \(String(describing: phase))")
     }
     .onReceive(
       NotificationCenter.default.publisher(
         for: UIApplication.protectedDataWillBecomeUnavailableNotification)
     ) { _ in
-      model.appendEvent("保護データが利用不可になる（ロック）")
+      model.protectedDataChanged(available: false)
     }
     .onReceive(
       NotificationCenter.default.publisher(
         for: UIApplication.protectedDataDidBecomeAvailableNotification)
     ) { _ in
-      model.appendEvent("保護データが利用可能になった（解除）")
+      model.protectedDataChanged(available: true)
     }
   }
 
@@ -71,13 +72,15 @@ struct ContentView: View {
     Section("ロック中の読み書き（iOS-IPC-05）") {
       Stepper(
         "待ち時間 \(model.lockTestDelaySeconds) 秒", value: $model.lockTestDelaySeconds,
-        in: 5...60, step: 5)
+        in: AppProbeModel.lockTestDelayRange, step: 5)
       Button("開始（直後にサイドボタンでロック）") { model.startLockTest() }
         .disabled(model.isLockTestRunning)
       Text(model.lockTestStatus).font(.footnote)
       Text(
         "先に「全保護クラスで書き込む」を実行しておく。complete はロックの約10秒後に読めなくなる想定。"
-          + "バックグラウンド実行は通常30秒前後で打ち切られるため、待ち時間は20秒前後にする"
+          + "バックグラウンド実行は通常30秒前後で打ち切られるため、待ち時間は最大25秒。"
+          + "Xcode のデバッガが付いていると打ち切りが本番と違うため、Stop してからホーム画面から起動し直す。"
+          + "パスコード未設定の端末では保護クラスが効かない"
       )
       .font(.footnote).foregroundStyle(.secondary)
     }

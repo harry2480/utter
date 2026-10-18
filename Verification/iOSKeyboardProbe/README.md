@@ -58,7 +58,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 ### 本体アプリ
 
 - **共有結果の書き込み・読み込み**: 保護クラス（complete / completeUnlessOpen / completeUntilFirstUserAuthentication / none）ごとに別ファイル（`result-<クラス>.json`）へダミー結果を書く。書き込み後に実際に付いた保護属性も表示する
-- **ロック中の読み書き**: 待ち時間を決めて「開始」→ すぐにサイドボタンでロック → 待ち時間が過ぎてから解除。待ち時間の後に全クラスの読み込みと新規書き込み（`locktest-<クラス>.json`）を試し、そのときの `isProtectedDataAvailable` と残りのバックグラウンド実行時間を記録する。バックグラウンド実行は通常 30 秒前後で打ち切られるので、待ち時間は 20 秒前後にする
+- **ロック中の読み書き**: 前提として iPhone に**パスコードを設定済み**であること（未設定だと保護クラスが効かず全クラス OK になる）。また **Xcode の Stop でデバッガを外し、ホーム画面のアイコンから起動し直してから**行う（デバッガが付いたままだとバックグラウンド実行の打ち切りが本番と違う）。待ち時間を決めて「開始」→ すぐにサイドボタンでロック → 待ち時間が過ぎてから解除。待ち時間の後に全クラスの読み込みと新規書き込み（`locktest-<クラス>.json`）を試し、そのときの `isProtectedDataAvailable` と残りのバックグラウンド実行時間を記録する。バックグラウンド実行は通常 30 秒前後で打ち切られるので、待ち時間は 5〜25 秒の範囲で選べる（既定 20 秒）
 - **イベント**: `scenePhase` の変化、ロック・解除の通知、キーボードから URL で起動されたこと（`via=` で候補を区別）
 - **記録をコピー**: イベントと操作結果をテキストでクリップボードへ。手順書へ貼るときに使う（パス・端末識別子は含まない）
 
@@ -74,7 +74,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 - **開く(UI)**: SwiftUI の `openURL` で同じ URL を開く。受理されたかを表示
 - **⌫ / 改行**: 入力欄の後始末用
 
+キーボード拡張の設定値は `IsASCIICapable = false`、`PrimaryLanguage = ja-JP`、`RequestsOpenAccess = true`（`Keyboard/Info.plist`）。URL・メールアドレス等の ASCII 向けの欄で候補に出ない場合の扱いは #53 の手順書を参照。
+
 エラーの分類（EPERM = ロック中の保護クラスまたはサンドボックスの拒否、など）は表示用の推定。拡張では `isProtectedDataAvailable` を取れないため、原因の切り分けは手順書の条件（ロック中か、フルアクセスの有無）と合わせて判断する。
+
+## 表示が崩れたとき
+
+拡張は `inputView` の `translatesAutoresizingMaskIntoConstraints` を `false` にして高さ 320pt の制約を付けている。実機でキーボードの幅が画面幅にならない・高さが 0 になる等の崩れが出たら、`KeyboardViewController.buildLayout()` の `root.translatesAutoresizingMaskIntoConstraints = false` の行を削除し（幅はシステムに任せる）、高さ制約だけを残して再インストールする。どちらで表示できたかを PR か手順書に残す。
 
 ## 記録先
 
