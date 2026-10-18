@@ -61,3 +61,19 @@ public actor StubAIProvider: AIProvider {
     }
   }
 }
+
+// テストの失敗表示やログに応答の本文を出さないよう、文字列表現とリフレクションには種類と文字数だけを出す。
+extension StubAIProvider.Behavior: CustomStringConvertible, CustomReflectable {
+  public var description: String {
+    switch self {
+    case .respond(let text, let usage):
+      "respond(length: \(text.count), usage: \(usage.map { "\($0)" } ?? "nil"))"
+    case .fail(let error): "fail(\(error))"
+    case .echo: "echo"
+    }
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["description": description])
+  }
+}

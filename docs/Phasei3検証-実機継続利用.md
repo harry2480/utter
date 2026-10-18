@@ -289,6 +289,20 @@ iOS 専用の数値目標（p50/p95、ピークメモリ、10分連続使用時�
 - ログの確認には、Mac の「コンソール」アプリ（iPhone を接続して表示）と、sysdiagnose（公開されているログ収集手順）を使う
 - 共有結果の期限切れ削除は、`SharedResultStore` の `cleanUp(at:)`（PR #94）を本体アプリの起動時とキーボードの表示時に呼ぶ実装を前提にする。**PR #94 は本書の作成時点で未マージ** のため、実施前にマージ済みであることと、呼び出し箇所を確認する
 
+### 自動テストで確認済みの範囲
+
+パッケージ層（`Packages/`）で確かめられることは、`scripts/verify.sh` の自動テストと静的検査で確認済み。実機では、アプリ・キーボード拡張・OS（通信、OSLog、クラッシュレポート、App Group、ファイル保護）が絡む部分を本書の手順で確認する。自動テストが通っていても、次の手順は省略しない。
+
+| 手順 | 自動で確認していること | テスト・検査 |
+|---|---|---|
+| 3-1 | 同意がない・撤回した状態では、AI プロバイダーと HTTP 送信を呼ばない（Stub の呼び出し回数が0） | `RefinementRouterTests`「AC-06: 同意がオフのときはプロバイダーを呼ばずローカル結果を返す」、`ClaudeProviderTests`「AC-06: 同意がなければ RefinementRouter は送信しない」、`RefinementRouterBudgetTests`「AC-06: 同意がないときは予約も送信もしない」、`ConsentStateTests`、`EditSessionTests`（AC-06） |
+| 3-2 | 送信する入力が整形対象の文字列・整形モード・スタイル区分・辞書語だけ | `RefinementRequestTests`（CTX-03）、`RefinementPromptBuilderTests`（CTX-03） |
+| 3-4 | 本文・API キーを持つ型の `String(describing:)`・`String(reflecting:)`・`Mirror`（・`dump`）とエラーに、本文・キーが出ない | `ClaudeProviderTests`（AI-06）、`RefinementRequestTests`、`RefinementPromptBuilderTests`、`RefinementRouterTests`、`StubAIProviderTests`（iAC-10）、`RecognitionEventTests`、`StubSpeechRecognizerTests`、`SharedResultTests`、`SharedResultInsertionCoordinatorTests`（iOS-05, iAC-10）、`TemporaryAudioStoreTests`、`ProtectedSpanExtractorTests`、`ProtectionCheckerTests`、`TextDiffTests`、`EditSessionTests`、`UserDictionaryTests`、`InsertionPolicyTests` |
+| 3-4 | 製品コードで `print` / `debugPrint` / `dump` / `NSLog` を使っていない（OSLog 以外で値をそのまま出さない） | `scripts/check-logging.sh`（`scripts/verify.sh` から実行） |
+| 3-4 | 共有結果の保存ファイルの項目が `sessionID`・`createdAt`・`expiresAt`・`status`（`consumedAt` を含む）・`text`・`revision`・`configuration` だけで、ほかは中身が空のロックファイルだけ | `SharedResultResidueTests`「iOS-IPC-01, iOS-IPC-04: 保存ファイルの項目は共有結果の項目だけで、ほかに中身のあるファイルを作らない」 |
+| 3-5 | 期限切れ・挿入済みの結果を整理・プレビュー・挿入操作で削除し、保存先のどのファイル（一時ファイル・ロックファイルを含む）にも本文が残らない。期限内のほかの結果は残る | `SharedResultResidueTests`「iAC-10, iOS-IPC-05: 期限切れ・挿入後に削除した結果の本文は、保存先のどのファイルにも残らない」、`SharedResultCleanUpTests`、`SharedResultInsertionCoordinatorTests` |
+| 3-5 | 挿入結果が不明な結果を自動で再挿入しない。読めない結果（ロック中の代わりに権限を外したファイル）は整理で変更せずスキップする | `SharedResultCleanUpTests`（iOS-IPC-05, iOS-IPC-06）、`SharedResultTests`（iOS-IPC-03） |
+
 ### 手順
 
 #### 3-1. 同意なしに送信しない
