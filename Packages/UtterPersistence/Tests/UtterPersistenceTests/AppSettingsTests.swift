@@ -121,7 +121,9 @@ struct AppSettingsTests {
 
   // MARK: - 正規化
 
-  @Test("REC-05: 0以下・非有限の最大録音時間は既定値に戻す", arguments: [0, -100, .nan, .infinity])
+  @Test(
+    "REC-05: 範囲（1〜3600 秒）外・非有限の最大録音時間は既定値に戻す",
+    arguments: [0, -100, 0.5, 3600.5, 1e300, 1e-300, .nan, .infinity])
   func invalidRecordingDurationReverted(value: Double) {
     #expect(AppSettings(maxRecordingDuration: value).maxRecordingDuration == 300)
 
@@ -326,6 +328,71 @@ struct AppSettingsTests {
   func invalidRecordingDurationRevertedOnDecode() throws {
     #expect(try decode(#"{"version": 1, "maxRecordingDuration": 0}"#).maxRecordingDuration == 300)
     #expect(try decode(#"{"version": 1, "maxRecordingDuration": -5}"#).maxRecordingDuration == 300)
+    #expect(
+      try decode(#"{"version": 1, "maxRecordingDuration": 1e300}"#).maxRecordingDuration == 300)
+    #expect(
+      try decode(#"{"version": 1, "maxRecordingDuration": 1e-300}"#).maxRecordingDuration == 300)
+  }
+
+  @Test("REC-05: 範囲内の最大録音時間は状態機械の設定に変換できる", arguments: [1.0, 300, 3600])
+  func recordingDurationConvertsToSessionConfiguration(value: Double) throws {
+    let settings = AppSettings(maxRecordingDuration: value)
+    let configuration = try SessionConfiguration(
+      maxRecordingDuration: .seconds(settings.maxRecordingDuration))
+
+    #expect(settings.maxRecordingDuration == value)
+    #expect(configuration.maxRecordingDuration == .seconds(value))
+  }
+
+  @Test("2.3節, AC-06: #76 の形式で保存された値は移行せず、読める項目と同意だけを復元する")
+  func legacyFormatIsNotMigrated() throws {
+    var consentState = ConsentState()
+    consentState.grant(.transmission(.textRefinement(.claude)))
+    let consent = String(decoding: try JSONEncoder().encode(consentState), as: UTF8.self)
+    let settings = try decode(
+      """
+      {
+        "version": 1,
+        "maxRecordingDuration": 600,
+        "refinementMode": "cloudAI",
+        "appStyleOverrides": [{"rawValue": "com.apple.Terminal"}, {"command": {}}],
+        "refinementModel": "model-a",
+        "pricePerMillionTokens": {"model-a": 3.0},
+        "priceTableUpdatedAt": 0,
+        "monthlyBudget": 25.0,
+        "consentState": \(consent),
+        "historyEnabled": true
+      }
+      """)
+
+    #expect(settings.consentState.allows(.textRefinement(.claude)))
+    #expect(settings.maxRecordingDuration == 600)
+    #expect(settings.refinementModel == "model-a")
+    #expect(settings.historyEnabled)
+    #expect(settings.refinementEngine == .localBasic)
+    #expect(settings.appStyleOverrides.isEmpty)
+    #expect(settings.priceTable == .empty)
+    #expect(settings.monthlyBudget == nil)
+  }
+
+  @Test("AI-05, AI-07: モデル名は前後の空白を除いて持つ")
+  func modelNamesAreTrimmed() throws {
+    #expect(AppSettings(refinementModel: " model-a \n").refinementModel == "model-a")
+    let price = try #require(
+      ModelPriceSetting(model: " model-a ", inputPerMillionTokens: 1, outputPerMillionTokens: 1))
+    #expect(price.model == "model-a")
+    #expect(PriceTableSetting(currencyCode: "USD", prices: [price]).price(for: "model-a") != nil)
+    #expect(
+      ModelPriceSetting(model: "  ", inputPerMillionTokens: 1, outputPerMillionTokens: 1) == nil)
+  }
+
+  @Test("AI-05: 更新日が未設定でも単価は返す（UtterAI の PriceTable への変換は呼び出し側が判断する）")
+  func priceIsReturnedWithoutUpdateDate() throws {
+    let price = try #require(
+      ModelPriceSetting(model: "m", inputPerMillionTokens: 1, outputPerMillionTokens: 1))
+    let table = PriceTableSetting(currencyCode: "USD", updatedOn: nil, prices: [price])
+
+    #expect(table.price(for: "m") == price)
   }
 
   @Test("AI-04, AI-05: 壊れた月次予算は未設定に戻す（上限を勝手に作らない）")

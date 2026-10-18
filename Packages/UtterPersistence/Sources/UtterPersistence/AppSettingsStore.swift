@@ -4,6 +4,8 @@ import Foundation
 ///
 /// 保存先の `UserDefaults` は注入する（テストは専用の suite を渡す）。`UserDefaults` は `Sendable` でないため、
 /// この型も `Sendable` にしない。アプリ側で1つの隔離領域（`@MainActor` など）から使う。
+/// 未知の版（新しいアプリが保存した設定など）を読むと既定値を返すため、その後に `save` すると新しい版の設定を
+/// 上書きする。古いアプリへ戻したときに設定が既定値になることは許容している。
 /// 秘密情報は扱わない（Keychain の責務）。App Group の共有領域を渡す場合も、ここに秘密情報は入らない。
 public struct AppSettingsStore {
   /// 設定を保存するキー

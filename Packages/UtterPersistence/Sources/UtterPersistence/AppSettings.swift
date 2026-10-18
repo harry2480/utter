@@ -7,12 +7,19 @@ import UtterCore
 /// 同意状態は、読めなければ「すべて未同意」に倒す（AC-06）。
 /// API キー・トークンを入れる項目は持たない（Keychain の責務）。項目を足すときも秘密情報を入れない。
 public struct AppSettings: Hashable, Sendable {
-  /// 現在の設定の版番号。保存形式を変えたら上げ、`init(from:)` の移行の入口に旧版からの読み替えを足す
+  /// 現在の設定の版番号。保存形式を変えたら上げ、`init(from:)` の移行の入口に旧版からの読み替えを足す。
+  ///
+  /// 版 1 は #119 時点の形式。それ以前の #76 の形式も版 1 を名乗るが、アプリが未リリースで利用者データが
+  /// ないため移行しない（読める項目だけ復元し、ほかは既定値になる）
   public static let currentVersion = 1
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
   public static let defaultMaxRecordingDuration = Double(
     SessionConfiguration.defaultMaxRecordingDuration.components.seconds)
+
+  /// 最大録音時間として受け付ける範囲（秒）。REC-05。`Duration` へ変換して `SessionConfiguration` に渡せる範囲に限る
+  /// （極端に大きい値は変換時に停止し、極端に小さい値は 0 に丸められて拒否されるため）。上限 1 時間は暫定
+  public static let maxRecordingDurationRange: ClosedRange<Double> = 1...3600
 
   /// 整形用モデル名の既定値（AI-07）
   public static let defaultRefinementModel = "claude-3-5-sonnet-20241022"
@@ -20,7 +27,7 @@ public struct AppSettings: Hashable, Sendable {
   /// 設定の版番号。常に `currentVersion`
   public var version: Int { Self.currentVersion }
 
-  /// 最大録音時間（秒）。REC-05。0 以下・非有限の値は既定値に戻す
+  /// 最大録音時間（秒）。REC-05。`maxRecordingDurationRange` の外・非有限の値は既定値に戻す
   public var maxRecordingDuration: Double {
     didSet { maxRecordingDuration = Self.normalizedMaxRecordingDuration(maxRecordingDuration) }
   }
@@ -33,7 +40,7 @@ public struct AppSettings: Hashable, Sendable {
     didSet { appStyleOverrides = Self.normalizedOverrides(appStyleOverrides) }
   }
 
-  /// 整形用 AI モデル名（AI-07）。空白だけの値は既定値に戻す
+  /// 整形用 AI モデル名（AI-07）。前後の空白を除いて持ち、空になれば既定値に戻す
   public var refinementModel: String {
     didSet { refinementModel = Self.normalizedModel(refinementModel) }
   }
@@ -80,26 +87,19 @@ public struct AppSettings: Hashable, Sendable {
   }
 
   private static func normalizedMaxRecordingDuration(_ value: Double) -> Double {
-    value.isFinite && value > 0 ? value : defaultMaxRecordingDuration
+    maxRecordingDurationRange.contains(value) ? value : defaultMaxRecordingDuration
   }
 
-  /// 空の bundle ID を除き、小文字にそろえる。大文字・小文字だけが異なるキーは `AppStyleResolver` と同じく
-  /// Unicode スカラー順で先のキーの値を採る
+  /// `AppStyleResolver` と同じ規則でキーを正規化する
   private static func normalizedOverrides(
     _ overrides: [String: RefinementStyle]
   ) -> [String: RefinementStyle] {
-    var result: [String: RefinementStyle] = [:]
-    for key in overrides.keys.sorted() where !key.isEmpty {
-      let normalizedKey = key.lowercased()
-      if result[normalizedKey] == nil {
-        result[normalizedKey] = overrides[key]
-      }
-    }
-    return result
+    AppStyleResolver.normalizedKeys(overrides)
   }
 
   private static func normalizedModel(_ model: String) -> String {
-    model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? defaultRefinementModel : model
+    let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? defaultRefinementModel : trimmed
   }
 
   private static func normalizedExcludedApps(_ apps: [String]) -> [String] {
@@ -173,26 +173,17 @@ extension AppSettings: Codable {
     from container: KeyedDecodingContainer<CodingKeys>
   ) -> [String: RefinementStyle] {
     let entries =
-      (try? container.decodeIfPresent([String: LossyStyle].self, forKey: .appStyleOverrides)) ?? nil
-    return (entries ?? [:]).compactMapValues(\.style)
+      (try? container.decodeIfPresent(
+        [String: Lossy<RefinementStyle>].self, forKey: .appStyleOverrides)) ?? nil
+    return (entries ?? [:]).compactMapValues(\.value)
   }
 
   /// 文字列でない要素だけを除く
   private static func decodeExcludedApps(
     from container: KeyedDecodingContainer<CodingKeys>
   ) -> [String] {
-    guard var items = try? container.nestedUnkeyedContainer(forKey: .excludedApps) else {
-      return []
-    }
-    var apps: [String] = []
-    while !items.isAtEnd {
-      if let app = try? items.decode(String.self) {
-        apps.append(app)
-      } else if (try? items.decode(SkippedValue.self)) == nil {
-        break
-      }
-    }
-    return apps
+    let items = (try? container.decodeIfPresent([Lossy<String>].self, forKey: .excludedApps)) ?? nil
+    return (items ?? []).compactMap(\.value)
   }
 
   public func encode(to encoder: any Encoder) throws {
@@ -207,15 +198,6 @@ extension AppSettings: Codable {
     try container.encode(consentState, forKey: .consentState)
     try container.encode(historyEnabled, forKey: .historyEnabled)
     try container.encode(excludedApps, forKey: .excludedApps)
-  }
-}
-
-/// 読めないスタイルを `nil` にする
-private struct LossyStyle: Decodable {
-  let style: RefinementStyle?
-
-  init(from decoder: any Decoder) throws {
-    style = try? RefinementStyle(from: decoder)
   }
 }
 

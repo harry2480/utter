@@ -28,7 +28,10 @@ public struct PriceTableSetting: Hashable, Sendable {
     self.prices = Self.removingDuplicateModels(prices)
   }
 
-  /// 単価表にあるモデルの単価。通貨が未設定なら推定に使えないため `nil`
+  /// 単価表にあるモデルの単価。通貨が未設定なら推定に使えないため `nil`。
+  ///
+  /// 更新日が未設定（`nil`）でも単価は返す。UtterAI の `PriceTable` は更新日を必須とするため、
+  /// 変換する側は更新日がないときの扱い（変換しない・推定しない）を決める必要がある
   public func price(for model: String) -> ModelPriceSetting? {
     guard currencyCode != nil else { return nil }
     return prices.first { $0.model == model }
@@ -68,17 +71,11 @@ extension PriceTableSetting: Codable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let currencyCode = (try? container.decodeIfPresent(String.self, forKey: .currencyCode)) ?? nil
     let updatedOn = (try? container.decodeIfPresent(CalendarDay.self, forKey: .updatedOn)) ?? nil
-    var prices: [ModelPriceSetting] = []
-    if var items = try? container.nestedUnkeyedContainer(forKey: .prices) {
-      while !items.isAtEnd {
-        if let price = try? items.decode(ModelPriceSetting.self) {
-          prices.append(price)
-        } else if (try? items.decode(SkippedValue.self)) == nil {
-          break
-        }
-      }
-    }
-    self.init(currencyCode: currencyCode, updatedOn: updatedOn, prices: prices)
+    let prices =
+      (try? container.decodeIfPresent([Lossy<ModelPriceSetting>].self, forKey: .prices)) ?? nil
+    self.init(
+      currencyCode: currencyCode, updatedOn: updatedOn,
+      prices: (prices ?? []).compactMap(\.value))
   }
 }
 
@@ -88,8 +85,9 @@ public struct ModelPriceSetting: Hashable, Sendable {
   public let inputPerMillionTokens: Decimal
   public let outputPerMillionTokens: Decimal
 
-  /// モデル名が空、単価が負・非数のときは `nil`
+  /// モデル名は前後の空白を除いて持つ。モデル名が空、単価が負・非数のときは `nil`
   public init?(model: String, inputPerMillionTokens: Decimal, outputPerMillionTokens: Decimal) {
+    let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !model.isEmpty,
       !inputPerMillionTokens.isNaN, inputPerMillionTokens >= 0,
       !outputPerMillionTokens.isNaN, outputPerMillionTokens >= 0
@@ -203,7 +201,11 @@ extension MonthlyBudgetSetting: Codable {
   }
 }
 
-/// 壊れた要素を読み飛ばすための値。どんな値からも復号に成功する
-struct SkippedValue: Decodable {
-  init(from decoder: any Decoder) throws {}
+/// 読めない値を `nil` にする。配列・辞書の壊れた要素だけを除くために使う
+struct Lossy<Value: Decodable>: Decodable {
+  let value: Value?
+
+  init(from decoder: any Decoder) {
+    value = try? Value(from: decoder)
+  }
 }
