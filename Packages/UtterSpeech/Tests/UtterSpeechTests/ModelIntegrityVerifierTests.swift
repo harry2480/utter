@@ -126,6 +126,37 @@ struct ModelIntegrityVerifierTests {
     #expect(source.requestedPaths.isEmpty)
   }
 
+  @Test("PERM-03: 大文字・小文字だけが違うパスは同じファイルとみなさず、検証失敗にする")
+  func matchesPathCaseSensitively() throws {
+    let source = StubModelFileSource(
+      listing: .success([
+        Self.completeEntries[0],
+        ModelDirectoryEntry(path: "Config.json", kind: .regularFile(byteCount: 20)),
+      ]),
+      digests: Self.completeDigests)
+
+    #expect(
+      try verifier.verify(source)
+        == .failed([.missingFile("config.json"), .unexpectedFile("Config.json")]))
+  }
+
+  @Test("PERM-03: Unicode 正規化だけが違うパスは同じファイルとみなす")
+  func matchesCanonicallyEquivalentPath() throws {
+    let verifier = ModelIntegrityVerifier(
+      manifest: try ModelManifest(files: [
+        ModelManifest.File(path: "caf\u{E9}.bin", byteCount: 1, sha256: Self.weightsDigest)
+      ]))
+    let source = StubModelFileSource(
+      listing: .success([
+        ModelDirectoryEntry(path: "cafe\u{301}.bin", kind: .regularFile(byteCount: 1))
+      ]),
+      digests: [
+        "caf\u{E9}.bin": .success(ModelFileDigest(byteCount: 1, sha256: Self.weightsDigest))
+      ])
+
+    #expect(try verifier.verify(source) == .verified)
+  }
+
   @Test("PERM-03: シンボリックリンクなど通常ファイルでない項目は、マニフェストにあってもなくても検証失敗にする")
   func rejectsUnsupportedEntries() throws {
     let source = StubModelFileSource(
