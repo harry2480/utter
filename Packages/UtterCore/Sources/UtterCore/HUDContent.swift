@@ -40,6 +40,8 @@ public enum HUDNotice: Hashable, Sendable {
   case maxRecordingDurationReached
   /// 音声バッファの上限に達したため自動停止した
   case audioBufferLimitReached
+  /// 割り込み（電話着信・バックグラウンドへの移動など）で録音を止めた（iOS-PERF-03）
+  case recordingInterrupted(RecordingInterruptionCause)
 
   /// 録音の停止理由に対応する通知。利用者の停止操作では `nil`。
   public init?(stopReason: RecordingStopReason) {
@@ -47,6 +49,7 @@ public enum HUDNotice: Hashable, Sendable {
     case .manual: return nil
     case .maxDurationReached: self = .maxRecordingDurationReached
     case .bufferLimitReached: self = .audioBufferLimitReached
+    case .interrupted(let cause): self = .recordingInterrupted(cause)
     }
   }
 }

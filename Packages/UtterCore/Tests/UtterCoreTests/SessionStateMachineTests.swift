@@ -401,6 +401,116 @@ struct SessionStateMachineTests {
     #expect(machine.activeSession?.stopReason == .maxDurationReached)
   }
 
+  // MARK: - iOS-PERF-03
+
+  @Test("iOS-PERF-03: 割り込みで録音を止めたら、それまでの音声を認識へ進める")
+  func interruptionStopsAndProcesses() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    let recording = try #require(machine.currentToken)
+
+    let outcome = machine.handleInterruption(
+      .audioInterruptionBegan, capturedAudioDuration: .seconds(5),
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .stopped(try #require(machine.currentToken)))
+    #expect(machine.phase == .recognizing)
+    #expect(machine.currentToken?.sessionID == recording.sessionID)
+    #expect(machine.activeSession?.stopReason == .interrupted(.audioInterruption))
+    #expect(machine.recordingDeadline == nil)
+  }
+
+  @Test("iOS-PERF-03: 割り込みで止めた後は通常どおり整形・挿入へ進み、理由が残る")
+  func interruptedSessionCompletesNormally() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    machine.handleInterruption(
+      .appDidEnterBackground, capturedAudioDuration: .seconds(5),
+      policy: RecordingInterruptionPolicy())
+
+    _ = try machine.handle(event(machine, .recognitionCompleted))
+
+    #expect(machine.phase == .refining)
+    #expect(machine.activeSession?.stopReason == .interrupted(.movedToBackground))
+  }
+
+  @Test("iOS-PERF-03: 音声がない割り込みは録音の失敗として表示し、無言で終わらせない")
+  func interruptionWithoutAudioAborts() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    let sessionID = try #require(machine.activeSession?.id)
+
+    let outcome = machine.handleInterruption(
+      .audioInterruptionBegan, capturedAudioDuration: .zero,
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .aborted(.audioInterruption))
+    #expect(machine.phase == .error(.recording))
+    #expect(machine.activeSession?.id == sessionID)
+    #expect(machine.activeSession?.stopReason == .interrupted(.audioInterruption))
+    let dismissed = machine.dismissError()
+    #expect(dismissed)
+    #expect(machine.phase == .idle)
+  }
+
+  @Test("iOS-PERF-03: 録音を止めない割り込みでは状態を変えない")
+  func nonStoppingInterruptionContinues() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    let token = machine.currentToken
+
+    let outcome = machine.handleInterruption(
+      .appWillResignActive, capturedAudioDuration: .seconds(5),
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .continued)
+    #expect(machine.phase == .recording)
+    #expect(machine.currentToken == token)
+    #expect(machine.activeSession?.stopReason == nil)
+  }
+
+  @Test("iOS-PERF-03: 録音中以外の割り込みは無視する", arguments: ProcessingPhase.allCases)
+  func interruptionOutsideRecordingIsIgnored(_ processing: ProcessingPhase) throws {
+    var machine = try machine(in: processing)
+    let before = machine.phase
+    let token = machine.currentToken
+
+    let outcome = machine.handleInterruption(
+      .audioInterruptionBegan, capturedAudioDuration: .zero,
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .ignored)
+    #expect(machine.phase == before)
+    #expect(machine.currentToken == token)
+  }
+
+  @Test("iOS-PERF-03: 待機中の割り込みは無視する")
+  func interruptionWhileIdleIsIgnored() {
+    var machine = SessionStateMachine()
+
+    let outcome = machine.handleInterruption(
+      .appDidEnterBackground, capturedAudioDuration: .zero,
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .ignored)
+    #expect(machine.phase == .idle)
+  }
+
+  @Test("iOS-PERF-03: 割り込みで止めた後に届いた録音段階のイベントは破棄する")
+  func discardsRecordingEventAfterInterruption() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    let recording = try #require(machine.currentToken)
+    machine.handleInterruption(
+      .mediaServicesReset, capturedAudioDuration: .seconds(1),
+      policy: RecordingInterruptionPolicy())
+
+    let outcome = try machine.handle(SessionEvent(token: recording, kind: .failed))
+
+    #expect(outcome == .discarded(.sequenceMismatch))
+    #expect(machine.phase == .recognizing)
+  }
+
   // MARK: - Helpers
 
   /// `nil` は録音中

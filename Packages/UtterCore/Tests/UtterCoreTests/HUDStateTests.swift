@@ -191,6 +191,9 @@ struct HUDStateTests {
     #expect(HUDNotice(stopReason: .manual) == nil)
     #expect(HUDNotice(stopReason: .maxDurationReached) == .maxRecordingDurationReached)
     #expect(HUDNotice(stopReason: .bufferLimitReached) == .audioBufferLimitReached)
+    #expect(
+      HUDNotice(stopReason: .interrupted(.audioInterruption))
+        == .recordingInterrupted(.audioInterruption))
   }
 
   // MARK: - Helpers
