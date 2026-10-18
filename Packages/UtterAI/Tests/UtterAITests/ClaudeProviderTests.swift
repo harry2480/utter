@@ -401,6 +401,11 @@ struct ClaudeProviderTests {
     #expect(outcome.source == .localFallback(.providerFailed(.networkUnavailable)))
   }
 
+  @Test("AC-06: 送信先は Claude と申告する（同意の確認に使う）")
+  func declaresClaudeDestination() {
+    #expect(provider(StubTransport(.failure(.notConnectedToInternet))).destination == .claude)
+  }
+
   @Test("AC-06: 同意がなければ RefinementRouter は送信しない")
   func noSendWithoutConsent() async throws {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))

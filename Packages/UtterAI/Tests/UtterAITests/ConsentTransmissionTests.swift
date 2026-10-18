@@ -49,13 +49,14 @@ struct ConsentTransmissionTests {
 
       let outcome = try await router(transport).refine(request(mode), consent: consent, budget: nil)
 
-      let sent = transport.requests.withLock { $0.count }
-      if consent.allows(.textRefinement(.claude)) {
-        #expect(sent == 1)
+      let sent = transport.requests.withLock { $0.map(\.url?.host) }
+      // 期待値は判定の対象（ConsentState.allows）を使わず、同意の状態から直接求める
+      if consent.status(of: .transmission(.textRefinement(.claude))) == .granted {
+        #expect(sent == ["api.anthropic.com"])
         #expect(outcome.source == .cloud)
         sentStates += 1
       } else {
-        #expect(sent == 0)
+        #expect(sent.isEmpty)
         #expect(outcome.source == .localFallback(.consentNotGranted))
       }
     }
@@ -74,6 +75,36 @@ struct ConsentTransmissionTests {
       #expect(transport.requests.withLock { $0.isEmpty })
       #expect(outcome.source == .raw)
     }
+  }
+
+  @Test("AC-06: 送信先への整形の同意があれば、Claude 以外の送信先にも送信する")
+  func sendsToOtherDestinationWithItsConsent() async throws {
+    let chatGPT = StubAIProvider(behavior: .echo, destination: .chatGPT)
+    let router = try RefinementRouter(provider: chatGPT)
+
+    let outcome = try await router.refine(
+      request(.natural), consent: .refinementGranted(.chatGPT), budget: nil)
+
+    #expect(await chatGPT.callCount == 1)
+    #expect(outcome.source == .cloud)
+  }
+
+  @Test(
+    "AC-06: Edit の選択テキスト・音声・自動切り替えへの同意では整形の送信をしない",
+    arguments: [
+      ConsentScope.transmission(.editSelection(.chatGPT)), .transmission(.speechRecognition),
+      .crossProviderFallback,
+    ])
+  func otherScopeConsentDoesNotAllowSending(_ scope: ConsentScope) async throws {
+    let chatGPT = StubAIProvider(behavior: .echo, destination: .chatGPT)
+    let router = try RefinementRouter(provider: chatGPT)
+    var consent = ConsentState()
+    consent.grant(scope)
+
+    let outcome = try await router.refine(request(.natural), consent: consent, budget: nil)
+
+    #expect(await chatGPT.callCount == 0)
+    #expect(outcome.source == .localFallback(.consentNotGranted))
   }
 
   @Test("AC-06: 別の送信先への整形の同意では送信しない")
