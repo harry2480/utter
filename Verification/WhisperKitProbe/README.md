@@ -24,6 +24,8 @@ Phase 0 検証 [#49](https://github.com/harry2480/utter/issues/49)「WhisperKit 
 - Apple Silicon の Mac、macOS 26 以降、Xcode 26 以降
 - 推論する音声ファイル（wav / m4a / caf / aiff / mp3 / flac）。**人が用意し、リポジトリに置かない**
 - 通信は `fetch` の実行時だけ（Hugging Face からモデルとトークナイザーを取得）。`bench` / `eval` は通信しません
+  - WhisperKit はローカルのトークナイザーが無い・読めないとき、`download: false` でも Hugging Face から取得し直します。そのため `bench` / `eval` はロード前に、トークナイザーを判定できること・`tokenizer.json`（と `tokenizer_config.json`）が JSON として読めることを確かめ、満たさなければ計測せずに止めます。止まったら該当フォルダを消して `fetch` をやり直してください
+  - それでも通信しないことは、計測中にネットワークを切るか通信を監視して確かめてください（#47 の決定案 D-6 と関連）
 - マイク・アクセシビリティなどの権限は不要です
 
 ## ビルド

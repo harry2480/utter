@@ -162,7 +162,7 @@ struct Bench: AsyncParsableCommand {
 
     let sorted = walls.sorted()
     print("成功: \(successes)/\(runs)")
-    if let median = sorted.isEmpty ? nil : sorted[sorted.count / 2], let worst = sorted.last {
+    if let median = median(of: sorted), let worst = sorted.last {
       print(
         "推論時間: 中央値 \(format(median, digits: 2)) 秒 / 最大 \(format(worst, digits: 2)) 秒"
           + "（RTF 中央値 \(format(median / audioSeconds, digits: 3))）")
@@ -236,7 +236,15 @@ struct Eval: AsyncParsableCommand {
       case .success(let (count, text)):
         row.audioSeconds = Double(count) / Double(WhisperKit.sampleRate)
         row.outputCharacters = text.count
-        results.append(sttResult(sample, output: text))
+        if text.isEmpty {
+          // 空の出力を sttOutput にすると utter-eval が認識済みとして数えるため、失敗として扱う
+          failed += 1
+          row.success = false
+          row.error = "empty_output"
+          results.append(sttResult(sample, output: nil))
+        } else {
+          results.append(sttResult(sample, output: text))
+        }
       case .failure(let error):
         failed += 1
         row.success = false
@@ -286,9 +294,7 @@ func requireLocalModel(_ options: ModelOptions) throws {
     throw ProbeError.modelNotFound(folder.path)
   }
   guard let repository = tokenizerRepository(modelFolder: folder) else {
-    FileHandle.standardError.write(
-      Data("警告: トークナイザーを判定できません。ロード中に通信する可能性があります\n".utf8))
-    return
+    throw ProbeError.tokenizerUnknown(folder.path)
   }
   let tokenizer = HubApiWrapper(downloadBase: options.modelsDirURL)
     .localRepoLocation(HubApiWrapper.Repo(id: repository))
@@ -296,4 +302,21 @@ func requireLocalModel(_ options: ModelOptions) throws {
   guard FileManager.default.fileExists(atPath: tokenizer.path) else {
     throw ProbeError.tokenizerNotFound(tokenizer.path)
   }
+  // WhisperKit はローカルのトークナイザーを読めないと Hugging Face から取得し直すため、
+  // 壊れた・途中までのファイルはロード前に止めて、計測中に通信しないようにする
+  for file in [
+    tokenizer, tokenizer.deletingLastPathComponent().appending(path: "tokenizer_config.json"),
+  ]
+  where FileManager.default.fileExists(atPath: file.path) {
+    guard let data = FileManager.default.contents(atPath: file.path),
+      (try? JSONSerialization.jsonObject(with: data)) != nil
+    else { throw ProbeError.tokenizerCorrupted(file.path) }
+  }
+}
+
+/// 昇順に並んだ値の中央値。偶数個のときは中央の2つの平均。
+func median(of sorted: [Double]) -> Double? {
+  guard !sorted.isEmpty else { return nil }
+  let middle = sorted.count / 2
+  return sorted.count.isMultiple(of: 2) ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
 }

@@ -199,6 +199,8 @@ enum ProbeError: Error, CustomStringConvertible {
   case modelNameMismatch(requested: String, resolved: String)
   case modelNotFound(String)
   case tokenizerNotFound(String)
+  case tokenizerUnknown(String)
+  case tokenizerCorrupted(String)
   case audioNotFound(String)
   case emptyAudio
 
@@ -210,6 +212,10 @@ enum ProbeError: Error, CustomStringConvertible {
     case .modelNotFound(let path): "モデルがありません: \(path)。先に fetch を実行してください"
     case .tokenizerNotFound(let path):
       "トークナイザーがありません: \(path)。先に fetch を実行してください（オフラインで計測するため）"
+    case .tokenizerUnknown(let path):
+      "モデル \(path) のトークナイザーを判定できません。ロード中に通信するおそれがあるため計測しません"
+    case .tokenizerCorrupted(let path):
+      "トークナイザーのファイルが壊れています: \(path)。削除して fetch をやり直してください（オフラインで計測するため）"
     case .audioNotFound(let path): "音声ファイルがありません: \(path)"
     case .emptyAudio: "音声が空です"
     }
