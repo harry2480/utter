@@ -77,7 +77,7 @@ struct RunMetrics: Codable, Identifiable, Sendable {
   var sessionActivationMilliseconds: Double?
   /// SpeechAnalyzer.prepareToAnalyze（モデルのロードを含む）
   var analyzerPrepareMilliseconds: Double?
-  /// 録音ボタンを押してからマイク入力が始まるまで（録音開始遅延）
+  /// 録音ボタンを押してからマイク入力が始まるまで（録音開始遅延。許可ダイアログの時間は除く。モデル準備を含む）
   var startToInputMilliseconds: Double?
   /// 入力開始から最初の暫定結果まで
   var firstVolatileResultMilliseconds: Double?

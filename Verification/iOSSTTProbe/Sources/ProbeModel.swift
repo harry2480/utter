@@ -128,8 +128,6 @@ final class ProbeModel {
     }
     phase = .preparing
     message = nil
-    let tap = clock.now
-    tapInstant = tap
 
     guard await AVAudioApplication.requestRecordPermission() else {
       message = ProbeError.microphoneDenied.localizedDescription
@@ -137,6 +135,9 @@ final class ProbeModel {
       return
     }
     await requestSpeechAuthorizationIfNeeded()
+    // 初回の許可ダイアログの時間を録音開始遅延に含めないよう、許可の確認後から測る
+    let tap = clock.now
+    tapInstant = tap
     let sampleID = resolveMicrophoneSampleID()
     beginRun(sampleID: sampleID, source: "microphone")
 
@@ -491,7 +492,7 @@ final class ProbeModel {
     liveFinalText = ""
     liveVolatileText = ""
     monitor.reset()
-    message = "書き出したファイルと認識結果を削除しました"
+    message = "書き出したファイルと認識結果・計測値を削除しました（資源の記録はここから記録し直します）"
   }
 
   /// エラーの種類だけを返す（発話本文やファイルパスを含めない）
