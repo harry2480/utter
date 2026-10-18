@@ -24,17 +24,9 @@ struct RealtimeDirectSessionTests {
       String(decoding: units, as: UTF16.self)
     }
 
-    func observation(tracking range: UTF16TextRange) -> RealtimeDirectFieldObservation {
-      let tracked =
-        range.upperBound <= units.count
-        ? String(decoding: units[range.location..<range.upperBound], as: UTF16.self) : nil
-      return RealtimeDirectFieldObservation(
-        target: target, utf16Length: units.count,
-        selectedRange: UTF16TextRange(location: caret, length: 0), trackedText: tracked)
-    }
-
-    func observation(for session: RealtimeDirectSession) -> RealtimeDirectFieldObservation {
-      observation(tracking: session.trackedRange)
+    var observation: RealtimeDirectFieldObservation {
+      RealtimeDirectFieldObservation(
+        target: target, value: text, selectedRange: UTF16TextRange(location: caret, length: 0))
     }
 
     /// アプリ側の置き換え。照合済みの範囲だけを置き換え、カーソルを指定の位置に置く。
@@ -51,7 +43,7 @@ struct RealtimeDirectSessionTests {
   private static func start(_ field: Field) throws -> RealtimeDirectSession {
     try RealtimeDirectSession(
       requirements: supported,
-      observation: field.observation(tracking: UTF16TextRange(location: field.caret, length: 0)))
+      observation: field.observation)
   }
 
   /// 受け取ったテキストを順に書き込み、最後の結果を返す。
@@ -61,7 +53,7 @@ struct RealtimeDirectSessionTests {
   ) throws -> RealtimeDirectStep {
     var step = RealtimeDirectStep.unchanged
     for text in texts {
-      step = try session.update(to: text, observation: field.observation(for: session))
+      step = try session.update(to: text, observation: field.observation)
       if case .write(let edit) = step {
         field.apply(edit)
       }
@@ -82,7 +74,7 @@ struct RealtimeDirectSessionTests {
     ) {
       try RealtimeDirectSession(
         requirements: requirements,
-        observation: Field("").observation(tracking: UTF16TextRange(location: 0, length: 0)))
+        observation: Field("").observation)
     }
   }
 
@@ -109,33 +101,39 @@ struct RealtimeDirectSessionTests {
     #expect(requirements.unavailableReasons == [.terminal])
   }
 
-  @Test("AC-15: 開始時に入力対象・長さ・カーソル位置を確かめられなければ使えない")
+  @Test("AC-15: 開始時に入力対象・値・カーソル位置を確かめられなければ使えない")
   func startRequiresReadableField() {
     let cases: [(RealtimeDirectFieldObservation, Set<RealtimeDirectUnavailableReason>)] = [
       (
         RealtimeDirectFieldObservation(
-          target: nil, utf16Length: 0, selectedRange: UTF16TextRange(location: 0, length: 0)),
+          target: nil, value: "", selectedRange: UTF16TextRange(location: 0, length: 0)),
         [.targetUnknown]
       ),
       (
         RealtimeDirectFieldObservation(
-          target: Self.target, utf16Length: nil,
+          target: Self.target, value: nil,
           selectedRange: UTF16TextRange(location: 0, length: 0)),
         [.fieldUnreadable]
       ),
       (
-        RealtimeDirectFieldObservation(target: Self.target, utf16Length: 3, selectedRange: nil),
+        RealtimeDirectFieldObservation(target: Self.target, value: "abc", selectedRange: nil),
         [.fieldUnreadable]
       ),
       (
         RealtimeDirectFieldObservation(
-          target: Self.target, utf16Length: 3, selectedRange: UTF16TextRange(location: 4, length: 0)
+          target: Self.target, value: "abc", selectedRange: UTF16TextRange(location: 4, length: 0)
         ),
         [.fieldUnreadable]
       ),
       (
+        // サロゲートペア（𠮷）の途中
         RealtimeDirectFieldObservation(
-          target: Self.target, utf16Length: 3, selectedRange: UTF16TextRange(location: 1, length: 2)
+          target: Self.target, value: "𠮷", selectedRange: UTF16TextRange(location: 1, length: 0)),
+        [.fieldUnreadable]
+      ),
+      (
+        RealtimeDirectFieldObservation(
+          target: Self.target, value: "abc", selectedRange: UTF16TextRange(location: 1, length: 2)
         ),
         [.selectionNotEmpty]
       ),
@@ -155,7 +153,7 @@ struct RealtimeDirectSessionTests {
     var field = Field("宛先: ", caret: 4)
     var session = try Self.start(field)
 
-    let first = try session.update(to: "明日の", observation: field.observation(for: session))
+    let first = try session.update(to: "明日の", observation: field.observation)
     #expect(
       first
         == .write(
@@ -179,7 +177,7 @@ struct RealtimeDirectSessionTests {
     var session = try Self.start(field)
     try Self.write(["会議は3時からです"], session: &session, field: &field)
 
-    let step = try session.update(to: "会議は4時からです", observation: field.observation(for: session))
+    let step = try session.update(to: "会議は4時からです", observation: field.observation)
 
     #expect(
       step
@@ -201,7 +199,7 @@ struct RealtimeDirectSessionTests {
     try Self.write(["本文"], session: &session, field: &field)
 
     #expect(
-      try session.update(to: "本文", observation: field.observation(for: session)) == .unchanged)
+      try session.update(to: "本文", observation: field.observation) == .unchanged)
 
     try Self.write([""], session: &session, field: &field)
     #expect(field.text == "前")
@@ -231,7 +229,7 @@ struct RealtimeDirectSessionTests {
     var session = try Self.start(field)
     try Self.write([old], session: &session, field: &field)
 
-    let step = try session.update(to: new, observation: field.observation(for: session))
+    let step = try session.update(to: new, observation: field.observation)
 
     guard case .write(let edit) = step else {
       Issue.record("書き込みにならない")
@@ -267,13 +265,13 @@ struct RealtimeDirectSessionTests {
     var session = try Self.start(field)
     try Self.write(["明日の"], session: &session, field: &field)
 
-    var observation = field.observation(for: session)
+    var observation = field.observation
     switch reason {
     case .targetMissing: observation.target = nil
     case .targetChanged: observation.target = InsertionTargetID(rawValue: "field-2")
-    case .fieldChanged: observation.trackedText = "明後日"
+    case .fieldChanged: observation.value = "宛先 明後日"
     case .selectionMoved: observation.selectedRange = UTF16TextRange(location: 0, length: 0)
-    case .rangeUnverifiable: observation.trackedText = nil
+    case .rangeUnverifiable: observation.value = nil
     case .writeFailed, .interrupted: break
     }
 
@@ -282,7 +280,7 @@ struct RealtimeDirectSessionTests {
     // 書き込み済みの記録は残し、以降は正しい状態でも書き込まない
     #expect(session.writtenText == "明日の")
     #expect(
-      try session.update(to: "明日の会議は", observation: field.observation(for: session))
+      try session.update(to: "明日の会議は", observation: field.observation)
         == .showPreview(reason))
   }
 
@@ -294,9 +292,9 @@ struct RealtimeDirectSessionTests {
 
     // 利用者が先頭に1文字入力した。書き込んだ範囲の位置から読むと、中身は偶然同じ文字列になる
     field.units.insert(UInt16(UInt8(ascii: "x")), at: 0)
-    var observation = field.observation(for: session)
+    var observation = field.observation
     observation.selectedRange = UTF16TextRange(location: 4, length: 0)
-    #expect(observation.trackedText == "xx")
+    #expect(field.text.utf16.dropFirst(2).prefix(2).elementsEqual("xx".utf16))
 
     #expect(try session.update(to: "xxz", observation: observation) == .showPreview(.fieldChanged))
   }
@@ -309,8 +307,8 @@ struct RealtimeDirectSessionTests {
 
     // アプリがオングストローム記号を NFC の Å（同じ長さ）に正規化した
     field.units = Array("1\u{C5}".utf16)
-    let observation = field.observation(for: session)
-    #expect(observation.trackedText == "1\u{212B}")
+    let observation = field.observation
+    #expect(observation.value == "1\u{212B}")
 
     #expect(
       try session.update(to: "1\u{212B}m", observation: observation) == .showPreview(.fieldChanged))
@@ -328,7 +326,7 @@ struct RealtimeDirectSessionTests {
     // 最初の理由を残す
     #expect(session.state == .stopped(.writeFailed))
     #expect(
-      try session.update(to: "明日の会議", observation: field.observation(for: session))
+      try session.update(to: "明日の会議", observation: field.observation)
         == .showPreview(.writeFailed))
   }
 
@@ -341,7 +339,7 @@ struct RealtimeDirectSessionTests {
     try Self.write(["明日の", "明日の会議👍🏽"], session: &session, field: &field)
     try session.finish()
 
-    let undo = try session.undo(observation: field.observation(for: session))
+    let undo = try session.undo(observation: field.observation)
 
     guard case .revert(let edit) = undo else {
       Issue.record("取り消しにならない")
@@ -360,12 +358,12 @@ struct RealtimeDirectSessionTests {
     var field = Field("")
     var session = try Self.start(field)
 
-    #expect(try session.undo(observation: field.observation(for: session)) == .nothingToRevert)
+    #expect(try session.undo(observation: field.observation) == .nothingToRevert)
     #expect(session.state == .undone)
 
     session = try Self.start(field)
     try Self.write(["明日の"], session: &session, field: &field)
-    guard case .revert(let edit) = try session.undo(observation: field.observation(for: session))
+    guard case .revert(let edit) = try session.undo(observation: field.observation)
     else {
       Issue.record("取り消しにならない")
       return
@@ -386,10 +384,10 @@ struct RealtimeDirectSessionTests {
     field.caret = field.units.count
 
     #expect(
-      try session.undo(observation: field.observation(for: session)) == .unavailable(.fieldChanged))
+      try session.undo(observation: field.observation) == .unavailable(.fieldChanged))
     #expect(session.state == .stopped(.fieldChanged))
     #expect(
-      try session.undo(observation: field.observation(for: session)) == .unavailable(.fieldChanged))
+      try session.undo(observation: field.observation) == .unavailable(.fieldChanged))
   }
 
   // MARK: - 状態遷移
@@ -403,22 +401,22 @@ struct RealtimeDirectSessionTests {
 
     #expect(throws: RealtimeDirectSessionError.invalidTransition(from: .finished, action: .update))
     {
-      _ = try session.update(to: "明日の会議", observation: field.observation(for: session))
+      _ = try session.update(to: "明日の会議", observation: field.observation)
     }
     #expect(throws: RealtimeDirectSessionError.invalidTransition(from: .finished, action: .finish))
     {
       try session.finish()
     }
 
-    guard case .revert(let edit) = try session.undo(observation: field.observation(for: session))
+    guard case .revert(let edit) = try session.undo(observation: field.observation)
     else { return }
     field.apply(edit)
     let undone = session
     #expect(throws: RealtimeDirectSessionError.invalidTransition(from: .undone, action: .undo)) {
-      _ = try session.undo(observation: field.observation(for: session))
+      _ = try session.undo(observation: field.observation)
     }
     #expect(throws: RealtimeDirectSessionError.invalidTransition(from: .undone, action: .update)) {
-      _ = try session.update(to: "", observation: field.observation(for: session))
+      _ = try session.update(to: "", observation: field.observation)
     }
     // 失敗した操作は状態を変えない
     #expect(session == undone)
@@ -434,24 +432,18 @@ struct RealtimeDirectSessionTests {
     #expect(session.state == .stopped(.interrupted))
   }
 
-  @Test("AC-15: 呼び出し側から受け取った極端な位置でも異常終了しない")
-  func handlesExtremeOffsets() throws {
-    let observation = RealtimeDirectFieldObservation(
-      target: Self.target, utf16Length: Int.max,
-      selectedRange: UTF16TextRange(location: Int.max, length: 0))
-    var session = try RealtimeDirectSession(requirements: Self.supported, observation: observation)
+  @Test("AC-09: 書き込んだ範囲の外が同じ長さのまま書き換えられても退避する")
+  func stopsOnSameLengthChangeOutsideRange() throws {
+    var field = Field("ab")
+    var session = try Self.start(field)
+    try Self.write(["xy"], session: &session, field: &field)
 
-    var next = observation
-    next.trackedText = ""
-    let step = try session.update(to: "a", observation: next)
-    guard case .write(let edit) = step else {
-      Issue.record("書き込みにならない")
-      return
-    }
-    #expect(edit.caretLocation == Int.max)
+    // 自動修正などで、カーソルを動かさずに範囲の前の1文字が置き換わった
+    field.units[0] = UInt16(UInt8(ascii: "c"))
 
-    next.trackedText = "a"
-    #expect(try session.update(to: "ab", observation: next) == .showPreview(.fieldChanged))
+    #expect(
+      try session.update(to: "xyz", observation: field.observation) == .showPreview(.fieldChanged))
+    #expect(session.writtenText == "xy")
   }
 
   // MARK: - プライバシー
@@ -460,11 +452,11 @@ struct RealtimeDirectSessionTests {
   func redactsText() throws {
     var field = Field("秘密の宛先")
     var session = try Self.start(field)
-    let step = try session.update(to: "秘密の発話", observation: field.observation(for: session))
+    let step = try session.update(to: "秘密の発話", observation: field.observation)
     if case .write(let edit) = step {
       field.apply(edit)
     }
-    let observation = field.observation(for: session)
+    let observation = field.observation
     let undo = try session.undo(observation: observation)
 
     let values: [Any] = [session, step, observation, undo]

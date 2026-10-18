@@ -28,24 +28,19 @@ func saturatingSum(_ lhs: Int, _ rhs: Int) -> Int {
 /// 書き込みの直前・取り消しの直前に読み取った入力欄の状態（AC-15）。アプリ側が AX などから作る。
 ///
 /// 読み取れなかった値は `nil` にする。`nil` を含む場合、範囲を確かめられないとして書き込みをやめる。
+/// 入力欄の値は照合だけに使い、送信・保存・ログ出力はしない。
 public struct RealtimeDirectFieldObservation: Hashable, Sendable {
   /// フォーカスのある入力対象
   public var target: InsertionTargetID?
-  /// 入力欄の値全体の長さ（UTF-16）
-  public var utf16Length: Int?
+  /// 入力欄の値全体。書き込んだ範囲の外の変更も検出するため、範囲だけでなく全体を読む
+  public var value: String?
   /// 選択範囲。選択がなければ長さ 0 のカーソル位置
   public var selectedRange: UTF16TextRange?
-  /// `RealtimeDirectSession.trackedRange` から読み戻したテキスト。開始時は使わない
-  public var trackedText: String?
 
-  public init(
-    target: InsertionTargetID?, utf16Length: Int?, selectedRange: UTF16TextRange?,
-    trackedText: String? = nil
-  ) {
+  public init(target: InsertionTargetID?, value: String?, selectedRange: UTF16TextRange?) {
     self.target = target
-    self.utf16Length = utf16Length
+    self.value = value
     self.selectedRange = selectedRange
-    self.trackedText = trackedText
   }
 }
 
@@ -55,11 +50,11 @@ public enum RealtimeDirectStopReason: Hashable, Sendable, CaseIterable {
   case targetMissing
   /// フォーカスが別の入力対象に移った
   case targetChanged
-  /// 入力欄が外部で変更された（長さや書き込んだ範囲のテキストが記録と違う）
+  /// 入力欄が外部で変更された（値全体が、開始時の値に書き込んだテキストを挟んだものと違う）
   case fieldChanged
   /// カーソルが書き込んだ範囲の末尾から動いた、またはテキストが選択された
   case selectionMoved
-  /// 入力欄の長さ・選択範囲・書き込んだ範囲のテキストを読み取れない
+  /// 入力欄の値・選択範囲を読み取れない
   case rangeUnverifiable
   /// 呼び出し側が書き込みの失敗を検出した
   case writeFailed
@@ -71,8 +66,8 @@ public enum RealtimeDirectStopReason: Hashable, Sendable, CaseIterable {
 ///
 /// 開始時のカーソル位置（`anchor`）から書き込んだテキスト（`writtenText`）を記録し、
 /// 新しいテキストを受け取るたびに、書き込んだ範囲のうち置き換える部分と置き換え後の文字列を返す。
-/// 書き込む前と取り消す前には、呼び出し側が読み取った入力欄の状態を記録と照合し、
-/// 入力対象・長さ・書き込んだ範囲のテキスト・カーソル位置のどれかが合わなければ書き込みをやめる。
+/// 書き込む前と取り消す前には、呼び出し側が読み取った入力欄の状態を記録と照合し、入力対象・値全体
+/// （開始時の値の `anchor` の位置に `writtenText` を挟んだもの）・カーソル位置のどれかが合わなければ書き込みをやめる。
 /// やめた後は入力欄に触れず、呼び出し側はコピー可能なプレビューへ退避する（AC-09）。
 ///
 /// 位置はすべて UTF-16 のコード単位で、差分の区切りは Character（書記素クラスター）の境界に合わせる。
@@ -126,8 +121,8 @@ public struct RealtimeDirectSession: Hashable, Sendable {
   public let target: InsertionTargetID
   /// 書き込みを始めた位置（開始時のカーソル位置, UTF-16）
   public let anchor: Int
-  /// 書き込みを始める前の入力欄の長さ（UTF-16）
-  public let initialLength: Int
+  /// 書き込みを始める前の入力欄の値。照合だけに使う
+  let initialValue: String
   /// これまでに入力欄へ書き込んだテキスト。`anchor` から始まる
   public private(set) var writtenText = ""
   public private(set) var state = State.writing
@@ -143,8 +138,9 @@ public struct RealtimeDirectSession: Hashable, Sendable {
     if observation.target == nil {
       reasons.insert(.targetUnknown)
     }
-    if let length = observation.utf16Length, let selection = observation.selectedRange,
-      selection.upperBound <= length
+    if let value = observation.value, let selection = observation.selectedRange,
+      Self.isScalarBoundary(selection.location, in: value),
+      Self.isScalarBoundary(selection.upperBound, in: value)
     {
       if selection.length != 0 {
         reasons.insert(.selectionNotEmpty)
@@ -153,16 +149,23 @@ public struct RealtimeDirectSession: Hashable, Sendable {
       reasons.insert(.fieldUnreadable)
     }
     guard reasons.isEmpty, let target = observation.target,
-      let length = observation.utf16Length, let selection = observation.selectedRange
+      let value = observation.value, let selection = observation.selectedRange
     else {
       throw .unavailable(reasons)
     }
     self.target = target
     anchor = selection.location
-    initialLength = length
+    initialValue = value
   }
 
-  /// これまでに書き込んだ範囲（入力欄全体での位置）。呼び出し側はこの範囲のテキストを読み戻して照合に渡す。
+  /// UTF-16 の位置が値の範囲内で、サロゲートペアの途中でないか。
+  private static func isScalarBoundary(_ offset: Int, in value: String) -> Bool {
+    guard offset <= value.utf16.count else { return false }
+    let index = value.utf16.index(value.utf16.startIndex, offsetBy: offset)
+    return index.samePosition(in: value.unicodeScalars) != nil
+  }
+
+  /// これまでに書き込んだ範囲（入力欄全体での位置）。
   public var trackedRange: UTF16TextRange {
     UTF16TextRange(location: anchor, length: writtenText.utf16.count)
   }
@@ -253,16 +256,15 @@ public struct RealtimeDirectSession: Hashable, Sendable {
   {
     guard let current = observation.target else { return .targetMissing }
     guard current == target else { return .targetChanged }
-    guard let length = observation.utf16Length, let selection = observation.selectedRange else {
+    guard let value = observation.value, let selection = observation.selectedRange else {
       return .rangeUnverifiable
     }
-    // 範囲の外（前後）の入力も位置をずらすため、全体の長さで検出する
-    let (expectedLength, overflow) = initialLength.addingReportingOverflow(
-      writtenText.utf16.count)
-    guard !overflow, length == expectedLength else { return .fieldChanged }
-    guard let trackedText = observation.trackedText else { return .rangeUnverifiable }
+    // 範囲の外の変更（前後での入力・同じ長さの書き換え）も検出するため、値全体を比べる。
     // アプリによる正規化（NFC など）も外部の変更として扱うため、UTF-16 のコード単位で比べる
-    guard trackedText.utf16.elementsEqual(writtenText.utf16) else { return .fieldChanged }
+    let initial = initialValue.utf16
+    let split = initial.index(initial.startIndex, offsetBy: anchor)
+    let expected = [initial[..<split], Substring(writtenText).utf16, initial[split...]].joined()
+    guard value.utf16.elementsEqual(expected) else { return .fieldChanged }
     guard selection == UTF16TextRange(location: caretLocation, length: 0) else {
       return .selectionMoved
     }
@@ -363,9 +365,8 @@ extension RealtimeDirectSession: CustomStringConvertible, CustomReflectable {
 extension RealtimeDirectFieldObservation: CustomStringConvertible, CustomReflectable {
   public var description: String {
     "RealtimeDirectFieldObservation(target: \(target.map(String.init(describing:)) ?? "nil"), "
-      + "utf16Length: \(utf16Length.map(String.init) ?? "nil"), "
-      + "selectedRange: \(selectedRange.map(String.init(describing:)) ?? "nil"), "
-      + "trackedLength: \(trackedText.map { String($0.utf16.count) } ?? "nil"))"
+      + "valueLength: \(value.map { String($0.utf16.count) } ?? "nil"), "
+      + "selectedRange: \(selectedRange.map(String.init(describing:)) ?? "nil"))"
   }
 
   public var customMirror: Mirror {
