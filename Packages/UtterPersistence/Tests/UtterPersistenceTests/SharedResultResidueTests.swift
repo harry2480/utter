@@ -44,6 +44,25 @@ struct SharedResultResidueTests {
     SharedResultStore(directory: directory.url)
   }
 
+  /// 作成から `seconds` 秒後の時刻で動くキーボード側の挿入
+  private func coordinator(at seconds: TimeInterval) -> SharedResultInsertionCoordinator {
+    let now = after(seconds)
+    return SharedResultInsertionCoordinator(
+      store: store, inserter: ConfirmingInserter(), now: { now })
+  }
+
+  /// JSON の項目名を、入れ子を `.` でつないだ経路で集める（値は集めない）
+  private static func keyPaths(of value: Any, prefix: String = "") -> Set<String> {
+    guard let object = value as? [String: Any] else {
+      return []
+    }
+    return object.reduce(into: Set<String>()) { paths, entry in
+      let path = prefix.isEmpty ? entry.key : "\(prefix).\(entry.key)"
+      paths.insert(path)
+      paths.formUnion(keyPaths(of: entry.value, prefix: path))
+    }
+  }
+
   /// 保存先のすべてのファイル（隠しファイル・サブディレクトリを含む）
   private func storedFiles() throws -> [URL] {
     let enumerator = try #require(
@@ -72,32 +91,51 @@ struct SharedResultResidueTests {
       try await store.save(consumed, expectedRevision: result.revision)
       #expect(try await store.cleanUp(at: after(3)).removedCount == 1)
     case .previewExpired:
-      let coordinator = SharedResultInsertionCoordinator(
-        store: store, inserter: ConfirmingInserter(),
-        now: { [createdAt] in
-          createdAt.addingTimeInterval(600)
-        })
-      #expect(try await coordinator.preview(sessionID: sessionID) == .notInsertable(.expired))
+      #expect(
+        try await coordinator(at: 600).preview(sessionID: sessionID) == .notInsertable(.expired))
     case .insertExpired:
-      let coordinator = SharedResultInsertionCoordinator(
-        store: store, inserter: ConfirmingInserter(),
-        now: { [createdAt] in
-          createdAt.addingTimeInterval(600)
-        })
-      #expect(try await coordinator.insert(sessionID: sessionID) == .notInserted(.expired))
+      #expect(try await coordinator(at: 600).insert(sessionID: sessionID) == .notInserted(.expired))
     case .inserted:
-      let coordinator = SharedResultInsertionCoordinator(
-        store: store, inserter: ConfirmingInserter(),
-        now: { [createdAt] in
-          createdAt.addingTimeInterval(1)
-        })
-      #expect(try await coordinator.insert(sessionID: sessionID) == .inserted)
+      #expect(try await coordinator(at: 1).insert(sessionID: sessionID) == .inserted)
     }
   }
 
-  @Test("iOS-IPC-01, iOS-IPC-04: 保存ファイルの項目は共有結果の項目だけで、ほかに中身のあるファイルを作らない")
-  func storedFileHoldsOnlyResultFields() async throws {
-    let result = SharedResult(sessionID: SessionID(), text: Self.keptText, createdAt: createdAt)
+  /// 保存ファイルの項目を確かめる状態と、その状態で `status` の下に入る項目
+  enum Stage: CaseIterable, Sendable {
+    case ready
+    case inserting
+    case insertionUnknown
+    case consumed
+
+    var statusKeyPaths: Set<String> {
+      switch self {
+      case .ready: ["status.ready"]
+      case .inserting: ["status.inserting", "status.inserting.startedAt"]
+      case .insertionUnknown: ["status.insertionUnknown"]
+      case .consumed: ["status.consumed", "status.consumed.at"]
+      }
+    }
+  }
+
+  private func result(at stage: Stage) throws -> SharedResult {
+    var result = SharedResult(sessionID: SessionID(), text: Self.keptText, createdAt: createdAt)
+    guard stage != .ready else {
+      return result
+    }
+    try result.beginInsertion(for: result.sessionID, at: after(1))
+    switch stage {
+    case .ready, .inserting: break
+    case .insertionUnknown: try result.markInsertionUnknown()
+    case .consumed: try result.markConsumed(at: after(2))
+    }
+    return result
+  }
+
+  @Test(
+    "iOS-IPC-01, iOS-IPC-04: 保存ファイルの項目は入れ子まで共有結果の項目だけで、ほかに中身のあるファイルを作らない",
+    arguments: Stage.allCases)
+  func storedFileHoldsOnlyResultFields(_ stage: Stage) async throws {
+    let result = try result(at: stage)
     try await store.save(result, expectedRevision: nil)
 
     let files = try storedFiles()
@@ -109,14 +147,14 @@ struct SharedResultResidueTests {
       #expect(file.pathExtension == "lock")
       #expect(try Data(contentsOf: file).isEmpty)
     }
-    // 項目名だけを比べる。API キー・トークン・音声の項目が加わったら気づけるようにする
+    // 入れ子を含む項目名だけを比べる（値は比べない）。API キー・トークン・音声の項目が加わったら気づけるようにする
     let file = try #require(resultFiles.first)
-    let object = try #require(
-      try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
-    #expect(
-      Set(object.keys) == [
-        "sessionID", "createdAt", "expiresAt", "status", "text", "revision", "configuration",
-      ])
+    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: file))
+    let expected: Set<String> = [
+      "sessionID", "sessionID.rawValue", "createdAt", "expiresAt", "status", "text", "revision",
+      "configuration", "configuration.timeToLive", "configuration.insertionGracePeriod",
+    ]
+    #expect(Self.keyPaths(of: object) == expected.union(stage.statusKeyPaths))
   }
 
   @Test("iAC-10, iOS-IPC-05: 期限切れ・挿入後に削除した結果の本文は、保存先のどのファイルにも残らない", arguments: Removal.allCases)
