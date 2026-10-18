@@ -117,6 +117,10 @@ public actor SharedResultInsertionCoordinator {
         try claimed.beginInsertion(for: sessionID, at: now)
       }
     } catch .notInsertable(let reason) {
+      if reason == .expired {
+        // 挿入に使えないため、共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
+        try? await store.delete(sessionID: sessionID)
+      }
       return .notInserted(reason)
     } catch {
       return .notInserted(loaded.insertability(for: sessionID, at: now))

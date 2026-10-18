@@ -85,6 +85,18 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(try await stored() == nil)
   }
 
+  @Test("iAC-04, iOS-IPC-05: 期限切れの結果は挿入せず、挿入操作で検出したときも削除する")
+  func insertDeletesExpiredResult() async throws {
+    _ = try await saveReady()
+    let inserter = RecordingInserter()
+
+    let outcome = try await coordinator(inserter, at: 600).insert(sessionID: sessionID)
+
+    #expect(outcome == .notInserted(.expired))
+    #expect(inserter.insertedTexts.isEmpty)
+    #expect(try await stored() == nil)
+  }
+
   @Test("iAC-04, iOS-IPC-05: 明示的な挿入操作で1回だけ挿入し、挿入後は共有テキストを削除する")
   func insertsOnceAndDeletesAfterInsertion() async throws {
     let ready = try await saveReady()
