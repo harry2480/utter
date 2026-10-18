@@ -309,9 +309,10 @@ public struct RealtimeDirectSession: Hashable, Sendable {
 
 /// 入力欄の1回の置き換え。
 ///
-/// 呼び出し側は `range` のテキストが `expectedText` であることを照合済みのうえで `replacement` に置き換え、
-/// カーソルを `caretLocation` に置く。置き換え後のカーソル位置は範囲の末尾とは限らない
-/// （書き込み済みの途中だけを直す場合）。
+/// セッションが照合に使った読み取りの直後に、`range`（今は `expectedText` が入っている）を `replacement` に
+/// 置き換え、カーソルを `caretLocation` に置く。照合から置き換えまでの間に利用者の入力を挟まないよう、
+/// 呼び出し側は読み取りと置き換えを同じ実行単位（メインスレッドの1回の処理など）で行う。
+/// 置き換え後のカーソル位置は範囲の末尾とは限らない（書き込み済みの途中だけを直す場合）。
 public struct RealtimeDirectEdit: Hashable, Sendable {
   /// 置き換える範囲（入力欄全体での位置, UTF-16）
   public let range: UTF16TextRange
