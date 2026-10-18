@@ -13,14 +13,23 @@ public struct UtterDatabase: Sendable {
     try FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     // 同じファイルを別のインスタンスやプロセスが開いていても、書き込みのロックをしばらく待つ
-    var configuration = Configuration()
+    var configuration = Self.configuration
     configuration.busyMode = .timeout(5)
     return try UtterDatabase(writer: DatabaseQueue(path: url.path, configuration: configuration))
   }
 
   /// メモリ上のデータベースを開く。閉じると内容は消える
   public static func inMemory() throws -> UtterDatabase {
-    try UtterDatabase(writer: DatabaseQueue())
+    try UtterDatabase(writer: DatabaseQueue(configuration: configuration))
+  }
+
+  /// 削除した行（入力履歴の本文など）がファイルの空き領域に残らないよう、削除した領域を上書きする（7章）
+  private static var configuration: Configuration {
+    var configuration = Configuration()
+    configuration.prepareDatabase { db in
+      try db.execute(sql: "PRAGMA secure_delete = ON")
+    }
+    return configuration
   }
 
   private init(writer: any DatabaseWriter) throws {

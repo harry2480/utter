@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 import UtterCore
 
@@ -25,7 +26,7 @@ struct InputHistoryStoreTests {
   ) throws -> InputHistorySkipReason? {
     try store.record(
       text, session: session, at: createdAt.addingTimeInterval(seconds),
-      historyEnabled: enabled, sensitivity: sensitivity)
+      historyEnabled: { enabled }, sensitivity: sensitivity)
   }
 
   @Test("AC-12: 履歴が無効なら保存しない")
@@ -50,14 +51,37 @@ struct InputHistoryStoreTests {
     #expect(try store.entries().isEmpty)
   }
 
-  @Test("7章: 履歴が無効なら、機密入力の判定より先に無効を理由にする")
-  func disabledTakesPrecedence() throws {
-    #expect(try record("秘密", enabled: false, sensitivity: Self.secureField) == .disabled)
+  @Test("AC-12: 機密入力なら、履歴の設定を読まずに保存しない")
+  func sensitiveInputSkipsWithoutReadingSetting() throws {
+    let reason = try store.record(
+      "秘密", session: SessionID(), at: createdAt,
+      historyEnabled: {
+        Issue.record("機密入力では設定を読まない")
+        return true
+      }, sensitivity: Self.secureField)
+
+    #expect(reason == .sensitiveInput)
   }
 
-  @Test("7章: 空の本文は保存しない")
-  func doesNotRecordEmptyText() throws {
-    #expect(try record("") == .emptyText)
+  @Test("AC-12: 設定は書き込みの中で読み、無効にした後の保存は削除の後に残らない")
+  func readsSettingInsideWrite() throws {
+    let enabled = Mutex(true)
+    try record("無効にする前", after: 0)
+    // 利用者が設定を無効にしてから全削除する
+    enabled.withLock { $0 = false }
+    try store.removeAll()
+
+    let reason = try store.record(
+      "無効にした後", session: SessionID(), at: createdAt,
+      historyEnabled: { enabled.withLock { $0 } }, sensitivity: Self.allowed)
+
+    #expect(reason == .disabled)
+    #expect(try store.entries().isEmpty)
+  }
+
+  @Test("7章: 空・空白だけの本文は保存しない", arguments: ["", " ", "\n\t"])
+  func doesNotRecordEmptyText(_ text: String) throws {
+    #expect(try record(text) == .emptyText)
     #expect(try store.entries().isEmpty)
   }
 
@@ -87,6 +111,36 @@ struct InputHistoryStoreTests {
       try store.entries() == [
         InputHistoryEntry(sessionID: session, text: "挿入し直した結果", createdAt: createdAt + 5)
       ])
+  }
+
+  @Test("7章: 作成時刻が同じなら、後から保存した（保存し直した）ものを先に返す")
+  func ordersBySaveWhenTimesAreEqual() throws {
+    let first = SessionID()
+    let second = SessionID()
+    try record("一つ目", session: first)
+    try record("二つ目", session: second)
+    try record("一つ目を保存し直した", session: first)
+
+    #expect(try store.entries().map(\.sessionID) == [first, second])
+    #expect(try store.entries(limit: -1).isEmpty)
+  }
+
+  @Test("7章: 削除した本文はデータベースのファイルに残らない")
+  func deletedTextDoesNotRemainInFile() throws {
+    let directory = TemporaryDirectory()
+    try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
+    let url = directory.url.appendingPathComponent("utter.sqlite")
+    let marker = "削除後に残ってはいけない本文-0123456789"
+    do {
+      let history = InputHistoryStore(database: try UtterDatabase.open(at: url))
+      try history.record(
+        marker, session: SessionID(), at: createdAt, historyEnabled: { true },
+        sensitivity: Self.allowed)
+      try history.removeAll()
+    }
+
+    let bytes = try Data(contentsOf: url)
+    #expect(bytes.range(of: Data(marker.utf8)) == nil)
   }
 
   @Test("AC-12: セッションごと・すべての履歴を削除できる")
@@ -122,7 +176,7 @@ struct InputHistoryStoreTests {
     #expect(try DictionaryStore(database: database).terms() == ["utter"])
     let history = InputHistoryStore(database: database)
     try history.record(
-      "移行後の履歴", session: SessionID(), at: createdAt, historyEnabled: true,
+      "移行後の履歴", session: SessionID(), at: createdAt, historyEnabled: { true },
       sensitivity: Self.allowed)
     #expect(try history.entries().map(\.text) == ["移行後の履歴"])
   }
