@@ -55,6 +55,18 @@ struct LocalModelFileSourceTests {
     }
   }
 
+  @Test("PERM-03: モデルのディレクトリ自体がシンボリックリンクなら、たどらずに読めないとする")
+  func rejectsSymbolicLinkAsDirectory() throws {
+    let target = TemporaryDirectory()
+    try FileManager.default.createDirectory(at: target.url, withIntermediateDirectories: true)
+    try Data("abc".utf8).write(to: target.url.appendingPathComponent("weights.bin"))
+    try FileManager.default.createSymbolicLink(at: directory.url, withDestinationURL: target.url)
+
+    #expect(throws: ModelFileSourceError.unreadable) {
+      try LocalModelFileSource(directory: directory.url).entries()
+    }
+  }
+
   @Test("PERM-03: サブディレクトリの中も含めて、通常ファイルを相対パスとサイズで返す")
   func listsNestedFiles() throws {
     try write("abc", to: "model/weights.bin")

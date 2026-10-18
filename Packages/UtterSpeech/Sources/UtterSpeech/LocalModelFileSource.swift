@@ -3,7 +3,8 @@ import Foundation
 
 /// ローカルのディレクトリに置いたモデルを読む `ModelFileSource`（PERM-03）。
 ///
-/// - シンボリックリンクはたどらず `.other` として返す（ディレクトリの外のファイルをモデルとして読まない）
+/// - シンボリックリンクはたどらず `.other` として返す（ディレクトリの外のファイルをモデルとして読まない）。
+///   モデルのディレクトリ自体がシンボリックリンクなら、一覧を返さず `.unreadable` を投げる
 /// - ハッシュはファイルを一定の大きさずつ読んで計算し、ファイル全体をメモリに載せない
 /// - ハッシュを計算するときも最後の要素のシンボリックリンクはたどらない（`O_NOFOLLOW`）。
 ///   途中のディレクトリを一覧の取得後に差し替える操作までは防がない。
@@ -24,11 +25,15 @@ public struct LocalModelFileSource: ModelFileSource {
   }
 
   public func entries() throws(ModelFileSourceError) -> [ModelDirectoryEntry]? {
-    var isDirectory: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory) else {
-      return nil
+    // ディレクトリ自体のシンボリックリンクもたどらない（lstat）。たどると、別の場所のファイルを検証済みにしてしまう
+    var status = stat()
+    guard lstat(directory.path, &status) == 0 else {
+      if errno == ENOENT {
+        return nil
+      }
+      throw .unreadable
     }
-    guard isDirectory.boolValue else {
+    guard (status.st_mode & S_IFMT) == S_IFDIR else {
       throw .unreadable
     }
     let keys: [URLResourceKey] = [
