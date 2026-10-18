@@ -171,6 +171,16 @@ struct AppSettingsTests {
     #expect(PriceTableSetting(currencyCode: "  ").currencyCode == nil)
   }
 
+  @Test(
+    "AI-05: ISO 4217 の形（英字3文字）でない通貨コードは単価表・予算とも受け付けない",
+    arguments: ["US", "DOLLARS", "U$D", "１２３", "ＵＳＤ", "12A"])
+  func malformedCurrencyCodeIsRejected(code: String) throws {
+    #expect(PriceTableSetting(currencyCode: code).currencyCode == nil)
+    #expect(MonthlyBudgetSetting(limitAmount: 1, currencyCode: code) == nil)
+    let json = #"{"version": 1, "monthlyBudget": {"limitAmount": 1, "currencyCode": "\#(code)"}}"#
+    #expect(try decode(json).monthlyBudget == nil)
+  }
+
   @Test("AI-05: 通貨が未設定の単価表は、載っているモデルでも単価を返さない")
   func priceTableWithoutCurrencyIsNotUsable() throws {
     let price = try #require(

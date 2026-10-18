@@ -8,7 +8,7 @@ import Foundation
 /// 空のとき・通貨が未設定のとき・モデルが載っていないときは、そのモデルの費用を推定できない。
 /// 呼び出し側は推定費用を 0 として扱わず、予算判定で送信を止める（UtterAI の `CostEstimator` / `MonthlyBudget`）。
 public struct PriceTableSetting: Hashable, Sendable {
-  /// 単価の通貨コード。前後の空白を除いて大文字にそろえる。未設定なら `nil`
+  /// 単価の通貨コード（ISO 4217 の英字3文字）。前後の空白を除いて大文字にそろえる。未設定・形が違うなら `nil`
   public let currencyCode: String?
   /// 単価を最後に更新した日。未設定なら `nil`
   public let updatedOn: CalendarDay?
@@ -34,9 +34,16 @@ public struct PriceTableSetting: Hashable, Sendable {
     return prices.first { $0.model == model }
   }
 
+  /// 前後の空白を除いて大文字にそろえる。ISO 4217 の形（英字3文字）でなければ `nil`。
+  /// 使用量の保存（`MonthlyUsageStore`）が受け付ける形とそろえる
   static func normalizedCurrencyCode(_ code: String) -> String? {
     let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-    return normalized.isEmpty ? nil : normalized
+    guard normalized.count == 3,
+      normalized.allSatisfy({ $0.isASCII && $0.isLetter && $0.isUppercase })
+    else {
+      return nil
+    }
+    return normalized
   }
 
   private static func removingDuplicateModels(_ prices: [ModelPriceSetting]) -> [ModelPriceSetting]
@@ -161,10 +168,10 @@ extension CalendarDay: Codable {
 /// 上限 0 は「クラウド AI に費用をかけない」設定として有効。
 public struct MonthlyBudgetSetting: Hashable, Sendable {
   public let limitAmount: Decimal
-  /// 通貨コード。前後の空白を除いて大文字にそろえる
+  /// 通貨コード（ISO 4217 の英字3文字）。前後の空白を除いて大文字にそろえる
   public let currencyCode: String
 
-  /// 上限が負・非数、または通貨コードが空のときは `nil`
+  /// 上限が負・非数、または通貨コードが ISO 4217 の形（英字3文字）でないときは `nil`
   public init?(limitAmount: Decimal, currencyCode: String) {
     guard !limitAmount.isNaN, limitAmount >= 0,
       let currencyCode = PriceTableSetting.normalizedCurrencyCode(currencyCode)
