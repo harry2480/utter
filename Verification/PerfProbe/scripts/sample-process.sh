@@ -111,6 +111,8 @@ while ((stop == 0)); do
     sample_time="$(now)"
     read -r cpu_raw rss_kb comm <<<"$ps_line"
     name="$(basename -- "$comm")"
+    # CSV の列がずれないよう、プロセス名のカンマは空白にする
+    name="${name//,/ }"
     names[i]="$name"
     cpu_seconds="$(to_seconds "$cpu_raw")"
     summary="$(vmmap --summary "$pid" 2>/dev/null || true)"

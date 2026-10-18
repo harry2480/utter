@@ -111,7 +111,8 @@ scripts/sample-process.sh --name <アプリ> --interval 1 --duration 120 --outpu
 
 - `footprint_mb` は `vmmap --summary` の Physical footprint（Activity Monitor の「メモリ」列と同じ指標）。6章のメモリ目標はこの値で比べる
 - `footprint_mb` が空になる場合は `vmmap` が対象を読めていない。同じユーザーで動くプロセスか確かめ、必要なら `sudo` で実行する
-- `--name` は開始時に一度だけ `pgrep -x` で PID を引く。計測中にアプリを再起動したら記録し直す
+- `--name` は開始時に一度だけ `pgrep -x` で PID を引く。計測中にアプリを再起動したら記録し直す。macOS の `pgrep -x` はプロセス名が長い（16 文字を超える）と一致しないことがあるので、見つからないときは Activity Monitor で PID を調べて `--pid` を使う
+- `vmmap` は調べる間、対象のプロセスを一時停止させる。そのため間隔が短いほど計測そのものが対象の CPU・電力に影響する。待機時 CPU は 60 秒以上の間隔で記録し、8時間待機のバッテリー計測（3章）の最中には `sample-process.sh` を動かさない
 - `cpu_percent` は1コア = 100%。`ps` の CPU 時間は 0.01 秒単位なので、待機時 CPU（目標 0.1%）は 60 秒以上の間隔で見る
 - Apple STT はシステムのプロセスで処理される部分があり、6章は「OS管理領域は別計測」としている。どのプロセスが対象かは Activity Monitor で確かめて `--name` に追加する。WhisperKit のモデル・GPU 領域も同様に別に記録する
 - 負荷復帰（目標 5 秒以内）は、挿入完了の時刻から `cpu_percent` が待機時の水準に戻るまでの時間を CSV から読む
