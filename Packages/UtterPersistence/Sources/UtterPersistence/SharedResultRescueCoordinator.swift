@@ -56,8 +56,10 @@ public struct SharedResultRescueList: Hashable, Sendable {
 
 /// コピー操作の結果（iOS-07）
 public enum SharedResultCopyOutcome: Hashable, Sendable {
-  /// コピーし、コピー済みを記録した
+  /// コピーした
   case copied
+  /// 別の操作との競合が続き、コピーしなかった。読み直してから操作し直す
+  case conflicted
   /// コピーしなかった（期限切れ・挿入済み・挿入中など）
   case notCopied(SharedResultInsertability)
   /// 結果がない
@@ -105,15 +107,17 @@ extension SharedResultRescueItem: CustomStringConvertible, CustomReflectable {
 /// 共有結果を本体アプリで確認し、クリップボードへコピーできるようにする。コピーは主経路ではない。
 /// - 本文を出すのは期限内の未挿入・挿入結果不明の結果だけ。期限切れ・挿入済みの結果は本文を出さずに状態だけを示し、
 ///   共有テキストを削除する（iOS-IPC-05）
-/// - コピーする前にコピー済み（`consumed`）を比較交換で保存して確保し、キーボードの挿入と二重にしない（iOS-IPC-03）。
-///   コピーした結果は共有テキストを削除する。本文はクリップボードに残るため、何度でも貼り付けられる
+/// - コピーはキーボードの挿入と同じ二段階で行う。まず `inserting` を比較交換で保存して確保し（二重にしない, iOS-IPC-03）、
+///   コピーした後に `consumed` を記録して共有テキストを削除する。コピーの途中でアプリが終了しても、
+///   確保した結果は整理（`SharedResultStore.cleanUp(at:)`）で挿入結果不明に戻り、もう一度救済できる（iOS-IPC-06）。
+///   本文はクリップボードに残るため、何度でも貼り付けられる
 public actor SharedResultRescueCoordinator {
   private let store: SharedResultStore
   private let copier: any SharedResultTextCopier
   private let now: @Sendable () -> Date
 
-  /// コピーの確保で比較交換が競合したときに読み直す回数の上限
-  static let maxClaimAttempts = 3
+  /// 比較交換が競合したときに読み直す回数の上限（確保と記録のそれぞれ）
+  static let maxAttempts = 3
 
   public init(
     store: SharedResultStore,
@@ -128,6 +132,7 @@ public actor SharedResultRescueCoordinator {
   /// 保存されている結果を、救済画面に出す一覧にする。期限切れ・挿入済みの結果はこのとき削除する。
   ///
   /// 壊れた結果は一覧に出さない（本体アプリの整理で削除される）。
+  /// 端末のロック中などで読めない結果は、件数だけを返す。
   public func items() async throws -> SharedResultRescueList {
     let now = now()
     var items: [SharedResultRescueItem] = []
@@ -136,10 +141,10 @@ public actor SharedResultRescueCoordinator {
       let loaded: SharedResult?
       do {
         loaded = try await store.load(sessionID: sessionID)
-      } catch SharedResultStoreError.fileAccessDenied {
-        unavailableCount += 1
+      } catch SharedResultStoreError.corruptedResult {
         continue
       } catch {
+        unavailableCount += 1
         continue
       }
       guard let result = loaded else { continue }
@@ -160,22 +165,31 @@ public actor SharedResultRescueCoordinator {
   /// 利用者の操作を受けて、結果の本文をクリップボードへコピーする。
   ///
   /// 投げるのはコピーする前の読み書きに失敗した場合だけで、そのときはコピーしていない。
+  /// コピーした後に記録できなくても投げない（確保した結果は整理で挿入結果不明に戻る）。
   public func copy(sessionID: SessionID) async throws -> SharedResultCopyOutcome {
-    let now = now()
-    for _ in 0..<Self.maxClaimAttempts {
+    for _ in 0..<Self.maxAttempts {
       guard let loaded = try await store.load(sessionID: sessionID) else {
         return .notFound
       }
+      // 読み込んだ後の時刻で判定する
+      let now = now()
       var claimed = loaded
       do {
-        try claimed.markCopied(at: now)
-      } catch .notInsertable(let reason) {
-        if reason == .expired || reason == .consumed {
-          // 共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
-          try? await store.delete(sessionID: sessionID)
+        switch Self.copyability(of: loaded, at: now) {
+        case .insertable:
+          try claimed.beginInsertion(for: sessionID, at: now)
+        case .needsConfirmation:
+          // コピーは利用者の明示的な操作のため、挿入結果不明でも確認済みとして確保する
+          try claimed.beginInsertionAfterConfirmation(for: sessionID, at: now)
+        case let reason:
+          if reason == .expired || reason == .consumed {
+            // 共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
+            try? await store.delete(sessionID: sessionID)
+          }
+          return .notCopied(reason)
         }
-        return .notCopied(reason)
       } catch {
+        // 上の判定で確かめているため起こらない。安全側としてコピーしない
         return .notCopied(loaded.insertability(for: sessionID, at: now))
       }
 
@@ -188,27 +202,35 @@ public actor SharedResultRescueCoordinator {
       }
 
       await copier.copy(claimed.text)
-      // コピーした共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
-      try? await store.delete(sessionID: sessionID)
+      await store.recordCompletion(
+        of: claimed, confirmation: .confirmed, maxAttempts: Self.maxAttempts, now: self.now)
       return .copied
     }
-    guard let current = try await store.load(sessionID: sessionID) else {
-      return .notFound
+    return .conflicted
+  }
+
+  /// コピーしてよいかを判定する。
+  ///
+  /// `insertability(for:at:)` に加えて、挿入結果不明（猶予時間を過ぎた挿入中を含む）の期限と、
+  /// 挿入を始めた時刻より時刻が戻っていないかを確かめる。
+  static func copyability(of result: SharedResult, at now: Date) -> SharedResultInsertability {
+    let insertability = result.insertability(for: result.sessionID, at: now)
+    guard insertability == .needsConfirmation else {
+      return insertability
     }
-    return .notCopied(current.insertability(for: sessionID, at: now))
+    if case .inserting(let startedAt) = result.status, now < startedAt {
+      return .invalidTimestamp
+    }
+    return result.timeValidity(at: now) ?? .needsConfirmation
   }
 
   /// 結果を救済画面の状態にする。本文はコピーしてよい状態のときだけ含める
   static func state(of result: SharedResult, at now: Date) -> SharedResultRescueState {
-    switch result.insertability(for: result.sessionID, at: now) {
+    switch copyability(of: result, at: now) {
     case .insertable:
       return .notInserted(text: result.text)
     case .needsConfirmation:
-      // 挿入結果不明は時刻を見ずに判定されるため、期限を確かめる
-      if now < result.createdAt {
-        return .invalidTimestamp
-      }
-      return now < result.expiresAt ? .insertionUnknown(text: result.text) : .expired
+      return .insertionUnknown(text: result.text)
     case .inProgress:
       return .inserting
     case .consumed:
@@ -218,7 +240,8 @@ public actor SharedResultRescueCoordinator {
     case .invalidTimestamp:
       return .invalidTimestamp
     case .sessionMismatch:
-      // 自分のセッションIDで判定するため起こらない。安全側として本文は出さない
+      // 結果自身のセッションIDで判定するため起こらない。起きた場合も安全側として本文は出さず、削除もしない
+      assertionFailure("結果自身のセッションIDで判定したのに sessionMismatch になった")
       return .invalidTimestamp
     }
   }

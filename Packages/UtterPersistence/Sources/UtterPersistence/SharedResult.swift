@@ -132,23 +132,6 @@ public struct SharedResult: Hashable, Sendable, Codable {
     }
   }
 
-  /// 本体アプリの救済導線で本文をコピーしたことを記録する（iOS-07）。
-  ///
-  /// コピーした結果は利用者の手で貼り付けられるため、挿入済みと同じく `consumed` にし、
-  /// キーボードからの挿入と二重にならないようにする。未挿入・挿入結果不明（猶予時間を過ぎた挿入中を含む）で、
-  /// 期限内の結果だけコピーできる。挿入中（猶予時間内）・挿入済み・期限切れはコピーしない。
-  public mutating func markCopied(at now: Date) throws(SharedResultError) {
-    let insertability = insertability(for: sessionID, at: now)
-    guard insertability == .insertable || insertability == .needsConfirmation else {
-      throw .notInsertable(insertability)
-    }
-    // 挿入結果不明は時刻を見ずに判定されるため、ここで期限を確かめる
-    if let invalid = timeValidity(at: now) {
-      throw .notInsertable(invalid)
-    }
-    transition(to: .consumed(at: now))
-  }
-
   /// 挿入を試みたが成功を確認できなかったことを記録する。この状態からは自動で再挿入できない（iOS-IPC-03）。
   public mutating func markInsertionUnknown() throws(SharedResultError) {
     switch status {
@@ -167,7 +150,7 @@ public struct SharedResult: Hashable, Sendable, Codable {
   }
 
   /// 時刻が作成時より戻っていれば `invalidTimestamp`、期限切れなら `expired`、問題なければ `nil`。
-  private func timeValidity(at now: Date) -> SharedResultInsertability? {
+  func timeValidity(at now: Date) -> SharedResultInsertability? {
     guard now >= createdAt else {
       return .invalidTimestamp
     }
