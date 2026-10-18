@@ -27,6 +27,8 @@ Phase 0 には HUD がないため、以下の検証ハーネスを用意：
   起動: `./verify-accessibility [app-name] [insertion-method: ax|pasteboard|cgevent]`
 ```
 
+検証ハーネスは [Verification/AXInsertionProbe/](../Verification/AXInsertionProbe/README.md) にある（`ax-insertion-probe run --route ax-selected|ax-value|pasteboard|cgevent`）。ビルド・権限・記録の列・片付けは同 README に従う。
+
 ### 2. アプリ・入力欄別テスト
 
 対象アプリと入力欄の種類（経路別）:
