@@ -109,6 +109,9 @@ struct ModelManifestTests {
         try ModelManifest.File(path: "model/weights.bin", byteCount: 100, sha256: Self.digest)
       ])
     #expect(try JSONDecoder().decode(ModelManifest.self, from: encoded) == manifest)
+    // 合計サイズは導出値で、JSON には書き出さない
+    let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(Set(object.keys) == ["files"])
   }
 
   @Test("PERM-03: JSON から読み込むときも不正なパス・空の一覧を拒否する")

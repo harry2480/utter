@@ -63,7 +63,8 @@ public struct ModelManifest: Hashable, Sendable, Codable {
 
   /// モデルを構成するファイル。順序は生成時のまま
   public let files: [File]
-  private let total: Int64
+  /// モデル全体のバイト数。取得前にサイズを示すために使う（PERM-03）
+  public let totalByteCount: Int64
 
   public init(files: [File]) throws(ModelManifestError) {
     guard !files.isEmpty else {
@@ -82,7 +83,7 @@ public struct ModelManifest: Hashable, Sendable, Codable {
       total = sum
     }
     self.files = files
-    self.total = total
+    self.totalByteCount = total
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -93,9 +94,6 @@ public struct ModelManifest: Hashable, Sendable, Codable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     try self.init(files: container.decode([File].self, forKey: .files))
   }
-
-  /// モデル全体のバイト数。取得前にサイズを示すために使う（PERM-03）
-  public var totalByteCount: Int64 { total }
 
   /// 大文字・小文字と Unicode 正規化を区別しないファイルシステムで、同じファイルを指すパスを同じ値にする
   static func collisionKey(_ path: String) -> String {

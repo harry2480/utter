@@ -157,6 +157,22 @@ struct ModelIntegrityVerifierTests {
     #expect(try verifier.verify(source) == .verified)
   }
 
+  @Test("PERM-03: 一覧に同じパス（正準等価を含む）が重複していたら、2件目以降をマニフェスト外の項目として検証失敗にする")
+  func reportsDuplicateListedEntries() throws {
+    let source = StubModelFileSource(
+      listing: .success(
+        Self.completeEntries + [
+          ModelDirectoryEntry(path: "config.json", kind: .regularFile(byteCount: 20)),
+          ModelDirectoryEntry(path: "model/weights.bin", kind: .other),
+        ]),
+      digests: Self.completeDigests)
+
+    #expect(
+      try verifier.verify(source)
+        == .failed([.unexpectedFile("config.json"), .unsupportedEntry("model/weights.bin")]))
+    #expect(source.requestedPaths.isEmpty)
+  }
+
   @Test("PERM-03: シンボリックリンクなど通常ファイルでない項目は、マニフェストにあってもなくても検証失敗にする")
   func rejectsUnsupportedEntries() throws {
     let source = StubModelFileSource(

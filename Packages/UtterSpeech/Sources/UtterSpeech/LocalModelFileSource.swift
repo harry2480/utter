@@ -6,9 +6,10 @@ import Foundation
 /// - シンボリックリンクはたどらず `.other` として返す（ディレクトリの外のファイルをモデルとして読まない）。
 ///   モデルのディレクトリ自体がシンボリックリンクなら、一覧を返さず `.unreadable` を投げる
 /// - ハッシュはファイルを一定の大きさずつ読んで計算し、ファイル全体をメモリに載せない
-/// - ハッシュを計算するときも最後の要素のシンボリックリンクはたどらない（`O_NOFOLLOW`）。
-///   途中のディレクトリを一覧の取得後に差し替える操作までは防がない。
-///   それができる権限があれば検証後にファイルを書き換えられるため、ディレクトリの書き込み権限で守る
+/// - ハッシュを計算するときは、モデルのディレクトリを開いてその下だけを解決し、途中のディレクトリを含めて
+///   シンボリックリンクをたどらない（`openat` と `O_NOFOLLOW_ANY` / `O_RESOLVE_BENEATH`）。
+///   一覧の取得後に途中のディレクトリやモデルのディレクトリ自体をリンクに差し替えられても、外のファイルを読まない。
+///   通常ファイルの中身を検証後に書き換える操作は防げないため、ディレクトリの書き込み権限で守る
 public struct LocalModelFileSource: ModelFileSource {
   /// ハッシュの計算で1回に読むバイト数の既定値
   public static let defaultChunkSize = 1 << 20
@@ -77,33 +78,53 @@ public struct LocalModelFileSource: ModelFileSource {
     guard ModelManifest.File.isSafeRelativePath(path) else {
       throw .unreadable
     }
-    let url = directory.appendingPathComponent(path, isDirectory: false)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    // モデルのディレクトリを開き、その下だけを解決して開く。
+    // 絶対パスに O_NOFOLLOW_ANY を付けると、/var → /private/var のような上位のリンクで失敗するため、
+    // ディレクトリ自体は O_NOFOLLOW（最後の要素だけ）で開き、ファイルは openat で相対に開く
+    let directoryDescriptor = open(
+      directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    guard directoryDescriptor >= 0 else {
+      throw .unreadable
+    }
+    defer { close(directoryDescriptor) }
+    // 途中のディレクトリを含めてリンクをたどらず、ディレクトリの外へ出ない。
+    // FIFO に差し替えられても待たないよう O_NONBLOCK で開き、通常ファイルと確認してから外す
+    let descriptor = openat(
+      directoryDescriptor, path,
+      O_RDONLY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_NONBLOCK | O_CLOEXEC)
     guard descriptor >= 0 else {
       throw .unreadable
     }
-    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    defer { close(descriptor) }
     var status = stat()
     guard fstat(descriptor, &status) == 0, (status.st_mode & S_IFMT) == S_IFREG else {
       throw .unreadable
     }
+    let flags = fcntl(descriptor, F_GETFL)
+    guard flags >= 0, fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+      throw .unreadable
+    }
+
+    let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: chunkSize, alignment: 1)
+    defer { buffer.deallocate() }
     var hasher = SHA256()
     var byteCount: Int64 = 0
     while true {
       if Task.isCancelled {
         throw .cancelled
       }
-      let chunk: Data?
-      do {
-        chunk = try handle.read(upToCount: chunkSize)
-      } catch {
+      let count = read(descriptor, buffer.baseAddress, chunkSize)
+      if count < 0 {
+        if errno == EINTR {
+          continue
+        }
         throw .unreadable
       }
-      guard let chunk, !chunk.isEmpty else {
+      if count == 0 {
         break
       }
-      hasher.update(data: chunk)
-      byteCount += Int64(chunk.count)
+      hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<count]))
+      byteCount += Int64(count)
     }
     let hex = hasher.finalize().map { String(format: "%02x", $0) }.joined()
     return ModelFileDigest(byteCount: byteCount, sha256: hex)

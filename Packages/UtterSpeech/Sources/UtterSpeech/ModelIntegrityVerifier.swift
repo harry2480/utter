@@ -71,8 +71,16 @@ public struct ModelIntegrityVerifier: Sendable {
       return .failed([.directoryUnreadable])
     }
 
-    let entriesByPath = Dictionary(
-      listed.map { ($0.path, $0.kind) }, uniquingKeysWith: { a, _ in a })
+    // 正準等価なパス（`String` の比較で同じ）が一覧に重複していたら、2件目以降をマニフェスト外の項目として扱う
+    var entriesByPath: [String: ModelDirectoryEntry.Kind] = [:]
+    var duplicateIssues: [ModelIntegrityIssue] = []
+    for entry in listed {
+      if entriesByPath[entry.path] == nil {
+        entriesByPath[entry.path] = entry.kind
+      } else {
+        duplicateIssues.append(Self.extraEntryIssue(path: entry.path, kind: entry.kind))
+      }
+    }
     let expectedPaths = Set(manifest.files.map(\.path))
 
     var issues: [ModelIntegrityIssue] = []
@@ -89,14 +97,11 @@ public struct ModelIntegrityVerifier: Sendable {
         filesToHash.append(file)
       }
     }
-    for path in entriesByPath.keys.sorted() where !expectedPaths.contains(path) {
-      switch entriesByPath[path] {
-      case .regularFile:
-        issues.append(.unexpectedFile(path))
-      case .other, nil:
-        issues.append(.unsupportedEntry(path))
-      }
+    for (path, kind) in entriesByPath.sorted(by: { $0.key < $1.key })
+    where !expectedPaths.contains(path) {
+      issues.append(Self.extraEntryIssue(path: path, kind: kind))
     }
+    issues += duplicateIssues
     guard issues.isEmpty else {
       return .failed(issues)
     }
@@ -121,5 +126,17 @@ public struct ModelIntegrityVerifier: Sendable {
       }
     }
     return issues.isEmpty ? .verified : .failed(issues)
+  }
+
+  /// マニフェストにない項目の理由
+  private static func extraEntryIssue(path: String, kind: ModelDirectoryEntry.Kind)
+    -> ModelIntegrityIssue
+  {
+    switch kind {
+    case .regularFile:
+      .unexpectedFile(path)
+    case .other:
+      .unsupportedEntry(path)
+    }
   }
 }

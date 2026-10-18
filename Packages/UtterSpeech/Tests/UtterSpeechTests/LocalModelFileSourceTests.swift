@@ -106,6 +106,52 @@ struct LocalModelFileSourceTests {
     #expect(throws: ModelFileSourceError.unreadable) {
       try source.digest(of: "file-link")
     }
+    #expect(throws: ModelFileSourceError.unreadable) {
+      try source.digest(of: "dir-link/secret.bin")
+    }
+  }
+
+  @Test("PERM-03: FIFO に差し替えられても待たずに、通常ファイルでないとして読まない")
+  func refusesFIFOWithoutBlocking() throws {
+    try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
+    let fifo = directory.url.appendingPathComponent("weights.bin")
+    #expect(mkfifo(fifo.path, 0o600) == 0)
+    let source = LocalModelFileSource(directory: directory.url)
+
+    #expect(try source.entries() == [ModelDirectoryEntry(path: "weights.bin", kind: .other)])
+    #expect(throws: ModelFileSourceError.unreadable) {
+      try source.digest(of: "weights.bin")
+    }
+  }
+
+  @Test("PERM-03: 読めないサブディレクトリがあれば、欠けた一覧を返さず読めないとする")
+  func failsWhenSubdirectoryUnreadable() throws {
+    try write("abc", to: "model/weights.bin")
+    let subdirectory = directory.url.appendingPathComponent("model")
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o000], ofItemAtPath: subdirectory.path)
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: subdirectory.path)
+    }
+
+    #expect(throws: ModelFileSourceError.unreadable) {
+      try LocalModelFileSource(directory: directory.url).entries()
+    }
+  }
+
+  @Test("PERM-03: ハッシュの計算中にタスクがキャンセルされたら .cancelled を投げる")
+  func stopsDigestWhenCancelled() async throws {
+    try write("abc", to: "model/weights.bin")
+    let source = LocalModelFileSource(directory: directory.url, chunkSize: 1)
+    let task = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return try source.digest(of: "model/weights.bin")
+    }
+
+    await #expect(throws: ModelFileSourceError.cancelled) {
+      try await task.value
+    }
   }
 
   @Test("PERM-03: ファイルを小分けに読んで SHA-256 とバイト数を求める", arguments: [1, 2, 1 << 20])
