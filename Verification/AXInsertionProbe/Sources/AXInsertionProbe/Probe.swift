@@ -55,13 +55,15 @@ enum Probe {
     }
     print("経路: \(options.route.rawValue)、文字列: \(options.text.rawValue)、試行: \(options.trials) 回")
     print("記録先: \(options.outputDirectory)/trials.csv, trials.jsonl")
+    // このツールを動かしているターミナル（起動時にフォーカス中のアプリ）へは挿入しない
+    let selfPID = AX.focusedApplicationPID()
     for trial in 1...options.trials {
       if trial == 1 || options.interactive {
         countdown(options.delay, message: "秒後に挿入します。対象アプリの入力欄をクリックしてカーソルを置いてください。")
       } else {
         Thread.sleep(forTimeInterval: options.interval)
       }
-      var record = runTrial(trial, options: options)
+      var record = runTrial(trial, options: options, selfPID: selfPID)
       if options.interactive {
         askHuman(&record, options: options)
       }
@@ -85,7 +87,7 @@ enum Probe {
 
   // MARK: - 1回の試行
 
-  private static func runTrial(_ trial: Int, options: RunOptions) -> TrialRecord {
+  private static func runTrial(_ trial: Int, options: RunOptions, selfPID: pid_t?) -> TrialRecord {
     var record = TrialRecord()
     record.timestamp = ISO8601DateFormatter().string(from: Date())
     record.label = options.label
@@ -109,10 +111,10 @@ enum Probe {
     var restoreFlag: (() -> Void)?
     var flaggedPID: pid_t?
     if let flag = options.axFlag {
-      guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-        return skip("no-focus")
-      }
-      restoreFlag = enableAppFlag(flag, pid: pid)
+      guard let pid = AX.focusedApplicationPID() else { return skip("no-focus") }
+      let (applied, restore) = enableAppFlag(flag, pid: pid)
+      record.axFlagApplied = applied ? "yes" : "no"
+      restoreFlag = restore
       flaggedPID = pid
       Thread.sleep(forTimeInterval: 1.0)
     }
@@ -122,10 +124,14 @@ enum Probe {
     fill(&record, with: target)
     if let flaggedPID, target.pid != flaggedPID { return skip("target-changed") }
 
+    if let selfPID, target.pid == selfPID { return skip("self-terminal") }
     if Permissions.isSecureEventInputEnabled { return skip("secure-input") }
     if target.isSecureField { return skip("secure-field") }
-    if target.isTerminal, options.text.containsNewline, !options.allowMultilineInTerminal {
-      return skip("multiline-in-terminal")
+    // 改行が Enter として実行・送信されうる組み合わせは既定で送らない（INS-03）。
+    // cgevent 経路の改行は Return キーと同じに扱われ、チャット欄では送信になりうる
+    if options.text.containsNewline, !options.allowMultiline {
+      if target.isTerminal { return skip("multiline-in-terminal") }
+      if options.route == .cgevent { return skip("multiline-keyevents") }
     }
     if options.hold > 0 {
       Thread.sleep(forTimeInterval: options.hold)
@@ -139,6 +145,9 @@ enum Probe {
     let clock = ContinuousClock()
     let start = clock.now
     var pending: PendingRestore?
+    var sentAt: ContinuousClock.Instant?
+    // 挿入の時間から除く、クリップボードの退避にかかった時間
+    var capture = Duration.zero
     let response: InsertionResponse
     switch options.route {
     case .axSelected:
@@ -148,13 +157,18 @@ enum Probe {
     case .cgevent:
       response = Inserter.cgEvent(text: text)
     case .pasteboard:
-      (response, pending) = Inserter.pasteboard(text: text, markers: options.markers)
+      let insertion = Inserter.pasteboard(text: text, markers: options.markers)
+      response = insertion.response
+      pending = insertion.pending
+      sentAt = insertion.sentAt
+      capture = insertion.captureDuration
+      record.captureMs = milliseconds(capture)
     }
-    record.insertMs = milliseconds(clock.now - start)
+    record.insertMs = milliseconds(clock.now - start - capture)
 
     let (readBack, method) = ReadBack.poll(
       element: target.element, before: before, text: text, timeout: options.readBackTimeout)
-    record.confirmMs = milliseconds(clock.now - start)
+    record.confirmMs = milliseconds(clock.now - start - capture)
 
     if let pending {
       record.clipboardItems = pending.snapshot.items.count
@@ -163,7 +177,7 @@ enum Probe {
       // 読み戻しで貼り付けを確かめられないアプリでは、アプリが貼り付けを処理する前に復元してしまう可能性がある。
       // 復元までの時間は計測対象のパラメータとして記録し、貼り付けが欠けたら --restore-delay を延ばして比べる
       Thread.sleep(forTimeInterval: options.restoreDelay)
-      record.restoreAfterMs = milliseconds(clock.now - start)
+      record.restoreAfterMs = sentAt.map { milliseconds(clock.now - $0) } ?? 0
       record.restore =
         PasteboardRestorer.restore(
           pending.snapshot, on: NSPasteboard.general, policy: pending.policy
@@ -191,13 +205,13 @@ enum Probe {
     record.subrole = target.subrole
   }
 
-  /// アプリ要素に属性を true で設定し、元に戻す処理を返す
-  private static func enableAppFlag(_ flag: String, pid: pid_t) -> () -> Void {
+  /// アプリ要素に属性を true で設定し、設定できたかと、元に戻す処理を返す
+  private static func enableAppFlag(_ flag: String, pid: pid_t) -> (Bool, () -> Void) {
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, AX.messagingTimeout)
     let previous = (AX.copy(app, flag) as? Bool) ?? false
-    _ = AX.set(app, flag, kCFBooleanTrue)
-    return { _ = AX.set(app, flag, previous ? kCFBooleanTrue : kCFBooleanFalse) }
+    let applied = AX.set(app, flag, kCFBooleanTrue) == .success
+    return (applied, { _ = AX.set(app, flag, previous ? kCFBooleanTrue : kCFBooleanFalse) })
   }
 
   // MARK: - 人の記録
@@ -206,13 +220,24 @@ enum Probe {
     guard record.result != "skipped" else { return }
     if record.result != "verified" {
       record.visualMatch = ask(
-        "対象の入力欄に、ダミー文字列がちょうど1回、欠けずに入っていますか（目視）",
-        choices: [("y", "yes"), ("n", "no")])
+        "対象の入力欄にダミー文字列が入っていますか（目視。y: ちょうど1回、欠けずに / p: 入ったが欠け・重複・誤字あり / n: 何も入っていない）",
+        choices: [("y", "yes"), ("p", "partial"), ("n", "no")])
     }
-    print("対象アプリへ戻り、⌘Z を1回だけ押してから、ここへ戻って答えてください。")
-    record.undo = ask(
-      "⌘Z 1回で挿入全体が取り消されましたか（o: 1回で全体 / m: 複数回必要 / p: 一部だけ / x: 取り消せない）",
-      choices: [("o", "once"), ("m", "multiple"), ("p", "partial"), ("x", "none")])
+    // 互換性表 4章の判定に使う。誤った挿入が1件でもあった経路は既定経路・代替経路にしない
+    record.misinsertion = ask(
+      "誤った挿入はありましたか（n: なし / e: Enter が送られた（送信・実行・改行の確定）/ o: 別の入力欄・別のアプリへ入った / d: 二重に入った）",
+      choices: [("n", "none"), ("e", "enter"), ("o", "other-field"), ("d", "duplicate")])
+    // 何も入っていない試行で ⌘Z を押すと、検証前の編集を取り消してしまうため質問しない
+    let nothingInserted =
+      record.visualMatch == "no" || (record.result == "failed" && record.visualMatch.isEmpty)
+    if nothingInserted {
+      record.undo = "n/a"
+    } else {
+      print("対象アプリへ戻り、⌘Z を1回だけ押してから、ここへ戻って答えてください。")
+      record.undo = ask(
+        "⌘Z 1回で挿入全体が取り消されましたか（o: 1回で全体 / m: 複数回必要 / p: 一部だけ / x: 取り消せない）",
+        choices: [("o", "once"), ("m", "multiple"), ("p", "partial"), ("x", "none")])
+    }
     if options.route == .pasteboard {
       record.clipboardHistory = ask(
         "クリップボード管理アプリの履歴にダミー文字列が残っていますか",
@@ -241,7 +266,7 @@ enum Probe {
     case ("skipped", _): "skipped"
     case ("verified", _): "success"
     case (_, "yes"): "success-visual"
-    case (_, "no"): "failure"
+    case (_, "no"), (_, "partial"): "failure"
     case ("failed", _): "failure"
     default: "unknown"
     }

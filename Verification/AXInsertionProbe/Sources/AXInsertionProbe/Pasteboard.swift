@@ -23,7 +23,7 @@ struct PasteboardSnapshot: Equatable {
         }
         return Entry(type: type.rawValue, data: data)
       }
-    }
+    }.filter { !$0.isEmpty }  // 読み出せる種別がない項目は書き戻せない（空の項目の書き込みは失敗する）
     return PasteboardSnapshot(items: items, unreadableTypeCount: unreadable)
   }
 

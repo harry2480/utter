@@ -72,6 +72,14 @@ enum AX {
     return element(copy(app, AXAttribute.focusedUIElement))
   }
 
+  /// フォーカス中のアプリの pid。RunLoop を回さない CLI では NSWorkspace の最前面アプリが古いままになりうるため、
+  /// AX から取る
+  static func focusedApplicationPID() -> pid_t? {
+    let systemWide = AXUIElementCreateSystemWide()
+    AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
+    return element(copy(systemWide, AXAttribute.focusedApplication)).flatMap(pid)
+  }
+
   static func pid(_ element: AXUIElement) -> pid_t? {
     var pid: pid_t = 0
     return AXUIElementGetPid(element, &pid) == .success ? pid : nil

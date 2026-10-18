@@ -18,11 +18,12 @@ Issue #41「Accessibility 挿入の成功率・Undo・クリップボード復�
 | `cgevent` | Unicode 文字列付きのキーイベントを1文字（書記素）ずつ送る | CGEvent（`.keyEvents`） |
 
 - 判定は UtterCore の `InsertionResult.classify`（INS-05）と `ClipboardRestorePolicy`（INS-04）をそのまま使う。本番の挿入実装と同じ規則で「確認済み / 成功不明 / 失敗」を分ける
-- 読み戻しは、挿入前の `AXValue` と選択範囲から期待値を作り、挿入後の `AXValue` と完全一致するかを見る（`readBackMethod=range`）。選択範囲が取れない入力欄は、長さの増分と包含で判定する（`contains`。弱い判定）。値を読めない入力欄は `unavailable`（成功不明）になる。アプリの反映を待つため、一致するまで `--readback-timeout` 秒まで読み直す
+- 読み戻しは、挿入前の `AXValue` と選択範囲から期待値を作り、挿入後の `AXValue` と完全一致するかを見る（`readBackMethod=range`）。選択範囲が取れない入力欄は、長さの増分とダミー文字列の出現回数がちょうど1増えたかで判定する（`contains`。弱い判定）。値を読めない入力欄は `unavailable`（成功不明）になる。アプリの反映を待つため、一致するまで `--readback-timeout` 秒まで読み直す
 - Pasteboard 経路では `org.nspasteboard.TransientType` と `org.nspasteboard.ConcealedType` を付ける（`--markers` で片方だけ・なしにもできる。INS-06 の比較用）。復元は、書き込み直後から changeCount が変わっていないときだけ行い、復元後に中身が退避した内容と一致するかを確かめる
-- 挿入しない場合（スキップ）: フォーカス中の要素がない、セキュア入力欄（`AXSecureTextField`）、セキュア入力が有効、`--hold` の間に対象の要素が変わった、ターミナル系アプリへ改行を含む文字列（`--allow-multiline-in-terminal` なし）
-- ダミー文字列はすべて `#` で始まる。シェルに入って万一 Enter が送られても、コメントとして扱われコマンドは実行されない
-- Undo・目視確認・クリップボード管理アプリの履歴は、人が確かめて記録する（`--interactive` で試行ごとにターミナルで質問する）
+- 挿入しない場合（スキップ）: フォーカス中の要素がない、セキュア入力欄（`AXSecureTextField`）、セキュア入力が有効、`--hold` の間に対象の要素が変わった、対象がこのツールを動かしているターミナル（`self-terminal`）、改行を含む文字列をターミナル系アプリへ送る（`multiline-in-terminal`）か cgevent 経路で送る（`multiline-keyevents`。改行が Return キーとしてチャット欄で送信になりうる）。改行の2つは `--allow-multiline` で許可できる
+- ダミー文字列はすべて `#` で始まる。シェルに入って万一 Enter が送られても、`#` というコマンドとして失敗するか（zsh の既定。`interactivecomments` が無効）、コメントとして無視される（bash など）
+- Undo・目視確認・誤った挿入・クリップボード管理アプリの履歴は、人が確かめて記録する（`--interactive` で試行ごとにターミナルで質問する）
+- 二重挿入の防止（短時間の重複実行の抑止）はこのツールの対象外。本番の挿入実装（Phase 1）で確かめる。このツールは1回の `run` で指定回数だけ挿入し、二重に入ったかは `misinsertion` に記録する
 
 ## 必要なもの
 
@@ -63,24 +64,28 @@ $BIN run --route ax-selected --hold 3 --label "focus move"
 # INS-06: 印なしと印ありで、クリップボード管理アプリの履歴を比べる
 $BIN run --route pasteboard --markers none --interactive --label "markers none"
 $BIN run --route pasteboard --markers both --interactive --label "markers both"
+
+# INS-03: ターミナルへ改行入りの文字列を Pasteboard で貼り、Enter として実行されないか（bracketed paste）を見る。
+# このツールは対象と別のターミナルアプリで実行する（同じアプリだと self-terminal でスキップ）
+$BIN run --route pasteboard --text multiline --allow-multiline --interactive --label "Terminal multiline"
 ```
 
 - 連続試行（`--interactive` なし）では、最初の試行の前だけ `--delay` 秒待ち、以後は `--interval` 秒ごとに同じ入力欄へ挿入する。入力欄に文字列がたまっていくが、読み戻しは毎回の挿入前の値と比べる
-- `--interactive` では、試行ごとに目視確認（読み戻しで確認できなかったときだけ）、⌘Z 1回で取り消せたか、クリップボード履歴（Pasteboard 経路のみ）、メモを質問する。答えた後は次の試行の前に再び `--delay` 秒待つので、その間に対象の入力欄をクリックし直す
-- ターミナル系アプリを対象にするときは、このツールを別のウィンドウ（または別のターミナルアプリ）で実行し、対象のウィンドウをクリックしてから待つ
+- `--interactive` では、試行ごとに目視確認（読み戻しで確認できなかったときだけ）、誤った挿入、⌘Z 1回で取り消せたか（何も入っていない試行では質問せず `n/a`。⌘Z で検証前の編集を取り消さないため）、クリップボード履歴（Pasteboard 経路のみ）、メモを質問する。答えた後は次の試行の前に再び `--delay` 秒待つので、その間に対象の入力欄をクリックし直す
+- ターミナル系アプリを対象にするときは、このツールを対象とは別のターミナルアプリで実行し（例: 対象がターミナルなら iTerm から実行）、対象のウィンドウをクリックしてから待つ。起動時にフォーカス中のアプリへは挿入しない（`self-terminal`）
 
 ## 出力
 
 `--out`（既定 `./results`）に追記する。`results/` は `.gitignore` 済みで、コミットしない。
 
 - `trials.csv` / `trials.jsonl`（同じ内容）。主な列:
-  - `route`, `insertionRoute`, `bundleID`, `appVersion`, `role`, `subrole`, `label`, `textPreset`
+  - `route`, `insertionRoute`, `bundleID`, `appVersion`, `role`, `subrole`, `label`, `textPreset`, `axFlag`, `axFlagApplied`（`--ax-flag` の設定に成功したか）
   - `response`（`InsertionResponse`）、`readBack`（`InsertionReadBack`）、`readBackMethod`
   - `result`（`classify` の結果: verified / unconfirmed / failed / skipped）
   - `outcome`: success（読み戻し一致）/ success-visual（目視で一致）/ failure / unknown（成功不明）/ skipped
-  - `skipReason`, `insertMs`（挿入呼び出しの時間）, `confirmMs`（挿入開始から読み戻しの判定まで）
+  - `skipReason`, `captureMs`（Pasteboard 経路でクリップボードの退避にかかった時間）, `insertMs`（挿入呼び出しの時間。退避を含まない）, `confirmMs`（挿入開始から読み戻しの判定まで。退避を含まない）
   - `markers`, `clipboardItems`, `clipboardTypes`, `clipboardUnreadableTypes`, `restore`（restored / restored-partial（読み出せない種別が失われた）/ restored-mismatch / skipped-changed / failed / n/a）, `restoreAfterMs`（Cmd+V の送信から復元までの時間）
-  - 人の記録: `visualMatch`, `undo`（once / multiple / partial / none）, `clipboardHistory`, `note`
+  - 人の記録: `visualMatch`（yes / partial（欠け・重複・誤字）/ no（何も入っていない））, `misinsertion`（none / enter（Enter が送られた）/ other-field（別の入力欄・アプリへ入った）/ duplicate（二重に入った）。互換性表 4章の「誤った挿入」の判定に使い、1件でもあった経路は既定・代替経路にしない）, `undo`（once / multiple / partial / none / n/a）, `clipboardHistory`, `note`
 - 入力欄の値・クリップボードの中身・挿入した文字列そのものは出力しない（プリセット名だけを残す）。値はメモリ上の比較にだけ使う
 
 この出力を集計して、手順書の「記録テンプレート」に試行数・成功数・読み戻し・Undo・失敗理由を書き、結論を `docs/挿入互換性表.md` に書く。推測で値を書かない。
@@ -96,6 +101,8 @@ $BIN run --route pasteboard --markers both --interactive --label "markers both"
 - 日本語入力（IME）がオンのとき、CGEvent 経路の文字が変換待ちになることがある。経路ごとに IME の状態を `note` に書く
 - `--ax-flag` はアプリの AX の動作を変える。試行後に元の値へ戻すが、Chrome の表示が遅くなる等の影響があれば `note` に書く
 - `skipReason=secure-input` が続く場合は、どこかのアプリがセキュア入力を有効にしている（ターミナルの「セキュアキーボード入力」、パスワード欄へのフォーカスなど）。それを外してから試す
+- 要実機確認: 復元後に、ほかのアプリ由来の `dyn.*` 種別などが読み出し直しで変わり、実際には戻っているのに `restored-mismatch` になることがある。`restored-mismatch` が出たら、元の内容を貼り付けて目視で確かめ `note` に書く
+- 要実機確認: Electron 系アプリ（Slack など）では、フォーカス中の要素を取り直すたびに別の `AXUIElement` が返り、同じ入力欄でも `--hold` が `target-changed` になる可能性がある。その場合は `--hold` の結果を INS-01 の判定に使わず、`note` に書く
 - スクリーンショットや画面収録はコミットしない
 
 ## 片付け

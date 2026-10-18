@@ -26,7 +26,7 @@ struct FieldSnapshot {
 enum ReadBackMethod: String {
   /// 選択範囲を置き換えた期待値との完全一致
   case range
-  /// 選択範囲が取れないため、長さの増分と文字列の包含で判定（弱い判定）
+  /// 選択範囲が取れないため、長さの増分とダミー文字列の出現回数の増分で判定（弱い判定）
   case contains
   /// 読み戻せない
   case none
@@ -42,8 +42,16 @@ enum ReadBackEvaluator {
       return (after == beforeValue ? .unchanged : .differs, .range)
     }
     if after == beforeValue { return (.unchanged, .contains) }
+    // 同じ入力欄へ繰り返し挿入するため、「含むか」ではなく出現回数がちょうど1増えたかで見る
     let grewByText = after.utf16.count == beforeValue.utf16.count + text.utf16.count
-    return (grewByText && after.contains(text) ? .matches : .differs, .contains)
+    let oneMore = occurrences(of: text, in: after) == occurrences(of: text, in: beforeValue) + 1
+    return (grewByText && oneMore ? .matches : .differs, .contains)
+  }
+
+  /// 重ならない出現回数
+  static func occurrences(of text: String, in value: String) -> Int {
+    guard !text.isEmpty else { return 0 }
+    return value.components(separatedBy: text).count - 1
   }
 }
 

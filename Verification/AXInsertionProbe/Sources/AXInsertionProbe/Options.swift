@@ -24,7 +24,8 @@ enum ProbeRoute: String, CaseIterable {
 
 /// 挿入する固定のダミー文字列。機密情報を含めない。
 ///
-/// どれも `#` で始まるため、シェルに入って万一 Enter が送られてもコメントとして扱われ、コマンドは実行されない。
+/// どれも `#` で始まる。シェルに入って万一 Enter が送られても、`#` というコマンドとして失敗するか
+/// （zsh の既定。`interactivecomments` が無効）、コメントとして無視される（bash など）。
 enum TextPreset: String, CaseIterable {
   case ascii
   case ja
@@ -79,7 +80,7 @@ struct RunOptions {
   var restoreDelay = 0.3
   var interactive = false
   var axFlag: String?
-  var allowMultilineInTerminal = false
+  var allowMultiline = false
 }
 
 enum Command {
@@ -154,7 +155,7 @@ enum ArgumentParser {
         }
         options.axFlag = value
       case "--interactive": options.interactive = true
-      case "--allow-multiline-in-terminal": options.allowMultilineInTerminal = true
+      case "--allow-multiline": options.allowMultiline = true
       default:
         throw UsageError(description: "不明な引数: \(flag)")
       }
@@ -203,6 +204,7 @@ enum ArgumentParser {
       --ax-flag AXEnhancedUserInterface|AXManualAccessibility
                              挿入前に対象アプリへこの属性を true で設定し、試行後に元へ戻す（Chrome / Electron 用）
       --interactive          各試行の後に、目視確認・Undo・クリップボード履歴をターミナルで質問して記録する
-      --allow-multiline-in-terminal   ターミナル系アプリへ改行を含む文字列を送ることを許可する
+      --allow-multiline      改行を含む文字列を、ターミナル系アプリ、または cgevent 経路（改行が Return キーとして
+                             送信される可能性がある）で送ることを許可する
     """
 }

@@ -8,6 +8,14 @@ struct PendingRestore {
   let policy: ClipboardRestorePolicy
 }
 
+/// Pasteboard 経路の結果。退避にかかった時間と Cmd+V を送った時刻を、挿入の時間と分けて返す
+struct PasteboardInsertion {
+  let response: InsertionResponse
+  let pending: PendingRestore
+  let captureDuration: Duration
+  let sentAt: ContinuousClock.Instant?
+}
+
 @MainActor
 enum Inserter {
   /// kAXSelectedTextAttribute に書き込む
@@ -55,9 +63,12 @@ enum Inserter {
   }
 
   /// クリップボードを退避してから文字列と一時データの印を書き込み、Cmd+V を送る（INS-04, INS-06）
-  static func pasteboard(text: String, markers: MarkerSet) -> (InsertionResponse, PendingRestore?) {
+  static func pasteboard(text: String, markers: MarkerSet) -> PasteboardInsertion {
     let pasteboard = NSPasteboard.general
+    let clock = ContinuousClock()
+    let captureStart = clock.now
     let snapshot = PasteboardSnapshot.capture(pasteboard)
+    let captureDuration = clock.now - captureStart
     let item = NSPasteboardItem()
     item.setString(text, forType: .string)
     for marker in markers.types {
@@ -66,13 +77,21 @@ enum Inserter {
     pasteboard.clearContents()
     guard pasteboard.writeObjects([item]) else {
       let policy = ClipboardRestorePolicy(changeCountAfterWrite: pasteboard.changeCount)
-      return (.rejectedBeforeSend, PendingRestore(snapshot: snapshot, policy: policy))
+      return PasteboardInsertion(
+        response: .rejectedBeforeSend, pending: PendingRestore(snapshot: snapshot, policy: policy),
+        captureDuration: captureDuration, sentAt: nil)
     }
     let pending = PendingRestore(
       snapshot: snapshot,
       policy: ClipboardRestorePolicy(changeCountAfterWrite: pasteboard.changeCount))
-    guard sendCommandV() else { return (.rejectedBeforeSend, pending) }
-    return (.succeeded, pending)
+    let sentAt = clock.now
+    guard sendCommandV() else {
+      return PasteboardInsertion(
+        response: .rejectedBeforeSend, pending: pending, captureDuration: captureDuration,
+        sentAt: nil)
+    }
+    return PasteboardInsertion(
+      response: .succeeded, pending: pending, captureDuration: captureDuration, sentAt: sentAt)
   }
 
   /// Cmd+V。仮想キーコード 9 は ANSI / JIS 配列の V（Dvorak など別配列では README の注意を参照）

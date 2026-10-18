@@ -20,12 +20,7 @@
 
 ### 1. 検証ハーネス準備
 
-```
-Phase 0 には HUD がないため、以下の検証ハーネスを用意：
-- CLI ツール（ホットキー待機）または
-- 最小構成の検証アプリ
-  起動: `./verify-accessibility [app-name] [insertion-method: ax|pasteboard|cgevent]`
-```
+Phase 0 には HUD がないため、CLI の検証ハーネスを使う（当初案の `./verify-accessibility [app-name] [insertion-method]` は採用せず、下記に置き換えた）。
 
 検証ハーネスは [Verification/AXInsertionProbe/](../Verification/AXInsertionProbe/README.md) にある（`ax-insertion-probe run --route ax-selected|ax-value|pasteboard|cgevent`）。ビルド・権限・記録の列・片付けは同 README に従う。
 
