@@ -1,3 +1,5 @@
+import Foundation
+
 /// キーボード拡張で提示する操作と案内（iOS-08, iOS-09, iAC-05〜07）。
 ///
 /// 制限のある入力欄（セキュア入力欄・電話番号欄・判定できない欄）では、通常の文字入力とキーボードの切り替えだけを残し、
@@ -11,7 +13,18 @@ public struct KeyboardAvailability: Hashable, Sendable {
   /// 何ができないか・どうすれば直るかの案内。優先して見せる順
   public let notices: [KeyboardNotice]
 
-  public init(_ environment: KeyboardEnvironment) {
+  /// 本体アプリの状態を使う鮮度の上限の既定値（暫定: 1時間。Phase i2 の実装・実機確認で見直す）
+  public static let defaultHostAppStatusMaximumAge: Duration = .seconds(60 * 60)
+
+  /// - Parameters:
+  ///   - environment: 拡張が観測した状態
+  ///   - now: 判定する時刻
+  ///   - hostAppStatusMaximumAge: 本体アプリの状態を使う鮮度の上限。超えた状態は、状態がない場合と同じく案内に使わない
+  public init(
+    _ environment: KeyboardEnvironment,
+    at now: Date,
+    hostAppStatusMaximumAge: Duration = KeyboardAvailability.defaultHostAppStatusMaximumAge
+  ) {
     let restrictions = Self.restrictions(of: environment.inputField)
     guard restrictions.isEmpty else {
       actions = [.typing]
@@ -21,16 +34,15 @@ public struct KeyboardAvailability: Hashable, Sendable {
 
     var actions: Set<KeyboardAction> = [.typing, .openHostApp]
     var notices: [KeyboardNotice] = []
-    if environment.canAccessSharedContainer {
+    switch environment.sharedContainer {
+    case .available(let hostApp):
       actions.insert(.sharedResult)
-    } else if environment.hasFullAccess {
+      if let hostApp, hostApp.isFresh(at: now, maximumAge: hostAppStatusMaximumAge) {
+        notices += Self.notices(for: hostApp, network: environment.network)
+      }
+    case .unavailable:
       // フルアクセスがあっても読めないなら、App Group の Entitlement・署名の不備
-      notices.append(.sharedContainerUnavailable)
-    } else {
-      notices.append(.fullAccessRequired)
-    }
-    if let hostApp = environment.hostApp {
-      notices += Self.notices(for: hostApp)
+      notices.append(environment.hasFullAccess ? .sharedContainerUnavailable : .fullAccessRequired)
     }
     self.actions = actions
     self.notices = notices
@@ -51,16 +63,18 @@ public struct KeyboardAvailability: Hashable, Sendable {
     return restrictions
   }
 
-  private static func notices(for hostApp: HostAppStatus) -> [KeyboardNotice] {
+  private static func notices(
+    for hostApp: HostAppStatus, network: NetworkReachability
+  ) -> [KeyboardNotice] {
     var notices: [KeyboardNotice] = HostAppPermission.allCases
       .filter(hostApp.deniedPermissions.contains)
       .map(KeyboardNotice.permissionDenied)
-    switch (hostApp.speechModel, hostApp.network) {
-    case (.notDownloaded, .online): notices.append(.speechModelNotDownloaded)
+    switch (hostApp.speechModel, network) {
     case (.notDownloaded, .offline): notices.append(.speechModelNotDownloadedOffline)
+    case (.notDownloaded, _): notices.append(.speechModelNotDownloaded)
     case (.ready, _): break
     }
-    if hostApp.usesCloudRefinement, hostApp.network == .offline {
+    if hostApp.usesCloudRefinement, network == .offline {
       notices.append(.cloudRefinementOffline)
     }
     return notices
@@ -102,15 +116,16 @@ public enum KeyboardNotice: Hashable, Sendable {
   /// オフラインのため、クラウド AI で整形できずローカルで整形する（AC-16）
   case cloudRefinementOffline
 
-  /// 利用者が取れる対処
-  public var remedy: KeyboardRemedy {
+  /// 利用者が取れる対処。行う順
+  public var remedies: [KeyboardRemedy] {
     switch self {
-    case .restrictedInputField: .switchToSystemKeyboard
-    case .fullAccessRequired: .enableFullAccess
-    case .sharedContainerUnavailable: .reinstallWithValidSigning
-    case .permissionDenied(let permission): .allowPermission(permission)
-    case .speechModelNotDownloaded: .downloadSpeechModel
-    case .speechModelNotDownloadedOffline, .cloudRefinementOffline: .connectToNetwork
+    case .restrictedInputField: [.switchToSystemKeyboard]
+    case .fullAccessRequired: [.enableFullAccess]
+    case .sharedContainerUnavailable: [.reinstallWithValidSigning]
+    case .permissionDenied(let permission): [.allowPermission(permission)]
+    case .speechModelNotDownloaded: [.downloadSpeechModel]
+    case .speechModelNotDownloadedOffline: [.connectToNetwork, .downloadSpeechModel]
+    case .cloudRefinementOffline: [.connectToNetwork]
     }
   }
 }

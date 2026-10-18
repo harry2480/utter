@@ -4,24 +4,32 @@
 public struct KeyboardEnvironment: Hashable, Sendable {
   /// 「フルアクセスを許可」が有効か（`UIInputViewController.hasFullAccess`）
   public var hasFullAccess: Bool
-  /// App Group の共有コンテナを読めるか。読めなければ共有結果を表示・挿入できない
-  public var canAccessSharedContainer: Bool
+  /// App Group の共有コンテナの状態
+  public var sharedContainer: SharedContainerState
   /// 現在の入力欄
   public var inputField: KeyboardInputField
-  /// 本体アプリの状態。本体アプリが一度も状態を残していない、または読めなければ `nil`
-  public var hostApp: HostAppStatus?
+  /// 拡張が観測したネットワークの状態。本体アプリが残した値は古くなりやすいため、拡張側で観測する
+  public var network: NetworkReachability
 
   public init(
     hasFullAccess: Bool,
-    canAccessSharedContainer: Bool,
+    sharedContainer: SharedContainerState,
     inputField: KeyboardInputField,
-    hostApp: HostAppStatus?
+    network: NetworkReachability
   ) {
     self.hasFullAccess = hasFullAccess
-    self.canAccessSharedContainer = canAccessSharedContainer
+    self.sharedContainer = sharedContainer
     self.inputField = inputField
-    self.hostApp = hostApp
+    self.network = network
   }
+}
+
+/// App Group の共有コンテナの状態。本体アプリの状態は共有コンテナから読むため、読めるときだけ持つ。
+public enum SharedContainerState: Hashable, Sendable {
+  /// 読めない。共有結果を表示・挿入できず、本体アプリの状態も分からない
+  case unavailable
+  /// 読める。本体アプリが状態を残していなければ `hostApp` は `nil`
+  case available(hostApp: HostAppStatus?)
 }
 
 /// キーボードが表示されている入力欄の種類（iOS-09, iAC-06）。拡張側が入力欄の属性
@@ -42,4 +50,12 @@ public struct KeyboardInputField: Hashable, Sendable {
 
   /// 通常の入力欄
   public static let regular = KeyboardInputField(secureTextEntry: .off, phoneNumber: .off)
+}
+
+/// ネットワークの状態。
+public enum NetworkReachability: Hashable, Sendable {
+  case online
+  case offline
+  /// 観測できない（オフラインの案内を出さない）
+  case unknown
 }
