@@ -6,7 +6,8 @@
 /// `confirmed` を受けたら消す（確定した部分に吸収されるため）。
 ///
 /// 入力欄への挿入は停止後に一括で行うため、この値は HUD の表示だけに使う。値型なので、
-/// 利用側は `@MainActor` や `actor` に隔離して保持する。
+/// 利用側は `@MainActor` や `actor` に隔離して保持する。キャンセルはフィルターで止まり `apply(_:)` に届かないため、
+/// `RecognitionEventFilter.begin(_:)` / `cancel(_:)` のたびに新しい値に置き換え、前の発話を表示に残さない。
 public struct TranscriptPreview: Hashable, Sendable {
   public enum State: Hashable, Sendable {
     /// 認識中。`partial` / `confirmed` を受け付ける

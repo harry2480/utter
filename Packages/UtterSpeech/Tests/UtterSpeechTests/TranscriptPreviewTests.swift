@@ -21,6 +21,53 @@ struct TranscriptPreviewTests {
     #expect(preview.state == .recognizing)
   }
 
+  @Test("AC-03: 初期状態は空で認識中")
+  func startsEmpty() {
+    let preview = TranscriptPreview()
+
+    #expect(preview.confirmedText.isEmpty)
+    #expect(preview.provisionalText.isEmpty)
+    #expect(preview.state == .recognizing)
+  }
+
+  @Test("AC-03: 確定後に残る暫定部分は、送り直された暫定結果で表示する")
+  func showsResentProvisionalTextAfterConfirmation() {
+    let preview = preview([.partial("明日の会議"), .confirmed("明日の"), .partial("会議")])
+
+    #expect(preview.confirmedText == "明日の")
+    #expect(preview.provisionalText == "会議")
+  }
+
+  @Test("AC-03: 確定した部分は区切りを足さずに連結する")
+  func concatenatesWithoutSeparator() {
+    let preview = preview([.confirmed("Swift "), .confirmed("Concurrency")])
+
+    #expect(preview.confirmedText == "Swift Concurrency")
+  }
+
+  @Test(
+    "2.2節: 完了の値が全体の確定テキストで、暫定テキストは確定に入らない",
+    arguments: [
+      ([RecognitionEvent.Kind.partial("あし"), .completed("")], ""),
+      ([.confirmed("明日の"), .completed("")], ""),
+      ([.partial("明日"), .completed("明日は")], "明日は"),
+    ])
+  func usesCompletedTextAsFinal(_ kinds: [RecognitionEvent.Kind], expected: String) {
+    let preview = preview(kinds)
+
+    #expect(preview.confirmedText == expected)
+    #expect(preview.provisionalText.isEmpty)
+    #expect(preview.state == .completed)
+  }
+
+  @Test("REC-04: イベントがないまま失敗しても空のまま失敗になる")
+  func failsWithoutEvents() {
+    let preview = preview([.failed(.modelUnavailable)])
+
+    #expect(preview.confirmedText.isEmpty)
+    #expect(preview.state == .failed(.modelUnavailable))
+  }
+
   @Test("AC-03: 確定した部分は連結し、それまでの暫定テキストを消す")
   func confirmsAndClearsProvisionalText() {
     let preview = preview([.partial("明日"), .confirmed("明日の"), .partial("会"), .confirmed("会議は")])
