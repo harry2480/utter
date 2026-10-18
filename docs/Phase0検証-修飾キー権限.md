@@ -7,6 +7,11 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 - Esc キー捕捉の可否
 - 権限要件（Accessibility access）
 
+## 検証用コード
+
+[Verification/HotkeyProbe](../Verification/HotkeyProbe/README.md)（macOS のコマンドラインツール）で、RegisterEventHotKey の登録と競合、CGEventTap / NSEvent による修飾キー単独の検出、セッション中だけの Esc 捕捉、権限の状態を確かめる。ビルド・実行手順とログの読み方は README を参照。
+下記「3. 権限要件」の表は検証前の想定であり、HotkeyProbe の結果で確かめてから記録する。
+
 ## テスト環境
 
 - OS: macOS 12.0 以上（Monterey+）
