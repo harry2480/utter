@@ -288,12 +288,18 @@ func transcribe(
     }
   }
 
-  // --cancel-after: 入力の途中で cancelAndFinishNow() を呼ぶ
-  let feedStart = ContinuousClock.now
+  // --cancel-after: 入力の途中で cancelAndFinishNow() を呼ぶ。
+  // マイクの起動やファイルの準備の時間を含めないよう、最初の音声が入った時刻（音声時刻 0）から数える
   let cancelTask = options.cancelAfter.map { after in
     Task<(called: ContinuousClock.Instant, returned: ContinuousClock.Instant)?, Never> {
       do {
-        try await Task.sleep(until: feedStart + .seconds(after), clock: .continuous)
+        var inputStart = origin.value
+        while inputStart == nil {
+          try await Task.sleep(for: .milliseconds(5))
+          inputStart = origin.value
+        }
+        guard let inputStart else { return nil }
+        try await Task.sleep(until: inputStart + .seconds(after), clock: .continuous)
       } catch {
         return nil
       }

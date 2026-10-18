@@ -85,7 +85,7 @@ $probe file eval/audio/ja-001.m4a --cancel-after 1
 | 入力終了→finish 完了 | `finalizeAndFinishThroughEndOfInput()` が戻るまで。`--pace realtime` と `mic` のときだけ |
 | 実時間比 | 音声時刻 0 から結果のストリームが終わる（すべての結果を受け取る）までの時間 ÷ 音声の長さ。`--pace fast` のときの処理速度の目安。失敗した実行では出さない |
 | phys_footprint | 開始時・計測中の最大・プロセス生涯の最大（MB） |
-| キャンセル | `cancelAndFinishNow()` の戻りまでの時間、結果のストリームが終わるまでの時間、呼び出し後に届いた結果の数 |
+| キャンセル | 最初の音声が入った時刻（音声時刻 0）から `--cancel-after` 秒後に呼ぶ。`cancelAndFinishNow()` の戻りまでの時間、結果のストリームが終わるまでの時間、呼び出し後に届いた結果の数 |
 
 計測の前提と限界:
 
@@ -109,7 +109,7 @@ $probe batch eval/audio/speechanalyzer-manifest.json \
 swift run --package-path Packages/UtterEvaluation utter-eval Verification/SpeechAnalyzerProbe/output/results.json
 ```
 
-- 出力は manifest の `id` / `category` / `reference` / `terms` に `sttOutput`（確定結果をつないだもの）を加えた JSON。認識に失敗した（エラーになった）発話は `sttOutput` を省略する（utter-eval では未実施として数える）。エラーなしで確定結果が1件もなかった発話は、STT の誤りとして空文字を記録する（警告を出す）
+- 出力は manifest の `id` / `category` / `reference` / `terms` に `sttOutput`（確定結果をつないだもの）を加えた JSON。manifest に `refinedOutput` や `meaningChanges` があっても引き継がない（別の STT 出力に対する整形・判定なので、この STT の結果と組み合わせると誤った評価になるため）。認識に失敗した（エラーになった）発話は `sttOutput` を省略する（utter-eval では未実施として数える）。エラーなしで確定結果が1件もなかった発話は、STT の誤りとして空文字を記録する（警告を出す）
 - `batch` は既定で `--pace fast`（精度だけを見るため）。標準出力には発話本文を出さず、識別子と計測値だけを出す
 - 音声の前処理（音量・無音の除去）はしない
 
