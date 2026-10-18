@@ -13,6 +13,13 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 - ローカライゼーション: 日本語
 - 権限: Microphone access 有効
 
+## 検証用コード
+
+計測には [Verification/SpeechAnalyzerProbe](../Verification/SpeechAnalyzerProbe/README.md) を使う（使い捨てのコマンドラインツール）。
+対応可否・アセットの状態（`status`）、暫定・確定結果と遅延（`file` / `mic`）、キャンセル応答（`--cancel-after`）、
+精度評価用の結果 JSON（`batch` → `utter-eval`、[精度評価.md](精度評価.md)）、物理メモリの記録を行える。
+SpeechAnalyzer は macOS 26 以降のため、テスト環境の OS は macOS 26 以降とする。結果は `docs/計測/` に記録する。
+
 ## テスト手順
 
 ### 1. 日本語認識テスト
