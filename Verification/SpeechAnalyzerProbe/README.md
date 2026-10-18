@@ -57,6 +57,7 @@ $probe file eval/audio/ja-001.m4a --log Verification/SpeechAnalyzerProbe/output/
 $probe mic --seconds 10 --log Verification/SpeechAnalyzerProbe/output/mic-01.jsonl
 
 # 入力開始から1秒でキャンセルし、応答時間と、キャンセル後に結果が来ないかを確認する
+# （--pace realtime の file と mic だけ。音声が指定の秒数より短いと計測されない）
 $probe file eval/audio/ja-001.m4a --cancel-after 1
 ```
 

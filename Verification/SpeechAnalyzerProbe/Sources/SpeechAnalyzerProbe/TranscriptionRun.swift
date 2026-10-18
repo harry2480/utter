@@ -232,6 +232,8 @@ func transcribe(
     }
     return peak
   }
+  // 準備や開始で失敗しても、記録を止める（batch で次の発話に混ざらないように）
+  defer { sampler.cancel() }
 
   let analyzerOptions = options.retention.map {
     SpeechAnalyzer.Options(priority: .userInitiated, modelRetention: $0)
@@ -295,6 +297,9 @@ func transcribe(
 
   cancelTask?.cancel()
   let cancelled = await cancelTask?.value ?? nil
+  if options.cancelAfter != nil, cancelled == nil {
+    printError("--cancel-after の前に入力が終わったため、キャンセルは計測していません（音声を長くしてください）")
+  }
   var finishReturned: ContinuousClock.Instant?
   if cancelled == nil {
     do {

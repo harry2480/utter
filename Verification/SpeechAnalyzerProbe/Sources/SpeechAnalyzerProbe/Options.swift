@@ -156,6 +156,10 @@ func parseCommand(_ arguments: [String]) throws -> Command {
     return .release(locale: run.locale)
   case "file":
     try onlyPositional(1)
+    // fast では入力が一瞬で終わり、キャンセルが入力の途中に入る保証がない
+    if run.cancelAfter != nil, run.pace == .fast {
+      throw UsageError(description: "--cancel-after は --pace realtime（file の既定）でだけ使えます")
+    }
     return .file(path: positional[0], run: run)
   case "mic":
     try onlyPositional(0)
@@ -164,6 +168,9 @@ func parseCommand(_ arguments: [String]) throws -> Command {
   case "batch":
     try onlyPositional(1)
     guard let output else { throw UsageError(description: "batch には --out <results.json> が必要です") }
+    guard run.cancelAfter == nil else {
+      throw UsageError(description: "batch では --cancel-after を使えません（file / mic で計測してください）")
+    }
     if !paceSpecified { run.pace = .fast }
     run.printsText = false
     return .batch(manifest: positional[0], output: output, run: run)
