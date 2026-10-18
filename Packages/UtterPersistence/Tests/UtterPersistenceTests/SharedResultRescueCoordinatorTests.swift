@@ -277,6 +277,12 @@ struct SharedResultRescueCoordinatorTests {
     #expect(outcomes.filter { $0 == .copied }.count == 1)
   }
 
+  private func dumped(_ value: some Any) -> String {
+    var output = ""
+    dump(value, to: &output)
+    return output
+  }
+
   @Test("iOS-07: 救済画面の状態と項目の文字列表現・リフレクションに本文を出さない")
   func descriptionsHideText() {
     let item = SharedResultRescueItem(
@@ -286,6 +292,10 @@ struct SharedResultRescueCoordinatorTests {
       String(describing: item),
       String(reflecting: item),
       String(describing: item.state),
+      String(reflecting: item.state),
+      String(describing: Mirror(reflecting: item.state).children.map(\.value)),
+      dumped(item),
+      dumped(item.state),
       String(describing: Mirror(reflecting: item).children.map(\.value)),
     ]
 

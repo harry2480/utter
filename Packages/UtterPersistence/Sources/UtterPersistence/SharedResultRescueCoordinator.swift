@@ -64,8 +64,12 @@ public enum SharedResultCopyOutcome: Hashable, Sendable {
   case notFound
 }
 
-// 本文をログに出さないよう、文字列表現には区分と文字数だけを出す。
-extension SharedResultRescueState: CustomStringConvertible {
+// 本文をログに出さないよう、文字列表現とリフレクションには区分と文字数だけを出す。
+extension SharedResultRescueState: CustomStringConvertible, CustomReflectable {
+  public var customMirror: Mirror {
+    Mirror(self, children: ["description": description], displayStyle: .enum)
+  }
+
   public var description: String {
     switch self {
     case .notInserted(let text): "SharedResultRescueState.notInserted(length: \(text.count))"
