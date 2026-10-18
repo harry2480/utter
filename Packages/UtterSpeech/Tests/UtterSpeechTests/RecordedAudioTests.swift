@@ -64,7 +64,9 @@ struct RecordedAudioTests {
     #expect(audio.sampleCount == 1)
   }
 
-  @Test("AC-10: サンプリング周波数が 0 以下なら作らない", arguments: [0, -16_000])
+  @Test(
+    "AC-10: サンプリング周波数が 0 以下、または保存形式で表せないなら作らない",
+    arguments: [0, -16_000, Int(UInt32.max) + 1])
   func rejectsInvalidSampleRate(_ sampleRate: Int) {
     #expect(throws: RecordedAudioError.invalidSampleRate) {
       try RecordedAudio(sampleRate: sampleRate)
@@ -97,6 +99,28 @@ struct RecordedAudioTests {
     }
   }
 
+  @Test("AC-10: 保存形式の最大の周波数と最小のサンプルも範囲内で読める")
+  func decodesExtremes() throws {
+    let restored = try RecordedAudio(
+      decoding: Data("UTAU".utf8 + [1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x80]))
+
+    #expect(restored.sampleRate == Int(UInt32.max))
+    #expect(restored.chunks().flatMap(\.samples) == [-1])
+  }
+
+  @Test("AC-10: 空の録音も保存して戻し、音声認識を最後まで進められる")
+  func replaysEmptyRecording() async throws {
+    let restored = try RecordedAudio(decoding: RecordedAudio(sampleRate: 16_000).encoded())
+    let recognizer = StubSpeechRecognizer(steps: [])
+    var last: RecognitionEvent.Kind?
+    for await event in recognizer.recognize(restored.stream(), session: SessionID()) {
+      last = event.kind
+    }
+
+    #expect(restored.sampleCount == 0)
+    #expect(last == .completed(""))
+  }
+
   @Test("AC-10: 先頭が 0 でないバイト列の一部からも戻せる")
   func decodesDataSlice() throws {
     let audio = try recorded([AudioChunk(samples: [0.5, -0.25], sampleRate: 4)])
@@ -115,8 +139,19 @@ struct RecordedAudioTests {
 
     #expect(audio.chunks(chunkDuration: .milliseconds(500)).map(\.samples.count) == [2, 2, 1])
     #expect(audio.chunks(chunkDuration: .zero).map(\.samples.count) == [1, 1, 1, 1, 1])
+    #expect(audio.chunks(chunkDuration: .milliseconds(-100)).count == 5)
+    #expect(audio.chunks(chunkDuration: .seconds(Int64.max)).map(\.samples.count) == [5])
     #expect(audio.chunks().allSatisfy { $0.sampleRate == 4 })
     #expect(try RecordedAudio(sampleRate: 4).chunks().isEmpty)
+  }
+
+  @Test("AC-10: 区切りのサンプル数は浮動小数点の誤差で少なくならない")
+  func computesChunkSizeExactly() throws {
+    let audio = try recorded(
+      [AudioChunk(samples: Array(repeating: 0, count: 60), sampleRate: 100)], sampleRate: 100)
+
+    #expect(audio.chunks(chunkDuration: .milliseconds(570)).map(\.samples.count) == [57, 3])
+    #expect(audio.chunks(chunkDuration: .milliseconds(290)).first?.samples.count == 29)
   }
 
   @Test("AC-10: ストリームはすべてのチャンクを流して終わり、音声認識が最後まで進む")

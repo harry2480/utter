@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// 再処理のために一時保存する録音音声（7章, AC-10）。
 ///
@@ -8,6 +9,8 @@ import Foundation
 ///
 /// 保存形式はモノラルの PCM16（REC-05 の音声バッファ上限と同じ換算）で、先頭に形式の識別子・版・
 /// サンプリング周波数を置く。-1.0〜1.0 の範囲外のサンプルは端に丸め、NaN は無音にする。
+/// 長さやチェックサムは持たないため、読み込みで検出できる壊れは、ヘッダの不正と奇数バイトの長さだけ。
+/// 予約の3バイトは読み込みでは見ない。
 public struct RecordedAudio: Hashable, Sendable {
   /// 形式の識別子
   static let magic = Array("UTAU".utf8)
@@ -62,32 +65,55 @@ public struct RecordedAudio: Hashable, Sendable {
     data.append(contentsOf: Self.magic)
     data.append(contentsOf: [Self.version, 0, 0, 0])
     withUnsafeBytes(of: UInt32(sampleRate).littleEndian) { data.append(contentsOf: $0) }
-    samples.map(\.littleEndian).withUnsafeBytes { data.append(contentsOf: $0) }
+    #if _endian(little)
+      samples.withUnsafeBytes { data.append(contentsOf: $0) }
+    #else
+      samples.map(\.littleEndian).withUnsafeBytes { data.append(contentsOf: $0) }
+    #endif
     return data
   }
 
   /// 音声認識へ流し直すチャンク。`chunkDuration` ごとに区切り、最後のチャンクは短くなる。
   /// `chunkDuration` が1サンプルに満たなければ1サンプルずつ区切る。
   public func chunks(chunkDuration: Duration = .milliseconds(100)) -> [AudioChunk] {
-    let (seconds, attoseconds) = chunkDuration.components
-    let interval = Double(seconds) + Double(attoseconds) / 1e18
-    let size = max(1, Int(min(Double(Int.max / 2), (interval * Double(sampleRate)).rounded(.down))))
+    let size = chunkSize(for: chunkDuration)
     return stride(from: 0, to: samples.count, by: size).map { start in
-      let slice = samples[start..<min(start + size, samples.count)]
-      return AudioChunk(samples: slice.map(Self.dequantize), sampleRate: sampleRate)
+      chunk(samples, start..<min(start + size, samples.count))
     }
   }
 
   /// すべてのチャンクを流して終わるストリーム。`SpeechRecognizer.recognize(_:session:)` に渡すと、
   /// 録音を最後まで終えたものとして認識する。
+  ///
+  /// 長い録音でも音声を二重に持たないよう、チャンクは受け手が読むたびに1つずつ作る。受け手が読むのをやめたら作らない。
   public func stream(chunkDuration: Duration = .milliseconds(100)) -> AsyncStream<AudioChunk> {
-    let (stream, continuation) = AsyncStream.makeStream(
-      of: AudioChunk.self, bufferingPolicy: .unbounded)
-    for chunk in chunks(chunkDuration: chunkDuration) {
-      continuation.yield(chunk)
+    let samples = samples
+    let sampleRate = sampleRate
+    let size = chunkSize(for: chunkDuration)
+    let offset = Mutex(0)
+    return AsyncStream {
+      let range = offset.withLock { offset -> Range<Int>? in
+        guard offset < samples.count else { return nil }
+        let range = offset..<min(offset + size, samples.count)
+        offset = range.upperBound
+        return range
+      }
+      guard let range else { return nil }
+      return AudioChunk(samples: samples[range].map(Self.dequantize), sampleRate: sampleRate)
     }
-    continuation.finish()
-    return stream
+  }
+
+  /// `chunkDuration` に収まるサンプル数。1サンプルに満たなければ 1。
+  /// 浮動小数点の誤差で1サンプル少なくならないよう、整数で計算する
+  private func chunkSize(for chunkDuration: Duration) -> Int {
+    let (seconds, attoseconds) = chunkDuration.components
+    let rate = Int128(sampleRate)
+    let count = Int128(seconds) * rate + Int128(attoseconds) * rate / 1_000_000_000_000_000_000
+    return Int(max(1, min(count, Int128(Int.max / 2))))
+  }
+
+  private func chunk(_ samples: [Int16], _ range: Range<Int>) -> AudioChunk {
+    AudioChunk(samples: samples[range].map(Self.dequantize), sampleRate: sampleRate)
   }
 
   static func quantize(_ sample: Float) -> Int16 {
