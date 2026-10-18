@@ -132,6 +132,20 @@ struct RealtimeDirectSessionTests {
         [.fieldUnreadable]
       ),
       (
+        // 結合文字（e + U+0301）の途中
+        RealtimeDirectFieldObservation(
+          target: Self.target, value: "e\u{301}",
+          selectedRange: UTF16TextRange(location: 1, length: 0)),
+        [.fieldUnreadable]
+      ),
+      (
+        // ZWJ で連結した絵文字（👨‍👩‍👧）の途中
+        RealtimeDirectFieldObservation(
+          target: Self.target, value: "👨‍👩‍👧",
+          selectedRange: UTF16TextRange(location: 3, length: 0)),
+        [.fieldUnreadable]
+      ),
+      (
         RealtimeDirectFieldObservation(
           target: Self.target, value: "abc", selectedRange: UTF16TextRange(location: 1, length: 2)
         ),

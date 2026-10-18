@@ -29,7 +29,7 @@ public enum RealtimeDirectUnavailableReason: Hashable, Sendable, CaseIterable {
   case terminal
   /// 開始時に入力対象を特定できない
   case targetUnknown
-  /// 開始時に入力欄の値や選択範囲を読み取れない、または選択範囲が値の範囲外・サロゲートペアの途中を指す
+  /// 開始時に入力欄の値や選択範囲を読み取れない、または選択範囲が値の範囲外や書記素クラスター（絵文字・結合文字など）の途中を指す
   case fieldUnreadable
   /// 開始時にテキストが選択されている。選択したテキストの置き換えは取り消しの対象にしないため、カーソル位置からだけ始める
   case selectionNotEmpty

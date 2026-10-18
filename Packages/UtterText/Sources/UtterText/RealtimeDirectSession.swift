@@ -139,8 +139,8 @@ public struct RealtimeDirectSession: Hashable, Sendable {
       reasons.insert(.targetUnknown)
     }
     if let value = observation.value, let selection = observation.selectedRange,
-      Self.isScalarBoundary(selection.location, in: value),
-      Self.isScalarBoundary(selection.upperBound, in: value)
+      Self.isCharacterBoundary(selection.location, in: value),
+      Self.isCharacterBoundary(selection.upperBound, in: value)
     {
       if selection.length != 0 {
         reasons.insert(.selectionNotEmpty)
@@ -158,11 +158,11 @@ public struct RealtimeDirectSession: Hashable, Sendable {
     initialValue = value
   }
 
-  /// UTF-16 の位置が値の範囲内で、サロゲートペアの途中でないか。
-  private static func isScalarBoundary(_ offset: Int, in value: String) -> Bool {
+  /// UTF-16 の位置が値の範囲内で、書記素クラスター（Character）の境界にあるか。
+  private static func isCharacterBoundary(_ offset: Int, in value: String) -> Bool {
     guard offset <= value.utf16.count else { return false }
     let index = value.utf16.index(value.utf16.startIndex, offsetBy: offset)
-    return index.samePosition(in: value.unicodeScalars) != nil
+    return index.samePosition(in: value) != nil
   }
 
   /// これまでに書き込んだ範囲（入力欄全体での位置）。
