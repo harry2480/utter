@@ -152,7 +152,7 @@ enum HotkeyProbe {
       _ = simulator.handle(
         phase == .pressed ? .shortcutPressed(isRepeat: false) : .shortcutReleased)
     }
-    log.write("hotkey", "InstallEventHandler=\(hotKeys.installHandler())")
+    try installHandler(hotKeys, log: log)
     let times = registerTwice ? 2 : 1
     for attempt in 1...times {
       let (status, id) = hotKeys.register(
@@ -232,7 +232,7 @@ enum HotkeyProbe {
         _ = simulator.handle(
           phase == .pressed ? .shortcutPressed(isRepeat: false) : .shortcutReleased)
       }
-      _ = hotKeys.installHandler()
+      try installHandler(hotKeys, log: log)
       let (status, _) = hotKeys.register(
         keyCode: keyCode, carbonModifiers: parsed.carbonModifiers, exclusive: false)
       log.write("hotkey", "トリガー \(trigger) 登録 → \(CarbonHotKeys.describe(status))")
@@ -301,6 +301,13 @@ enum HotkeyProbe {
         "イベントタップを作成できません。listen は入力監視、default はアクセシビリティの許可が必要（permissions で確認）")
     }
     return watcher
+  }
+
+  /// ハンドラを登録できないと、ホットキーの登録が成功しても押下を受信できず誤った記録になるため中止する
+  private static func installHandler(_ hotKeys: CarbonHotKeys, log: ProbeLog) throws(ProbeError) {
+    let status = hotKeys.installHandler()
+    log.write("hotkey", "InstallEventHandler → OSStatus \(status)")
+    guard status == noErr else { throw .failed("InstallEventHandler に失敗（OSStatus \(status)）") }
   }
 
   private static func startSecureInputMonitor(log: ProbeLog) {
