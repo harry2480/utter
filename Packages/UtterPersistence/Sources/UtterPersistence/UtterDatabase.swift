@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// 辞書・使用量を保存する SQLite データベース（3章, TXT-03, AI-05）。
+/// 辞書・使用量・任意の入力履歴を保存する SQLite データベース（3章, TXT-03, AI-05, 7章）。
 ///
 /// 開くたびにスキーマ移行（マイグレーション）を適用する。テストは `inMemory()` を使う。
 /// 読み書きは同期的にディスクへアクセスするため、メインスレッド以外から呼ぶ。
@@ -48,6 +48,15 @@ public struct UtterDatabase: Sendable {
         table.column("currencyCode", .text).notNull()
         table.column("amount", .text).notNull()
         table.primaryKey(["monthIndex", "currencyCode"])
+      }
+    }
+    // 入力履歴（7章, AC-12）。初期無効で、有効にした利用者だけが使う
+    migrator.registerMigration("v2") { db in
+      try db.create(table: "inputHistory") { table in
+        table.autoIncrementedPrimaryKey("id")
+        table.column("sessionID", .text).notNull().unique()
+        table.column("text", .text).notNull()
+        table.column("createdAt", .double).notNull().indexed()
       }
     }
     return migrator
