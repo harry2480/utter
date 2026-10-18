@@ -99,6 +99,18 @@ struct MonthlyBudgetTests {
     }
   }
 
+  @Test("AI-05: 単価表が空（初期値が未設定）なら費用を推定できないため送信を止める")
+  func blocksWhenPriceTableIsEmpty() throws {
+    let emptyEstimator = CostEstimator(
+      priceTable: try PriceTable(
+        currency: yen, updatedOn: try CivilDate(year: 2026, month: 10, day: 1), prices: []))
+
+    #expect(
+      check(
+        try budget(100), MonthlyUsageLedger(currency: yen), expected: 0, estimator: emptyEstimator)
+        == .cannotEstimate(.estimationFailed(.unknownModel("m"))))
+  }
+
   @Test("AI-05: 予算・台帳・単価表の通貨が一致しないときは評価できないため送信を止める")
   func blocksWhenCurrencyDiffers() throws {
     let usd = try CostCurrency(code: "USD")
