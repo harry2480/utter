@@ -30,9 +30,11 @@ if [[ -z "$sources" ]]; then
   exit 0
 fi
 
-# 識別子の一部（fingerprint( など）やメソッド（.dump( など）には一致させない。Swift.print( は一致させる。
+# 識別子の一部（fingerprint( など）やメソッド（.dump( など）には一致させない。
+# モジュール名で修飾した呼び出し（Swift.print( / Foundation.NSLog( など）は一致させる。
+# NSLog は同名のメソッドがまずないため、どの修飾でも一致させる。
 # 行頭の空白に続く // で始まる行（コメント）は除く
-pattern='(^|[^A-Za-z0-9_.]|Swift\.)(print|debugPrint|dump|NSLog)[[:space:]]*\('
+pattern='((^|[^A-Za-z0-9_.]|(Swift|Foundation)\.)(print|debugPrint|dump)|(^|[^A-Za-z0-9_])NSLog)[[:space:]]*\('
 matches="$(
   printf '%s\n' "$sources" | tr '\n' '\0' | xargs -0 grep -nHE "$pattern" -- |
     grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true
