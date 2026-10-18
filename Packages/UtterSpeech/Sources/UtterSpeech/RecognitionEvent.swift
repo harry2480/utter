@@ -6,7 +6,7 @@ import UtterCore
 /// 順序の古いイベントを `RecognitionEventFilter` で破棄する。
 public struct RecognitionEvent: Hashable, Sendable {
   public enum Kind: Hashable, Sendable {
-    /// 暫定の認識結果。後から変わりうる
+    /// 暫定の認識結果。後から変わりうる。値は確定済みテキストの後に続く部分で、全体ではない
     case partial(String)
     /// 確定した認識結果の一部
     case confirmed(String)
