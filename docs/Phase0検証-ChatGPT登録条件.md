@@ -30,7 +30,7 @@ OSS の配布アプリ（utter）が、他製品のクライアントID の流�
 | S8 | Token reference | https://developers.openai.com/siwc/token-sharing-open-source/token-reference | 本文を取得 |
 | S9 | Request a client ID | https://developers.openai.com/siwc/request-client-id | 本文を取得 |
 | S10 | Cookbook: Integrating Sign in with ChatGPT in your Opensource App | https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt | 本文を取得 |
-| S11 | UI/UX guidelines | https://developers.openai.com/siwc/ui-ux-guidelines | 本文を取得（S1〜S11 は https://developers.openai.com/siwc/llms-full.txt の一括版でも照合） |
+| S11 | UI/UX guidelines | https://developers.openai.com/siwc/ui-ux-guidelines | 一括版 https://developers.openai.com/siwc/llms-full.txt で取得（S1〜S10 も一括版と照合） |
 | S12 | openai/sign-in-with-chatgpt-devkit（README・LICENSE） | https://github.com/openai/sign-in-with-chatgpt-devkit | 本文を取得 |
 | S13 | Sign in with ChatGPT Terms | https://openai.com/policies/sign-in-with-chatgpt-terms/ | **本文の直接取得は HTTP 403。検索エンジンの抜粋でのみ確認** |
 | S14 | Service terms（15節） | https://openai.com/policies/service-terms/ | **同上（抜粋でのみ確認）** |
@@ -52,7 +52,7 @@ Sign in with ChatGPT には3つの使い方がある [S1]。
 
 - Website / plugin 向けのクライアントID は申請制で、現在はウェイトリスト（関心フォーム）[S9]
 - OSS 向けの plan usage は事前申請がない。最初のサインイン時に **動的登録**（`client_id=dynamic_agent_client` を入口として送る）を行い、利用者ごと・ワークスペースごとにクライアントID（`oaiapp_…` 形式）が発行される。クライアントシークレットも、パートナー用 API キーも不要 [S1][S2][S3]
-- 対象は「open-source and locally hosted apps」。**有料アプリ、またはリモートでホストするアプリ**は、利用者に提供する前に関心フォーム（https://openai.com/form/sign-in-with-chatgpt-interest/）でウェイトリストに入る [S2][S10]
+- 対象は「open-source and locally hosted apps」。**有料アプリ、またはリモートでホストするアプリ**は、利用者に提供する前に関心フォーム（https://openai.com/form/sign-in-with-chatgpt-interest/ ）でウェイトリストに入る [S2][S10]
 - Cookbook はローンチ時の対象を「open-source projects, personal projects that run locally, and selected private apps」と書く [S10]
 - 出典の範囲では「OSS」の定義（ライセンスの種類、公開リポジトリの要否）や、OpenAI による審査の手順は書かれていない [S1][S2][S10]
 - Cookbook の題材は、コピーした文章を書き換えて別アプリへ貼り付ける OSS のデスクトップアプリ（Paste Perfect）。公式 DevKit にネイティブ macOS アプリの例として収録されている [S10][S12]
@@ -145,7 +145,7 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 - 確認できた事実：OSS かつローカル実行のアプリには、事前申請なしで使える公式の動的登録の流れがあり、公開エンドポイントと Responses API だけで完結する。他製品のクライアントID も非公開エンドポイントも必要ない [S1][S2][S3][S4]
 - 推測にもとづく部分：utter がこの「open-source and locally hosted apps」に当たること、規約の原文にこの読みと矛盾する条件がないこと、iOS でループバックのコールバックが取れること
 - 条件
-  1. utter を有料にしない、またはリモートでホストしない間に限る。どちらかに当たる場合は関心フォームで申請し、承認されるまで提供しない [S2][S10]
+  1. utter が無料で、かつ利用者の端末上でだけ動く（リモートでホストしない）間に限る。有料化とリモートホストのどちらか一方にでも当たる場合は、関心フォームで申請し、承認されるまで提供しない [S2][S10]
   2. Free プランの利用者や、プラン利用を許可しなかった利用者のために、OpenAI API キー方式を別の選択肢として用意する（黙って切り替えない）[S7]
   3. iOS は検証が済むまで API キー方式のみとし、Sign in with ChatGPT は macOS から始める
   4. DevKit のコードは取り込まず、独自に実装する [S12]
