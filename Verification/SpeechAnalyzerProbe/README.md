@@ -108,7 +108,7 @@ $probe batch eval/audio/speechanalyzer-manifest.json \
 swift run --package-path Packages/UtterEvaluation utter-eval Verification/SpeechAnalyzerProbe/output/results.json
 ```
 
-- 出力は manifest の `id` / `category` / `reference` / `terms` に `sttOutput`（確定結果をつないだもの）を加えた JSON。認識に失敗した発話は `sttOutput` を省略する（utter-eval では未実施として数える）
+- 出力は manifest の `id` / `category` / `reference` / `terms` に `sttOutput`（確定結果をつないだもの）を加えた JSON。認識に失敗した（エラーになった）発話は `sttOutput` を省略する（utter-eval では未実施として数える）。エラーなしで確定結果が1件もなかった発話は、STT の誤りとして空文字を記録する（警告を出す）
 - `batch` は既定で `--pace fast`（精度だけを見るため）。標準出力には発話本文を出さず、識別子と計測値だけを出す
 - 音声の前処理（音量・無音の除去）はしない
 

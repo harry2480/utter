@@ -158,6 +158,10 @@ func feedMicrophone(
   }
   engine.stop()
   input.removeTap(onBus: 0)
+  // サンプルレート変換器に残った末尾のフレームも渡す（発話の終わりを欠かさない）
+  if let rest = try converter.flush(), rest.frameLength > 0 {
+    continuation.yield(AnalyzerInput(buffer: rest))
+  }
   if conversionFailed.withLock({ $0 }) {
     throw ProbeError("マイク入力の変換に失敗しました")
   }

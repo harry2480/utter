@@ -178,6 +178,11 @@ func runBatch(manifestPath: String, outputPath: String, options: RunOptions, log
         source: .file(audioURL), options: options, sampleID: sample.id, log: log)
       printSummary(output.summary)
       if output.summary.error == nil {
+        // 確定結果が1件もない（発話を認識できなかった）場合も、STT の誤りとして空文字を記録する。
+        // 省略すると未実施扱いになり、認識できなかった発話が CER から抜けて良く見えるため
+        if output.summary.finalCount == 0 {
+          printError("[\(sample.id)] 確定結果がありません。sttOutput を空文字で記録します")
+        }
         sttOutput = output.finalText
       } else {
         failures += 1
