@@ -271,6 +271,7 @@ struct ClaudeProviderTests {
       ("m", 0, 1, "https://api.anthropic.com/v1/messages", .nonPositiveMaxTokens),
       ("m", 1, 0, "https://api.anthropic.com/v1/messages", .nonPositiveRequestTimeout),
       ("m", 1, 1, "http://api.anthropic.com/v1/messages", .insecureEndpoint),
+      ("m", 1, 1, "https://example.com/v1/messages", .unexpectedHost),
     ])
   func rejectsInvalidConfiguration(
     _ model: String, _ maxTokens: Int, _ timeout: Int, _ endpoint: String,
