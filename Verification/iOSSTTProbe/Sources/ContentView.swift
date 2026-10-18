@@ -17,7 +17,7 @@ struct ContentView: View {
         settingsSection
         sampleSection
         runSection
-        resourceSection
+        ResourceSection(monitor: model.monitor)
         historySection
         outputSection
       }
@@ -148,6 +148,7 @@ struct ContentView: View {
       case .idle:
         Button("録音を開始") { Task { await model.startMicrophoneRun() } }
         Stepper("ファイルの繰り返し: \(model.fileRepeatCount) 回", value: $model.fileRepeatCount, in: 1...50)
+        Toggle("ファイルごとに 5 秒待つ（終了 5 秒後のメモリを測る）", isOn: $model.waitAfterEachFile)
         Button("音声ファイルを選んで認識") { isImportingAudio = true }
       case .preparing:
         Label("準備中…", systemImage: "hourglass")
@@ -161,26 +162,6 @@ struct ContentView: View {
       Text("\(model.liveFinalText)\(Text(model.liveVolatileText).foregroundStyle(.secondary))")
         .frame(maxWidth: .infinity, minHeight: 60, alignment: .topLeading)
         .textSelection(.enabled)
-    }
-  }
-
-  // MARK: 資源
-
-  private var resourceSection: some View {
-    Section("資源（0.5 秒ごと）") {
-      if let sample = model.monitor.latest {
-        LabeledContent("phys_footprint", value: format(megabytes(sample.footprintBytes)))
-        LabeledContent(
-          "プロセスのピーク", value: format(megabytes(sample.processPeakFootprintBytes)))
-        LabeledContent(
-          "残り（jetsam まで）", value: format(Double(sample.availableBytes) / 1_048_576))
-        LabeledContent("熱状態", value: sample.thermalState.label)
-        LabeledContent(
-          "電池",
-          value: sample.batteryLevel < 0 ? "-" : "\(Int(sample.batteryLevel * 100))%")
-        LabeledContent("低電力モード", value: sample.lowPowerMode ? "オン" : "オフ")
-      }
-      LabeledContent("記録数", value: "\(model.monitor.samples.count)")
     }
   }
 
@@ -228,15 +209,40 @@ struct ContentView: View {
   private func summary(of run: RunMetrics) -> String {
     var parts: [String] = []
     if let value = run.analyzerPrepareMilliseconds { parts.append("prepare \(Int(value))ms") }
-    if let value = run.startToInputMilliseconds { parts.append("開始 \(Int(value))ms") }
+    if let value = run.startToFirstBufferMilliseconds { parts.append("開始 \(Int(value))ms") }
     if let value = run.firstVolatileResultMilliseconds { parts.append("初回暫定 \(Int(value))ms") }
     if let value = run.firstFinalResultMilliseconds { parts.append("初回確定 \(Int(value))ms") }
     if let value = run.stopToFinishMilliseconds { parts.append("停止→確定 \(Int(value))ms") }
     if let value = run.realTimeFactor { parts.append(String(format: "RTF %.2f", value)) }
     if let value = run.footprintPeakSampledMB { parts.append("ピーク \(Int(value))MB") }
     if let value = run.thermalStateMax { parts.append("熱 \(value)") }
-    if run.interrupted { parts.append("割り込み") }
+    if let value = run.footprintAfter5sMB { parts.append("5秒後 \(Int(value))MB") }
+    if run.interrupted { parts.append("割り込み（結果は評価に入れない）") }
     return parts.joined(separator: " / ")
+  }
+
+}
+
+/// 資源の表示。0.5 秒ごとに更新されるため、ここだけが再描画されるよう別の View に分ける
+struct ResourceSection: View {
+  let monitor: ResourceMonitor
+
+  var body: some View {
+    Section("資源（0.5 秒ごと）") {
+      if let sample = monitor.latest {
+        LabeledContent("phys_footprint", value: format(megabytes(sample.footprintBytes)))
+        LabeledContent(
+          "プロセスのピーク", value: format(megabytes(sample.processPeakFootprintBytes)))
+        LabeledContent(
+          "残り（jetsam まで）", value: format(Double(sample.availableBytes) / 1_048_576))
+        LabeledContent("熱状態", value: sample.thermalState.label)
+        LabeledContent(
+          "電池",
+          value: sample.batteryLevel < 0 ? "-" : "\(Int(sample.batteryLevel * 100))%")
+        LabeledContent("低電力モード", value: sample.lowPowerMode ? "オン" : "オフ")
+      }
+      LabeledContent("記録数", value: "\(monitor.samples.count)")
+    }
   }
 
   private func format(_ megabytes: Double?) -> String {

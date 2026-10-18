@@ -15,11 +15,11 @@ iPhone 実機で Apple の Speech API（SpeechAnalyzer）による日本語認�
 | アセット | `AssetInventory.assetInstallationRequest` によるダウンロード（進捗表示）、ロケールの予約解除、保持中モデルの解放（`SpeechModels.endRetention`） |
 | エンジン | `SpeechTranscriber`（`.progressiveTranscription` / `.transcription`）と `DictationTranscriber`（`.progressiveShortDictation` / `.shortDictation`）。暫定結果の有無、モデル保持（`whileInUse` / `lingering` / `processLifetime`）を切り替え |
 | 入力 | マイク（`AVAudioSession` `.record` + `AVAudioEngine`）、または「ファイル」から選んだ音声ファイル（複数可・繰り返し可） |
-| 遅延 | モデル準備（`prepareToAnalyze`）、録音開始（ボタン→マイク入力開始）、初回の暫定・確定結果、停止→最終確定、ファイルの処理時間と RTF |
-| 資源 | 0.5 秒ごとの `phys_footprint`（`task_vm_info`）、プロセスのピーク（`ledger_phys_footprint_peak`）、`os_proc_available_memory`、`ProcessInfo.thermalState`、電池残量、低電力モード。実行ごとの開始前・最大・終了時・終了 5 秒後 |
-| 書き出し | `results.json`（`utter-eval` が読める評価サンプル）、`metrics.json`（計測値。発話本文なし）、`timeline.csv`（資源の推移。発話本文なし） |
+| 遅延 | モデル準備（`prepareToAnalyze`）、録音開始（ボタン→最初の音声バッファの先頭サンプル。`AVAudioTime.hostTime` から求める。参考に `engine.start()` が戻るまでも記録）、初回の暫定・確定結果、停止→最終確定、ファイルの処理時間と RTF |
+| 資源 | 0.5 秒ごとの `phys_footprint`（`task_vm_info`）、プロセスのピーク（`ledger_phys_footprint_peak`）、`os_proc_available_memory`、`ProcessInfo.thermalState`、電池残量、低電力モード。実行ごとの開始前・最大・終了時・終了 5 秒後、実行開始時のアセットの状態 |
+| 書き出し | `results.json`（`utter-eval` が読める評価サンプル）、`metrics.json`（計測値。発話本文なし）、`timeline.csv`（資源の推移。発話本文なし）。計測値は実行ごとに `ProbeOutput/autosave-metrics.json` へ自動保存する（jetsam などで強制終了しても、それまでの値が残る） |
 
-録音中は画面の自動ロックを止める。電話着信などのオーディオ割り込みが起きたら録音を止め、`interrupted: true` を記録する。
+録音中は画面の自動ロックを止める。電話着信などのオーディオ割り込みの開始、またはヘッドセットの抜き差しなどの入力経路の変更（`AVAudioEngineConfigurationChange`）が起きたら録音を止め、`interrupted: true` と理由を記録する。割り込みで止まった録音の途中までのテキストは評価サンプルに入れない（既存の結果も上書きしない）。
 
 ## 必要なもの
 
@@ -56,25 +56,27 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 1. 「対応状況」で `端末の対応`・`ロケール`・`アセット` を確認する。`supported（未ダウンロード）` なら「アセットをダウンロード」を押す（`installed` になるまで待つ）
 2. 精度を測る場合は、評価セットを用意する
    - 正解入りの JSON（[eval/results.example.json](../../eval/results.example.json) と同じ形。`sttOutput` などは無くてよい）を「評価セット（JSON）を取り込む」で読み込む
-   - 音声ファイル名（拡張子なし）を評価サンプルの `id` と同じにしておくと（例: `ja-001.m4a`）、ファイル認識の結果がそのサンプルの `sttOutput` に入る
+   - 音声ファイル名（拡張子なし）を評価サンプルの `id` と同じにしておくと（例: `ja-001.m4a`）、ファイル認識の結果がそのサンプルの `sttOutput` に入る。一致しない場合は `<ファイル名>-001` のサンプルを1つ作り、繰り返しでも同じサンプルを使う
    - 取り込まずに録音した場合は `mic-001` などの新しいサンプルができる。サンプルを開いて正解・区分・用語を入力する（正解が空のサンプルは書き出さない）
 3. 認識する
    - マイク: 「録音の対象」を選んで「録音を開始」→話す→「停止」。録音開始遅延と停止→確定を測る
-   - ファイル: 「音声ファイルを選んで認識」。複数選択と繰り返し回数で連続負荷をかけられる
+   - ファイル: 「音声ファイルを選んで認識」。複数選択と繰り返し回数で連続負荷をかけられる。「ファイルごとに 5 秒待つ」がオンなら各ファイルの後に 5 秒待って終了 5 秒後のメモリを測る。オフにすると待たずに次へ進むため、終了 5 秒後のメモリは記録しない（次の実行中の値になるため）
    - 同じ条件をコールド（アプリ起動直後、または「保持中のモデルを解放」後）とウォーム（続けてもう一度）で分けて実行する
 4. 10 分連続使用の熱・電池（iOS-PERF-04）は、マイクで 10 分録音するか、ファイルの繰り返しで 10 分以上回し、`timeline.csv` の熱状態・電池の推移を見る
 5. 「書き出す」→「書き出したファイルを共有」で Mac へ AirDrop する（または「ファイル」アプリの「このiPhone内 > STT Probe > ProbeOutput」から取り出す）
-6. Mac で精度を集計する
+6. Mac で、取り出したファイルを `eval/device/<日付>-<機種>/`（gitignore 済み）に置き、精度を集計する
 
    ```sh
-   swift run --package-path Packages/UtterEvaluation utter-eval <取り出した results.json>
+   swift run --package-path Packages/UtterEvaluation utter-eval eval/device/<日付>-<機種>/results.json
    ```
+
+   書き出す前に、アプリは `utter-eval` が読み込みを拒否する不備（区分・意味改変の種類が不正、正規化すると正解が空、用語が英数字の境界を含めて正解に現れない、整形結果がないのに意味改変がある）のあるサンプルを除外する。判定は UtterEvaluation の `EvaluationSample.validate` / `TermAccuracy` / `TextNormalizer` を写したもの（UtterEvaluation は macOS のみの Package でリンクできないため）。除外したサンプルは画面の評価サンプル一覧に理由が出る
 
 ## 出力の記録先
 
 - `utter-eval` の表（発話本文を含まない）と `metrics.json` の値を、手順書の記録欄と `docs/検証/YYYYMMDD_iOSSTT.md`（AGENTS.md の技術検証の置き場所）に人が転記する。推測値を書かない
 - 機種・iOS・エンジン・プリセット・モデル保持・入力（マイク/ファイル）・コールド/ウォームを必ず併記する
-- `results.json`（発話本文を含む）、音声ファイルはリポジトリに置かない（`eval/audio/` と、このディレクトリの `ProbeOutput/` は gitignore 済み）
+- `results.json`（発話本文を含む）、音声ファイルはリポジトリに置かない（`eval/audio/`、`eval/device/` と、このディレクトリの `ProbeOutput/` は gitignore 済み）
 
 ### 計測値の読み方と限界
 
@@ -82,7 +84,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 - `footprintPeakSampledMB` は 0.5 秒間隔のサンプルの最大値で、短い山を取りこぼす。`processPeakFootprintMB` は起動以降の最大値なので、1回ごとのピークを見たい場合はアプリを起動し直してから1回だけ実行する
 - `thermalState` は 4 段階（nominal / fair / serious / critical）の OS の判定で、温度ではない。手順書の「+5°C」を測るには外部の温度計測が要る
 - 電池残量は粗い（OS が丸めた値）。10 分程度では変化しないことがあるため、長めに回して差分を見る。充電しながら測らない
-- ファイル認識は実時間より速く流し込むため、遅延の指標はマイクと比べない（RTF と処理時間を見る）
+- ファイル認識は実時間より速く流し込むため、遅延の指標はマイクと比べない（RTF と処理時間を見る）。処理時間と RTF には、ファイルの読み込みと認識器の形式への変換（SpeechAnalyzer 内部）の時間も含まれる
+- 録音開始遅延（`startToFirstBufferMilliseconds`）は、許可確認後にボタンの処理を始めた時刻から、最初に届いた音声バッファの先頭サンプルの時刻まで。モデル準備（コールド時はロード）を含む。`startToEngineStartedMilliseconds` は `engine.start()` が戻るまでで、実際に音声が取れ始めた時刻ではない
 
 ## 片付け
 

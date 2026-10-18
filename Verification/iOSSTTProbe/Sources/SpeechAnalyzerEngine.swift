@@ -119,6 +119,11 @@ enum SpeechEngineInfo {
     )
   }
 
+  /// 実行開始時に記録するアセットの状態
+  static func assetStatus(for configuration: EngineConfiguration) async -> String {
+    await AssetInventory.status(forModules: [TranscriberModule(configuration).module]).label
+  }
+
   /// アセットのダウンロード要求。不要（導入済み）なら nil
   static func installationRequest(
     for configuration: EngineConfiguration

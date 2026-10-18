@@ -25,6 +25,9 @@ final class ProbeModel {
   var retention: ModelRetentionOption = .whileInUse
   /// ファイル認識を繰り返す回数（発熱・メモリの負荷をかけるため）
   var fileRepeatCount = 1
+  /// ファイルごとに 5 秒待ち、終了 5 秒後のメモリを測ってから次へ進む。
+  /// オフにすると連続負荷はかけられるが、終了 5 秒後のメモリは記録しない（次の実行と重なるため）
+  var waitAfterEachFile = true
 
   // MARK: 状態
 
@@ -55,6 +58,7 @@ final class ProbeModel {
   @ObservationIgnored private var activeMetrics: RunMetrics?
   @ObservationIgnored private var activeSampleStartIndex = 0
   @ObservationIgnored private var tapInstant: ContinuousClock.Instant?
+  @ObservationIgnored private var tapHostTime: UInt64 = 0
   @ObservationIgnored private var inputStartInstant: ContinuousClock.Instant?
   @ObservationIgnored private var nextRunID = 1
   @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
@@ -135,11 +139,13 @@ final class ProbeModel {
       return
     }
     await requestSpeechAuthorizationIfNeeded()
+    let assetStatus = await SpeechEngineInfo.assetStatus(for: configuration)
     // 初回の許可ダイアログの時間を録音開始遅延に含めないよう、許可の確認後から測る
     let tap = clock.now
     tapInstant = tap
+    tapHostTime = mach_absolute_time()
     let sampleID = resolveMicrophoneSampleID()
-    beginRun(sampleID: sampleID, source: "microphone")
+    beginRun(sampleID: sampleID, source: "microphone", assetStatus: assetStatus)
 
     do {
       let sessionStart = clock.now
@@ -157,10 +163,23 @@ final class ProbeModel {
       let continuation = try await run.startStreaming { [weak self] text, isFinal in
         self?.handleResult(text: text, isFinal: isFinal)
       }
-      try microphone.start(analyzerFormat: format, continuation: continuation)
+      let runID = activeMetrics?.id
+      try microphone.start(
+        analyzerFormat: format,
+        continuation: continuation,
+        tapHostTime: tapHostTime,
+        onFirstBuffer: { [weak self] milliseconds in
+          Task { @MainActor in self?.recordFirstBuffer(milliseconds, runID: runID) }
+        },
+        onConfigurationChange: { [weak self] in
+          Task { @MainActor in
+            await self?.stopMicrophoneRun(interruption: "engineConfigurationChange")
+          }
+        }
+      )
       let inputStart = clock.now
       inputStartInstant = inputStart
-      activeMetrics?.startToInputMilliseconds = milliseconds(inputStart - tap)
+      activeMetrics?.startToEngineStartedMilliseconds = milliseconds(inputStart - tap)
       UIApplication.shared.isIdleTimerDisabled = true
       phase = .recording
     } catch {
@@ -171,14 +190,16 @@ final class ProbeModel {
     }
   }
 
-  func stopMicrophoneRun(interrupted: Bool = false) async {
+  /// - Parameter interruption: 割り込みで止めた場合の理由。nil ならユーザーの停止
+  func stopMicrophoneRun(interruption: String? = nil) async {
     guard phase == .recording, let run = activeRun else { return }
     phase = .finishing
     let stop = clock.now
     if let inputStartInstant {
       activeMetrics?.audioDurationSeconds = milliseconds(stop - inputStartInstant) / 1000
     }
-    activeMetrics?.interrupted = interrupted
+    activeMetrics?.interrupted = interruption != nil
+    activeMetrics?.interruptionReason = interruption
     microphone.stop()
     do {
       try await run.finishStreaming()
@@ -202,26 +223,32 @@ final class ProbeModel {
     message = nil
     await requestSpeechAuthorizationIfNeeded()
     UIApplication.shared.isIdleTimerDisabled = true
+    // 繰り返しで新しいサンプルが増えないよう、URL ごとの id を先に決めて使い回す
+    let sampleIDs = urls.map { resolveFileSampleID(for: $0) }
     let total = urls.count * fileRepeatCount
     var index = 0
     for _ in 0..<fileRepeatCount {
-      for url in urls {
+      for (url, sampleID) in zip(urls, sampleIDs) {
         index += 1
         phase = .recognizingFiles(current: index, total: total)
-        await recognize(file: url)
+        await recognize(file: url, sampleID: sampleID)
+        if waitAfterEachFile, let runID = runs.last?.id {
+          try? await Task.sleep(for: .seconds(5))
+          recordSettledFootprint(runID: runID)
+        }
       }
     }
     UIApplication.shared.isIdleTimerDisabled = false
     phase = .idle
   }
 
-  private func recognize(file url: URL) async {
+  private func recognize(file url: URL, sampleID: String) async {
     let accessing = url.startAccessingSecurityScopedResource()
     defer {
       if accessing { url.stopAccessingSecurityScopedResource() }
     }
-    let sampleID = resolveFileSampleID(for: url)
-    beginRun(sampleID: sampleID, source: "file")
+    let assetStatus = await SpeechEngineInfo.assetStatus(for: configuration)
+    beginRun(sampleID: sampleID, source: "file", assetStatus: assetStatus)
     do {
       let file = try AVAudioFile(forReading: url)
       activeMetrics?.audioDurationSeconds = Double(file.length) / file.fileFormat.sampleRate
@@ -251,7 +278,7 @@ final class ProbeModel {
 
   // MARK: 実行の記録
 
-  private func beginRun(sampleID: String, source: String) {
+  private func beginRun(sampleID: String, source: String, assetStatus: String?) {
     liveFinalText = ""
     liveVolatileText = ""
     inputStartInstant = nil
@@ -270,11 +297,19 @@ final class ProbeModel {
       locale: configuration.locale.identifier,
       startedAt: Date(),
       speechAuthorization: SFSpeechRecognizer.authorizationStatus().label,
+      assetStatusAtStart: assetStatus,
       footprintBeforeMB: megabytes(before.footprintBytes),
       thermalStateStart: before.thermalState.label,
       batteryLevelStart: before.batteryLevel < 0 ? nil : before.batteryLevel,
       lowPowerModeStart: before.lowPowerMode
     )
+  }
+
+  private func recordFirstBuffer(_ value: Double, runID: Int?) {
+    guard let runID, activeMetrics?.id == runID,
+      activeMetrics?.startToFirstBufferMilliseconds == nil
+    else { return }
+    activeMetrics?.startToFirstBufferMilliseconds = value
   }
 
   private func handleResult(text: String, isFinal: Bool) {
@@ -317,6 +352,9 @@ final class ProbeModel {
     if let error {
       metrics.error = Self.errorSummary(error)
       message = "認識に失敗しました: \(Self.errorSummary(error))"
+    } else if metrics.interrupted {
+      // 途中までのテキストで評価結果（既存の正常な結果を含む）を上書きしない
+      message = "割り込みで録音が止まったため、評価サンプルには結果を入れませんでした"
     } else {
       updateSample(id: metrics.sampleID, sttOutput: liveFinalText)
     }
@@ -330,19 +368,27 @@ final class ProbeModel {
       UIApplication.shared.isIdleTimerDisabled = false
       phase = .idle
     }
-    scheduleSettledMeasurement(runID: metrics.id)
+    autosaveMetrics()
+    if metrics.source == "microphone" {
+      scheduleSettledMeasurement(runID: metrics.id)
+    }
   }
 
-  /// 終了 5 秒後のメモリを記録する（処理後の負荷復帰, 6章）
+  /// 終了 5 秒後のメモリを記録する（処理後の負荷復帰, 6章）。
+  /// その時点で次の実行が始まっていれば、その実行の値になるため記録しない
   private func scheduleSettledMeasurement(runID: Int) {
     Task { [weak self] in
       try? await Task.sleep(for: .seconds(5))
-      guard let self else { return }
-      let sample = self.monitor.record()
-      if let index = self.runs.firstIndex(where: { $0.id == runID }) {
-        self.runs[index].footprintAfter5sMB = megabytes(sample.footprintBytes)
-      }
+      self?.recordSettledFootprint(runID: runID)
     }
+  }
+
+  private func recordSettledFootprint(runID: Int) {
+    guard activeMetrics == nil,
+      let index = runs.firstIndex(where: { $0.id == runID })
+    else { return }
+    runs[index].footprintAfter5sMB = megabytes(monitor.record().footprintBytes)
+    autosaveMetrics()
   }
 
   private func updateSample(id: String, sttOutput: String) {
@@ -396,9 +442,14 @@ final class ProbeModel {
       forName: AVAudioSession.interruptionNotification,
       object: nil,
       queue: .main
-    ) { [weak self] _ in
+    ) { [weak self] notification in
+      // 割り込みの開始（.began）のときだけ止める。終了（.ended）は無視する
+      guard
+        let rawValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+        AVAudioSession.InterruptionType(rawValue: rawValue) == .began
+      else { return }
       Task { @MainActor in
-        await self?.stopMicrophoneRun(interrupted: true)
+        await self?.stopMicrophoneRun(interruption: "audioSessionInterruption")
       }
     }
   }
@@ -441,6 +492,34 @@ final class ProbeModel {
     URL.documentsDirectory.appending(path: "ProbeOutput", directoryHint: .isDirectory)
   }
 
+  /// 計測値（発話本文なし）を実行ごとに自動保存する。jetsam などで強制終了しても、それまでの値が残る
+  private func autosaveMetrics() {
+    do {
+      try FileManager.default.createDirectory(
+        at: Self.outputRoot, withIntermediateDirectories: true)
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.prettyPrinted]
+      encoder.dateEncodingStrategy = .iso8601
+      try encoder.encode(makeMetricsExport()).write(
+        to: Self.outputRoot.appending(path: "autosave-metrics.json"),
+        options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    } catch {
+      message = "計測値の自動保存に失敗しました: \(Self.errorSummary(error))"
+    }
+  }
+
+  private func makeMetricsExport() -> MetricsExport {
+    MetricsExport(
+      device: DeviceSummary(
+        modelIdentifier: DeviceInfo.modelIdentifier,
+        systemVersion: UIDevice.current.systemVersion,
+        physicalMemoryMB: Double(ProcessInfo.processInfo.physicalMemory) / 1_048_576,
+        exportedAt: Date()
+      ),
+      runs: runs
+    )
+  }
+
   func export() {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -458,15 +537,7 @@ final class ProbeModel {
       let samplesURL = directory.appending(path: "results.json")
       try encoder.encode(exportable).write(to: samplesURL, options: .completeFileProtection)
 
-      let metrics = MetricsExport(
-        device: DeviceSummary(
-          modelIdentifier: DeviceInfo.modelIdentifier,
-          systemVersion: UIDevice.current.systemVersion,
-          physicalMemoryMB: Double(ProcessInfo.processInfo.physicalMemory) / 1_048_576,
-          exportedAt: Date()
-        ),
-        runs: runs
-      )
+      let metrics = makeMetricsExport()
       let metricsURL = directory.appending(path: "metrics.json")
       try encoder.encode(metrics).write(to: metricsURL, options: .completeFileProtection)
 

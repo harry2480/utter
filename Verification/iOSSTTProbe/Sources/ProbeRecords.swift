@@ -40,21 +40,88 @@ enum EvaluationCategoryOption: String, CaseIterable, Identifiable, Sendable {
 }
 
 extension EvaluationRecord {
-  /// `utter-eval` の入力検証（EvaluationSampleError）に当たる不備。発話本文は含めない。
+  /// `utter-eval` が読み込みを拒否する不備（デコードと `EvaluationSample.validate`）。発話本文は含めない。
+  /// UtterEvaluation は macOS のみの Package でリンクできないため、同じ判定をここに写している。
+  /// 判定を変えるときは UtterEvaluation の EvaluationSample.validate / TermAccuracy / TextNormalizer と合わせる。
   var exportProblem: String? {
     if EvaluationCategoryOption(rawValue: category) == nil {
       return "区分が不正"
     }
-    if reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    if let meaningChanges,
+      meaningChanges.contains(where: { MeaningChangeOption(rawValue: $0) == nil })
+    {
+      return "意味改変の種類が不正"
+    }
+    if !EvaluationCheck.hasContent(reference) {
       return "正解が未入力"
     }
-    if let terms, terms.contains(where: { !reference.contains($0) }) {
+    if let terms, terms.contains(where: { EvaluationCheck.occurrences(of: $0, in: reference) == 0 })
+    {
       return "用語が正解に含まれていない"
     }
     if meaningChanges != nil, refinedOutput == nil {
       return "整形結果がないのに意味改変を判定している"
     }
     return nil
+  }
+}
+
+/// 重大な意味改変の種類（UtterEvaluation の MeaningChange と同じ rawValue）。
+enum MeaningChangeOption: String, CaseIterable, Sendable {
+  case negationFlipped
+  case numberChanged
+  case properNounChanged
+  case contentAdded
+  case contentOmitted
+  case relationChanged
+}
+
+/// UtterEvaluation の検証と同じ判定。
+enum EvaluationCheck {
+  /// TextNormalizer で正規化した結果が空でないか（TextNormalizer.isIgnored と同じ文字単位の判定）。
+  /// 数字表記の正規化は数字を消さないため、空かどうかに影響しない。
+  static func hasContent(_ text: String) -> Bool {
+    let keptPunctuation: Set<Character> = ["%", "#", "&", "@", "*", "/", "\\"]
+    return text.precomposedStringWithCompatibilityMapping.contains { character in
+      if keptPunctuation.contains(character) { return true }
+      if character == "~" || character.isWhitespace { return false }
+      return !character.unicodeScalars.allSatisfy { scalar in
+        switch scalar.properties.generalCategory {
+        case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation,
+          .initialPunctuation, .finalPunctuation, .otherPunctuation, .format:
+          return true
+        default:
+          return scalar.properties.isWhitespace
+        }
+      }
+    }
+  }
+
+  /// TermAccuracy.occurrences と同じ。英数字で始まる・終わる用語は、隣も英数字なら数えない
+  static func occurrences(of term: String, in text: String) -> Int {
+    let needle = Array(term)
+    let haystack = Array(text)
+    guard !needle.isEmpty, haystack.count >= needle.count else { return 0 }
+    var count = 0
+    var index = 0
+    while index <= haystack.count - needle.count {
+      let end = index + needle.count
+      if haystack[index..<end].elementsEqual(needle),
+        !(isASCIIAlphanumeric(needle[0]) && index > 0 && isASCIIAlphanumeric(haystack[index - 1])),
+        !(isASCIIAlphanumeric(needle[needle.count - 1]) && end < haystack.count
+          && isASCIIAlphanumeric(haystack[end]))
+      {
+        count += 1
+        index = end
+      } else {
+        index += 1
+      }
+    }
+    return count
+  }
+
+  private static func isASCIIAlphanumeric(_ character: Character) -> Bool {
+    character.isASCII && (character.isLetter || character.isNumber)
   }
 }
 
@@ -70,6 +137,8 @@ struct RunMetrics: Codable, Identifiable, Sendable {
   var locale: String
   var startedAt: Date
   var speechAuthorization: String
+  /// 実行開始時のアセットの状態（AssetInventory.status）
+  var assetStatusAtStart: String?
 
   /// マイク: 入力開始から停止まで。ファイル: ファイルの長さ
   var audioDurationSeconds: Double?
@@ -77,8 +146,11 @@ struct RunMetrics: Codable, Identifiable, Sendable {
   var sessionActivationMilliseconds: Double?
   /// SpeechAnalyzer.prepareToAnalyze（モデルのロードを含む）
   var analyzerPrepareMilliseconds: Double?
-  /// 録音ボタンを押してからマイク入力が始まるまで（録音開始遅延。許可ダイアログの時間は除く。モデル準備を含む）
-  var startToInputMilliseconds: Double?
+  /// 録音ボタンを押してから `AVAudioEngine.start()` が戻るまで（許可ダイアログの時間は除く。モデル準備を含む）
+  var startToEngineStartedMilliseconds: Double?
+  /// 録音ボタンを押してから、最初に届いた音声バッファの先頭サンプルの時刻まで（録音開始遅延の主指標。
+  /// 許可ダイアログの時間は除く。モデル準備を含む）。AVAudioTime.hostTime から求める
+  var startToFirstBufferMilliseconds: Double?
   /// 入力開始から最初の暫定結果まで
   var firstVolatileResultMilliseconds: Double?
   /// 入力開始から最初の確定結果まで
@@ -111,8 +183,11 @@ struct RunMetrics: Codable, Identifiable, Sendable {
   var batteryLevelStart: Float?
   var batteryLevelEnd: Float?
   var lowPowerModeStart: Bool?
-  /// 電話着信などのオーディオ割り込みで止まった
+  /// 電話着信などのオーディオ割り込み、または入力経路の変更で止まった。
+  /// 途中までのテキストは評価サンプルに入れない
   var interrupted: Bool = false
+  /// `audioSessionInterruption` または `engineConfigurationChange`
+  var interruptionReason: String?
   /// エラーの種類（発話本文は含まない）
   var error: String?
 }
