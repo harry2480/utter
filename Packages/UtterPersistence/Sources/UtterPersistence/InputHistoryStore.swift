@@ -10,6 +10,7 @@ import UtterCore
 ///
 /// 履歴を無効にするときは、設定を先に無効にしてから `removeAll()` を呼ぶ。`record` は設定を書き込みの中で読むため、
 /// 無効にする前に始まった保存も、`removeAll()` より後に書き込まれることはない。
+/// 入力先の判定も書き込みの中で行い、書き込み待ちの間に入力先が機密入力へ変わっても保存しない。
 /// 削除した本文がデータベースのファイルに残らないよう、`UtterDatabase` は削除した領域を上書きする設定で開く。
 public struct InputHistoryStore: Sendable {
   private let database: UtterDatabase
@@ -22,18 +23,19 @@ public struct InputHistoryStore: Sendable {
   ///
   /// - Parameters:
   ///   - historyEnabled: 設定で履歴が有効か。無効化との順序を保つため、書き込みの中で最新の設定を読む
-  ///   - sensitivity: 保存の直前に、その時点の入力先で判定し直した結果
+  ///   - sensitivity: その時点の入力先で判定し直した結果。書き込み待ちの後、保存の直前に呼ぶ。
+  ///     書き込みのキューの中で同期的に呼ぶため、メインスレッドを待たずに返す（入力先の最新の判定を保持しておき、それを返すなど）
   @discardableResult
   public func record(
     _ text: String,
     session: SessionID,
     at date: Date,
     historyEnabled: @Sendable () -> Bool,
-    sensitivity: SensitiveInputDecision
+    sensitivity: @Sendable () -> SensitiveInputDecision
   ) throws -> InputHistorySkipReason? {
-    guard sensitivity.allowsHistory else { return .sensitiveInput }
     guard !text.allSatisfy(\.isWhitespace) else { return .emptyText }
     return try database.writer.write { db in
+      guard sensitivity().allowsHistory else { return .sensitiveInput }
       guard historyEnabled() else { return .disabled }
       // 保存し直したセッションを新しい順の先頭にするため、行を作り直す
       try db.execute(

@@ -26,7 +26,7 @@ struct InputHistoryStoreTests {
   ) throws -> InputHistorySkipReason? {
     try store.record(
       text, session: session, at: createdAt.addingTimeInterval(seconds),
-      historyEnabled: { enabled }, sensitivity: sensitivity)
+      historyEnabled: { enabled }, sensitivity: { sensitivity })
   }
 
   @Test("AC-12: 履歴が無効なら保存しない")
@@ -58,9 +58,44 @@ struct InputHistoryStoreTests {
       historyEnabled: {
         Issue.record("機密入力では設定を読まない")
         return true
-      }, sensitivity: Self.secureField)
+      }, sensitivity: { Self.secureField })
 
     #expect(reason == .sensitiveInput)
+  }
+
+  @Test("AC-12: 入力先は書き込み待ちの後に判定し、待つ間に機密入力へ移ったら保存しない")
+  func decidesSensitivityAfterWaitingForWrite() throws {
+    let database = try UtterDatabase.inMemory()
+    let history = InputHistoryStore(database: database)
+    let decision = Mutex(Self.allowed)
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let done = DispatchSemaphore(value: 0)
+    let reason = Mutex<InputHistorySkipReason?>(nil)
+    let at = createdAt
+
+    // 別の書き込みでキューを塞ぎ、その間に保存を始める
+    DispatchQueue.global().async {
+      try? database.writer.write { _ in
+        entered.signal()
+        release.wait()
+      }
+    }
+    entered.wait()
+    DispatchQueue.global().async {
+      let result = try? history.record(
+        "移った後の本文", session: SessionID(), at: at, historyEnabled: { true },
+        sensitivity: { decision.withLock { $0 } })
+      reason.withLock { $0 = result ?? nil }
+      done.signal()
+    }
+    // 書き込みを待つ間に、入力先がパスワード欄へ移る
+    decision.withLock { $0 = Self.secureField }
+    release.signal()
+    done.wait()
+
+    #expect(reason.withLock { $0 } == .sensitiveInput)
+    #expect(try history.entries().isEmpty)
   }
 
   @Test("AC-12: 設定は書き込みの中で読み、無効にした後の保存は削除の後に残らない")
@@ -73,7 +108,7 @@ struct InputHistoryStoreTests {
 
     let reason = try store.record(
       "無効にした後", session: SessionID(), at: createdAt,
-      historyEnabled: { enabled.withLock { $0 } }, sensitivity: Self.allowed)
+      historyEnabled: { enabled.withLock { $0 } }, sensitivity: { Self.allowed })
 
     #expect(reason == .disabled)
     #expect(try store.entries().isEmpty)
@@ -135,7 +170,7 @@ struct InputHistoryStoreTests {
       let history = InputHistoryStore(database: try UtterDatabase.open(at: url))
       try history.record(
         marker, session: SessionID(), at: createdAt, historyEnabled: { true },
-        sensitivity: Self.allowed)
+        sensitivity: { Self.allowed })
       try history.removeAll()
     }
 
@@ -177,7 +212,7 @@ struct InputHistoryStoreTests {
     let history = InputHistoryStore(database: database)
     try history.record(
       "移行後の履歴", session: SessionID(), at: createdAt, historyEnabled: { true },
-      sensitivity: Self.allowed)
+      sensitivity: { Self.allowed })
     #expect(try history.entries().map(\.text) == ["移行後の履歴"])
   }
 
