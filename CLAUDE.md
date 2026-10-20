@@ -27,6 +27,12 @@ Loopを使う場合は [docs/loop-engineering.md](docs/loop-engineering.md) の�
 
 ## Claude Code への指示（利用者は読まなくてOK）
 
+### 出力言語
+
+- 応答・作業中の説明・PR/コメントへの返信は日本語。
+- 英語のレビューコメント（CodeRabbit 等）やログを読んだ後も日本語を維持する。
+  （CodeRabbit への返信本文のみ、相手に合わせて英語可）
+
 ### 現在のフェーズ
 
 Phase 0 / i0（技術検証）。アプリターゲットと Swift Package はまだ存在しない。
