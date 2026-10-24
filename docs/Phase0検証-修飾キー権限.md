@@ -7,10 +7,15 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 - Esc キー捕捉の可否
 - 権限要件（Accessibility access）
 
+## 検証用コード
+
+[Verification/HotkeyProbe](../Verification/HotkeyProbe/README.md)（macOS のコマンドラインツール）で、RegisterEventHotKey の登録と競合、CGEventTap / NSEvent による修飾キー単独の検出、セッション中だけの Esc 捕捉、権限の状態を確かめる。ビルド・実行手順とログの読み方は README を参照。
+下記「3. 権限要件」の表は検証前の想定であり、HotkeyProbe の結果で確かめてから記録する。
+
 ## テスト環境
 
-- OS: macOS 12.0 以上（Monterey+）
-- 権限: System Preferences → Security & Privacy → Accessibility で有効化必須
+- OS: macOS 26 以降
+- 権限: 入力監視・アクセシビリティの要否は検証項目（システム設定 > プライバシーとセキュリティ で、実行したターミナルアプリごとにオン/オフして確かめる）
 
 ## テスト項目
 
@@ -41,6 +46,8 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 - EventMonitor で検出可能
 - 捕捉後の処理（中止 vs 継続）を制御可
 ```
+
+- Push-to-talk ではトリガー（修飾キー単独・修飾キー付きの組み合わせ）を押したまま Esc を押すため、Esc にトリガーの修飾キーが付く。REC-01 の「Esc でキャンセル」を PTT でも成り立たせるには、トリガーの修飾キーを修飾キー付き Esc の判定から除く必要がある（HotkeyProbe の `session --mode ptt` で確かめる）。本番仕様として扱いを決める
 
 ### 3. 権限要件
 
@@ -76,13 +83,20 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 
 ### テスト日: YYYY-MM-DD
 
-| テスト項目 | 結果 | 備考 |
-|----------|------|------|
-| Cmd 単独 | ✅/❌ | |
-| Shift 単独 | ✅/❌ | |
-| Esc キー捕捉 | ✅/❌ | |
-| CPU 使用率 | XX% | EventMonitor 有効時 |
-| メモリ増加 | XXmb | |
+macOS バージョン: / キーボード（内蔵・外付け、JIS・US）:
+
+| テスト項目 | ターミナルアプリ | 入力監視 | アクセシビリティ | 結果 | 備考 |
+|----------|------|------|------|------|------|
+| Cmd 単独 | | オン/オフ | オン/オフ | ✅/❌ | |
+| Shift 単独 | | オン/オフ | オン/オフ | ✅/❌ | |
+| fn 単独（`modifier fn`） | | オン/オフ | オン/オフ | ✅/❌ | backend / tap |
+| right-option 単独（`modifier right-option`） | | オン/オフ | オン/オフ | ✅/❌ | backend / tap |
+| 通常の組み合わせ（`hotkey`） | | オン/オフ | オン/オフ | ✅/❌ | 登録結果・競合 |
+| Esc: 待機中の非干渉（`session`） | | オン/オフ | オン/オフ | ✅/❌ | strategy |
+| Esc: 録音中の捕捉（`session`） | | オン/オフ | オン/オフ | ✅/❌ | toggle / ptt |
+| Esc: 修飾キー付き Esc を通す（`session`） | | オン/オフ | オン/オフ | ✅/❌ | Cmd+Esc 等。PTT のトリガーの修飾キーは除いて判定する |
+| CPU 使用率 | | | | XX% | EventMonitor 有効時 |
+| メモリ増加 | | | | XXmb | |
 
 ## 次フェーズ
 
