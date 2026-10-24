@@ -80,6 +80,17 @@ for key_and_expected in "SUFeedURL=" "SUPublicEDKey=" "SUScheduledCheckInterval=
     exit 1
   fi
 done
+# 同梱する Sparkle のライセンス表示が、取得した版の LICENSE と同じで、アプリに入っていること
+sparkle_license="$derived_data/SourcePackages/artifacts/sparkle/Sparkle/LICENSE"
+bundled_license="$derived_data/Build/Products/Debug/utter.app/Contents/Resources/Licenses/Sparkle-LICENSE.txt"
+if ! cmp -s "$sparkle_license" Apps/macOS/Licenses/Sparkle-LICENSE.txt; then
+  echo "Apps/macOS/Licenses/Sparkle-LICENSE.txt が取得した Sparkle の LICENSE と違います。差し替えてください: $sparkle_license" >&2
+  exit 1
+fi
+if [[ ! -f "$bundled_license" ]]; then
+  echo "アプリに Sparkle のライセンス表示が入っていません: $bundled_license" >&2
+  exit 1
+fi
 if /usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "$mac_info_plist" >/dev/null 2>&1; then
   echo "SUEnableAutomaticChecks は Info.plist に置かない（初回に Sparkle が利用者に確かめる）。" >&2
   exit 1

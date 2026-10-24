@@ -206,6 +206,11 @@ if ! grep -q '^Timestamp=' <<<"$signature_info"; then
   exit 1
 fi
 info_plist="$app/Contents/Info.plist"
+# 同梱する依存のライセンス表示（Sparkle）が入っているか（バイナリ配布時の義務）
+if [[ ! -f "$app/Contents/Resources/Licenses/Sparkle-LICENSE.txt" ]]; then
+  echo "アプリに Sparkle のライセンス表示（Contents/Resources/Licenses/Sparkle-LICENSE.txt）がありません。" >&2
+  exit 1
+fi
 signed_entitlements="$out_dir/signed.entitlements"
 # Entitlement がない署名ではファイルが作られないため、そのときは「どれも無効」として扱う
 codesign -d --entitlements "$signed_entitlements" --xml "$app" 2>/dev/null || true

@@ -33,6 +33,11 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      # 同梱する依存のライセンス表示（Sparkle の MIT と EXTERNAL LICENSES。バイナリ配布時に表示を含める義務がある）。
+      # Contents/Resources/Licenses/ に入る。版を上げたら差し替える（scripts/verify.sh が取得した LICENSE と比べる）
+      - path: Licenses
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: UtterCore
       - package: Sparkle
