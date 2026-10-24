@@ -1,4 +1,5 @@
 import AVFoundation
+import Synchronization
 import UtterSpeech
 import UtteriOSKit
 
@@ -170,19 +171,58 @@ final class AudioEngineRecorder: AudioRecorder {
     guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
       return nil
     }
-    var consumed = false
+    guard let input = PendingInput(copying: buffer) else { return nil }
     var conversionError: NSError?
     let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
-      if consumed {
+      guard let buffer = input.take() else {
         // ストリームの途中なので endOfStream ではなく noDataNow を返す（変換器の状態を保つ）
         inputStatus.pointee = .noDataNow
         return nil
       }
-      consumed = true
       inputStatus.pointee = .haveData
       return buffer
     }
     guard status != .error, output.frameLength > 0 else { return nil }
     return output
+  }
+}
+
+/// 変換器の入力ブロックは SDK によって `@Sendable` なので、タップのバッファを直接渡せない。
+/// サンプルを写した新しいバッファを `Mutex` に持ち、1回だけ取り出す
+private final class PendingInput: Sendable {
+  private let buffer: Mutex<AVAudioPCMBuffer?>
+
+  init?(copying source: AVAudioPCMBuffer) {
+    guard let sourceChannels = source.floatChannelData else { return nil }
+    let frameCount = Int(source.frameLength)
+    guard frameCount > 0 else { return nil }
+    let channels = (0..<Int(source.format.channelCount)).map {
+      Array(UnsafeBufferPointer(start: sourceChannels[$0], count: frameCount))
+    }
+    guard
+      let copy = Self.makeBuffer(format: source.format, channels: channels, frameCount: frameCount)
+    else { return nil }
+    buffer = Mutex(copy)
+  }
+
+  private static func makeBuffer(
+    format: AVAudioFormat, channels: [[Float]], frameCount: Int
+  ) -> sending AVAudioPCMBuffer? {
+    guard
+      let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)),
+      let destination = copy.floatChannelData
+    else { return nil }
+    for (index, samples) in channels.enumerated() {
+      samples.withUnsafeBufferPointer { samples in
+        guard let base = samples.baseAddress else { return }
+        destination[index].update(from: base, count: frameCount)
+      }
+    }
+    copy.frameLength = AVAudioFrameCount(frameCount)
+    return copy
+  }
+
+  func take() -> AVAudioPCMBuffer? {
+    buffer.withLock { $0.take() }
   }
 }
