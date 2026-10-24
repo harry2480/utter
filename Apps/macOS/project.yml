@@ -19,6 +19,10 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterText:
+    path: ../../Packages/UtterText
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -27,6 +31,8 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterText
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter
@@ -39,6 +45,20 @@ targets:
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
         # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+  # 画面の状態（View を除く）のユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする
+  UtterMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      - path: Sources/Dictionary/DictionaryEditorModel.swift
+    dependencies:
+      - package: UtterText
+      - package: UtterPersistence
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
+        GENERATE_INFOPLIST_FILE: "YES"
 schemes:
   UtterMac:
     build:
@@ -46,3 +66,7 @@ schemes:
         UtterMac: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - UtterMacTests
