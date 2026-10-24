@@ -45,14 +45,16 @@ targets:
         # マイク: 録音（REC-04）。初めて録音するときに OS がこの文言を添えて尋ねる
         INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。
         # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
-  # アプリの純粋なロジック（Sources/Shortcut）のユニットテスト。
-  # アプリを起動しないよう、テスト対象のソースをテストバンドルに直接含める（TEST_HOST なし）
+        # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
+        # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
+  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする（TEST_HOST なし）
   UtterMacTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Sources/Shortcut
       - path: Tests
+      - path: Sources/Shortcut
+      - path: Sources/Insertion
     dependencies:
       - package: UtterCore
     settings:

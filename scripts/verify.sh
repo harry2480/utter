@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルドとユニットテスト → シェルスクリプト lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
-# 新しいターゲットを作ったら「アプリの署名なしビルド」に追加する。
+# 新しいターゲットを作ったら「アプリの署名なしビルド・テスト」に追加する。
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -59,7 +59,7 @@ xcodebuild \
   -project Apps/macOS/Utter.xcodeproj \
   -scheme UtterMac \
   -configuration Debug \
-  -destination 'platform=macOS' \
+  -destination "platform=macOS,arch=$(uname -m)" \
   -derivedDataPath "$derived_data" \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
   -quiet test
