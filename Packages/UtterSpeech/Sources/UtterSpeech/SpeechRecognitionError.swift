@@ -1,5 +1,5 @@
 /// 音声認識の失敗の種類。認識テキストや音声は持たない。
-public enum SpeechRecognitionError: Error, Hashable, Sendable, CaseIterable {
+public enum SpeechRecognitionError: Error, Hashable, Sendable, CaseIterable, Codable {
   /// モデルが未取得、またはロードできない
   case modelUnavailable
   /// 音声の形式（サンプリング周波数など）に対応していない
