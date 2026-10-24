@@ -79,11 +79,11 @@ $BIN run --route pasteboard --text multiline --allow-multiline --interactive --l
 `--out`（既定 `./results`）に追記する。`results/` は `.gitignore` 済みで、コミットしない。
 
 - `trials.csv` / `trials.jsonl`（同じ内容）。主な列:
-  - `route`, `insertionRoute`, `bundleID`, `appVersion`, `role`, `subrole`, `label`, `textPreset`, `axFlag`, `axFlagApplied`（`--ax-flag` の設定に成功したか）
+  - `route`, `insertionRoute`, `bundleID`, `appVersion`, `role`, `subrole`, `label`, `textPreset`, `axFlag`, `axFlagApplied`（`--ax-flag` の設定に成功したか。失敗した試行は `skipReason=ax-flag-failed` で挿入しない）
   - `response`（`InsertionResponse`）、`readBack`（`InsertionReadBack`）、`readBackMethod`
   - `result`（`classify` の結果: verified / unconfirmed / failed / skipped）
   - `outcome`: success（読み戻し一致）/ success-visual（目視で一致）/ failure / unknown（成功不明）/ skipped
-  - `skipReason`, `captureMs`（Pasteboard 経路でクリップボードの退避にかかった時間）, `insertMs`（挿入呼び出しの時間。退避を含まない）, `confirmMs`（挿入開始から読み戻しの判定まで。退避を含まない）
+  - `skipReason`（Pasteboard 経路で退避中にクリップボードが書き換えられた場合は `clipboard-changed` で挿入しない）, `captureMs`（Pasteboard 経路でクリップボードの退避にかかった時間）, `insertMs`（挿入呼び出しの時間。退避を含まない）, `confirmMs`（挿入開始から読み戻しの判定まで。退避を含まない）
   - `markers`, `clipboardItems`, `clipboardTypes`, `clipboardUnreadableTypes`, `restore`（restored / restored-partial（読み出せない種別が失われた）/ restored-mismatch / skipped-changed / failed / n/a）, `restoreAfterMs`（Cmd+V の送信から復元までの時間）
   - 人の記録: `visualMatch`（yes / partial（欠け・重複・誤字）/ no（何も入っていない））, `misinsertion`（none / enter（Enter が送られた）/ other-field（別の入力欄・アプリへ入った）/ duplicate（二重に入った）。互換性表 4章の「誤った挿入」の判定に使い、1件でもあった経路は既定・代替経路にしない）, `undo`（once / multiple / partial / none / n/a）, `clipboardHistory`, `note`
 - 入力欄の値・クリップボードの中身・挿入した文字列そのものは出力しない（プリセット名だけを残す）。値はメモリ上の比較にだけ使う

@@ -11,7 +11,8 @@ struct PendingRestore {
 /// Pasteboard 経路の結果。退避にかかった時間と Cmd+V を送った時刻を、挿入の時間と分けて返す
 struct PasteboardInsertion {
   let response: InsertionResponse
-  let pending: PendingRestore
+  /// 退避中に他のアプリがクリップボードを書き換えたため書き込まなかった場合は nil（復元もしない）
+  let pending: PendingRestore?
   let captureDuration: Duration
   let sentAt: ContinuousClock.Instant?
 }
@@ -67,12 +68,18 @@ enum Inserter {
     let pasteboard = NSPasteboard.general
     let clock = ContinuousClock()
     let captureStart = clock.now
+    let changeCountBeforeCapture = pasteboard.changeCount
     let snapshot = PasteboardSnapshot.capture(pasteboard)
     let captureDuration = clock.now - captureStart
     let item = NSPasteboardItem()
     item.setString(text, forType: .string)
     for marker in markers.types {
       item.setData(Data(), forType: NSPasteboard.PasteboardType(marker))
+    }
+    // 退避の途中で書き換えられていたら、退避した内容は最新ではない。上書きせずに中止する
+    guard pasteboard.changeCount == changeCountBeforeCapture else {
+      return PasteboardInsertion(
+        response: .rejectedBeforeSend, pending: nil, captureDuration: captureDuration, sentAt: nil)
     }
     pasteboard.clearContents()
     guard pasteboard.writeObjects([item]) else {

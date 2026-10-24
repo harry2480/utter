@@ -114,6 +114,8 @@ enum Probe {
       guard let pid = AX.focusedApplicationPID() else { return skip("no-focus") }
       let (applied, restore) = enableAppFlag(flag, pid: pid)
       record.axFlagApplied = applied ? "yes" : "no"
+      // 設定できなかった試行は、フラグ有効時の計測に混ぜない
+      guard applied else { return skip("ax-flag-failed") }
       restoreFlag = restore
       flaggedPID = pid
       Thread.sleep(forTimeInterval: 1.0)
@@ -158,6 +160,7 @@ enum Probe {
       response = Inserter.cgEvent(text: text)
     case .pasteboard:
       let insertion = Inserter.pasteboard(text: text, markers: options.markers)
+      guard insertion.pending != nil else { return skip("clipboard-changed") }
       response = insertion.response
       pending = insertion.pending
       sentAt = insertion.sentAt

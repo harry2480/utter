@@ -69,6 +69,7 @@ enum AX {
       return element
     }
     guard let app = element(copy(systemWide, AXAttribute.focusedApplication)) else { return nil }
+    AXUIElementSetMessagingTimeout(app, messagingTimeout)
     return element(copy(app, AXAttribute.focusedUIElement))
   }
 
