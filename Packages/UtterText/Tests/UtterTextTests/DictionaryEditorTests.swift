@@ -52,6 +52,16 @@ struct DictionaryEditorTests {
     }
   }
 
+  @Test("TXT-03: 辞書語とパターンは保存層と同じ正規化形式（NFC）にそろえて持つ")
+  mutating func normalizesToNFC() throws {
+    try editor.addTerm("か\u{3099}")
+    try editor.addRule(pattern: "か\u{3099}", replacement: "か\u{3099}")
+
+    #expect(editor.terms.first?.spelling.unicodeScalars.map(\.value) == [0x304C])
+    #expect(editor.rules.first?.pattern.unicodeScalars.map(\.value) == [0x304C])
+    #expect(editor.rules.first?.replacement.unicodeScalars.count == 2)
+  }
+
   @Test("TXT-03: 自分自身と同じ値への更新は重複にしない")
   mutating func updatingToSameValueSucceeds() throws {
     try editor.addTerm("utter")

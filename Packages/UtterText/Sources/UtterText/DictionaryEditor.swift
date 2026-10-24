@@ -5,7 +5,7 @@ import Foundation
 /// 編集のたびに `UserDictionary` を組み立て直し、常に置換に使える状態を保つ。失敗した編集は何も変えない。
 /// - 辞書語とパターンは前後の空白・改行を取り除いてから扱い、空になるものは拒否する。置換後の表記はそのまま保つ（空も可）
 /// - 同じ辞書語、同じテキストに一致しうるパターン（大文字小文字を無視するルールを含む）は重複として拒否する。
-///   比較は String の等価性（Unicode の正規等価）による
+///   比較は String の等価性（Unicode の正規等価）による。辞書語とパターンは保存層（`DictionaryStore`）と同じ NFC にそろえて持つ
 /// - 置換ルールは長い一致を優先し、同じ長さで競合するルールは持てないため、定義順は置換結果に影響しない。並べ替えは扱わない
 ///
 /// 保存は呼び出し側が `dictionary` を保存層へ渡して行う。
@@ -105,7 +105,7 @@ public struct DictionaryEditor: Hashable, Sendable {
 
   private static func term(_ spelling: String) throws(DictionaryEditError) -> DictionaryTerm {
     do {
-      return try DictionaryTerm(spelling.trimmingCharacters(in: .whitespacesAndNewlines))
+      return try DictionaryTerm(spelling.trimmedAndNormalized)
     } catch {
       throw .emptySpelling
     }
@@ -116,11 +116,18 @@ public struct DictionaryEditor: Hashable, Sendable {
   ) throws(DictionaryEditError) -> ReplacementRule {
     do {
       return try ReplacementRule(
-        pattern: pattern.trimmingCharacters(in: .whitespacesAndNewlines),
+        pattern: pattern.trimmedAndNormalized,
         replacement: replacement, ignoresCase: ignoresCase)
     } catch {
       throw .emptyPattern
     }
+  }
+}
+
+extension String {
+  /// 前後の空白・改行を除き、保存層と同じ正規化形式（NFC）にしたもの
+  fileprivate var trimmedAndNormalized: String {
+    trimmingCharacters(in: .whitespacesAndNewlines).precomposedStringWithCanonicalMapping
   }
 }
 
