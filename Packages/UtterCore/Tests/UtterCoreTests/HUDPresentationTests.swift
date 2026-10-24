@@ -114,4 +114,74 @@ struct HUDPresentationTests {
 
     #expect(presentation.accessibilityLabel == "整形中。最大録音時間に達したため、録音を停止しました")
   }
+
+  // MARK: - Realtime Preview（2.2節, AC-03）
+
+  private static let transcript = HUDTranscript(confirmedText: "今日は", provisionalText: "いい天気")
+
+  @Test(
+    "AC-03: 認識テキストは録音中・認識中だけ持ち、他の段階と通知だけの表示では捨てる",
+    arguments: [
+      (HUDContent(status: .recording, notice: nil), true),
+      (HUDContent(status: .recognizing, notice: .maxRecordingDurationReached), true),
+      (HUDContent(status: .refining, notice: nil), false),
+      (HUDContent(status: .inserting, notice: nil), false),
+      (HUDContent(status: .failed(.recognition), notice: nil), false),
+      (HUDContent(status: nil, notice: .audioBufferLimitReached), false),
+    ] as [(HUDContent, Bool)])
+  func transcriptOnlyWhileRecognizing(content: HUDContent, keeps: Bool) throws {
+    let presentation = try #require(HUDPresentation(content, transcript: Self.transcript))
+    #expect(presentation.transcript == (keeps ? Self.transcript : nil))
+  }
+
+  @Test("AC-03: 表示する文字がない認識テキストは持たない")
+  func emptyTranscriptIsDropped() throws {
+    let presentation = try #require(
+      HUDPresentation(
+        HUDContent(status: .recording, notice: nil),
+        transcript: HUDTranscript(confirmedText: "", provisionalText: "")))
+    #expect(presentation.transcript == nil)
+  }
+
+  @Test("AC-03, REC-03: 認識テキストは VoiceOver のラベル・読み上げに含めない")
+  func transcriptIsNotSpoken() throws {
+    let recording = try #require(
+      HUDPresentation(HUDContent(status: .recording, notice: nil), transcript: Self.transcript))
+    #expect(recording.accessibilityLabel == "録音中")
+    #expect(recording.announcement == nil)
+
+    let limited = try #require(
+      HUDPresentation(
+        HUDContent(status: .recognizing, notice: .audioBufferLimitReached),
+        transcript: Self.transcript))
+    #expect(limited.accessibilityLabel == "認識中。録音できる音声の上限に達したため、録音を停止しました")
+  }
+
+  @Test("AC-03, REC-03: 認識テキストだけが変わったときは通知を読み上げ直さない")
+  func transcriptUpdateDoesNotReannounce() throws {
+    let content = HUDContent(status: .recognizing, notice: .audioBufferLimitReached)
+    let first = try #require(HUDPresentation(content))
+    let updated = try #require(HUDPresentation(content, transcript: Self.transcript))
+
+    #expect(first.announcement(replacing: nil) == first.announcement)
+    #expect(updated.announcement(replacing: first) == nil)
+
+    let failed = try #require(
+      HUDPresentation(HUDContent(status: .failed(.recognition), notice: nil)))
+    #expect(failed.announcement(replacing: updated) == "認識に失敗しました")
+  }
+
+  @Test("AC-03, REC-06: 文字列表現・リフレクションに認識テキストを出さない")
+  func descriptionHidesTranscript() throws {
+    let presentation = try #require(
+      HUDPresentation(HUDContent(status: .recording, notice: nil), transcript: Self.transcript))
+    for text in [
+      String(describing: presentation), String(reflecting: presentation),
+      String(describing: Self.transcript), String(reflecting: Self.transcript),
+      String(describing: Mirror(reflecting: presentation).children.map(\.value)),
+    ] {
+      #expect(!text.contains("今日は"))
+      #expect(!text.contains("いい天気"))
+    }
+  }
 }

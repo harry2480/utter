@@ -237,6 +237,57 @@ struct HUDControllerTests {
     #expect(scheduler.deadline == nil)
   }
 
+  // MARK: - Realtime Preview（2.2節, AC-03）
+
+  @Test("AC-03: 録音中・認識中は渡した認識テキストを表示し、整形へ進んだら捨てる")
+  func showsTranscriptWhileRecognizing() throws {
+    let controller = makeController()
+    var machine = SessionStateMachine()
+    machine.start(at: clock.now)
+    controller.update(from: machine)
+    let session = try #require(machine.activeSession?.id)
+
+    let first = HUDTranscript(confirmedText: "", provisionalText: "きょう")
+    controller.updateTranscript(first, for: session)
+    #expect(controller.presentation?.transcript == first)
+
+    machine.stopRecording(at: clock.now)
+    controller.update(from: machine)
+    // 認識中も残す
+    #expect(controller.presentation?.transcript == first)
+    let second = HUDTranscript(confirmedText: "今日は", provisionalText: "")
+    controller.updateTranscript(second, for: session)
+    #expect(controller.presentation?.transcript == second)
+
+    _ = try machine.handle(event(machine, .recognitionCompleted))
+    controller.update(from: machine)
+    #expect(controller.presentation == (try presentation(.refining)))
+    // 整形へ進んだ後に遅れて届いても表示しない
+    controller.updateTranscript(second, for: session)
+    #expect(controller.presentation == (try presentation(.refining)))
+  }
+
+  @Test("AC-03: 別のセッションの認識テキストは表示せず、次のセッションに前の発話を残さない")
+  func dropsTranscriptOfOtherSession() throws {
+    let controller = makeController()
+    var machine = SessionStateMachine()
+    machine.start(at: clock.now)
+    controller.update(from: machine)
+    let first = try #require(machine.activeSession?.id)
+    controller.updateTranscript(
+      HUDTranscript(confirmedText: "前の発話", provisionalText: ""), for: first)
+
+    _ = machine.cancel()
+    controller.update(from: machine)
+    machine.start(at: clock.now)
+    controller.update(from: machine)
+    #expect(controller.presentation == (try presentation(.recording)))
+
+    controller.updateTranscript(
+      HUDTranscript(confirmedText: "遅れて届いた", provisionalText: ""), for: first)
+    #expect(controller.presentation == (try presentation(.recording)))
+  }
+
   private func makeController(configuration: HUDConfiguration = HUDConfiguration())
     -> HUDController
   {

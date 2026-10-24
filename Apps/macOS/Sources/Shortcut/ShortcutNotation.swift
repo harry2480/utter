@@ -4,6 +4,7 @@ import UtterCore
 /// ショートカットの表記（REC-01）。
 ///
 /// - `parse`: `ctrl+option+k` 形式の指定を解釈する（開発用の起動引数で使う。HotkeyProbe と同じ書式）
+/// - `parseModifierKey`: 修飾キー単独の物理キー（`fn`・`right-option` 等。HotkeyProbe の `modifier` と同じ名前）を解釈する
 /// - `display`: メニューに出す `⌃⌥K` 形式の表記にする
 enum ShortcutNotation {
   private static let modifierNames: [String: ShortcutModifiers] = [
@@ -30,6 +31,31 @@ enum ShortcutNotation {
     }
     guard let key else { return KeyCombination(modifierOnly: modifiers) }
     return KeyCombination(key: key, modifiers: modifiers)
+  }
+
+  /// 修飾キー単独の物理キーの名前を解釈する。該当しなければ `nil`。
+  static func parseModifierKey(_ text: String) -> ModifierOnlyKey? {
+    ModifierOnlyKey(rawValue: text.trimmingCharacters(in: .whitespaces).lowercased())
+  }
+
+  /// 割当の表記。修飾キー単独は左右を含めて表す（例: `右⌥`）。
+  static func display(_ setting: GlobalShortcutSetting) -> String {
+    guard let key = setting.modifierKey else { return display(setting.combination) }
+    return display(key)
+  }
+
+  static func display(_ key: ModifierOnlyKey) -> String {
+    switch key {
+    case .function: "Fn"
+    case .leftCommand: "左⌘"
+    case .rightCommand: "右⌘"
+    case .leftOption: "左⌥"
+    case .rightOption: "右⌥"
+    case .leftControl: "左⌃"
+    case .rightControl: "右⌃"
+    case .leftShift: "左⇧"
+    case .rightShift: "右⇧"
+    }
   }
 
   /// 修飾キーは macOS のメニューと同じ順（Fn ⌃ ⌥ ⇧ ⌘）に並べる。
