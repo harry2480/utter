@@ -4,6 +4,10 @@
 // Xcode > Settings > Accounts で確認できる Team ID
 DEVELOPMENT_TEAM = XXXXXXXXXX
 
-// 他人と重ならない逆ドメイン。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios になる
+// 他人と重ならない逆ドメイン。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios、キーボード拡張は <接頭辞>.ios.keyboard になる
 // PRODUCT_BUNDLE_IDENTIFIER は project.yml のターゲット設定が優先されるため、ここには書かず接頭辞を変える
 UTTER_BUNDLE_ID_PREFIX = com.example.yourname.utter
+
+// App Group（#56 の判定待ち）。使うときだけ YES にし、"group." で始まる自分の App Group ID を設定する
+// UTTER_APP_GROUP_ENABLED = YES
+// UTTER_APP_GROUP_ID = group.com.example.yourname.utter
