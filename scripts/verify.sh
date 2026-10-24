@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド
-#   → iOS 最低バージョンの一致 → iOS Simulator 向けの署名なしビルド（Package と Apps/iOS）→ シェルスクリプト lint
+#   → iOS 最低バージョンの一致 → iOS Simulator 向けの署名なしビルド（Package と Apps/iOS・キーボード拡張）→ シェルスクリプト lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
 # 新しいターゲットを作ったら「アプリの署名なしビルド」に追加する。
 set -euo pipefail
@@ -99,7 +99,7 @@ for manifest in ${packages[@]+"${packages[@]}"}; do
 done
 echo "iOS ${ios_app_target}（Apps/iOS と ${#ios_packages[@]} Package）"
 
-echo "==> iOS Simulator 向けの署名なしビルド（Package と Apps/iOS）"
+echo "==> iOS Simulator 向けの署名なしビルド（Package と Apps/iOS・キーボード拡張）"
 available_sdks="$(xcodebuild -showsdks 2>/dev/null || true)"
 if ! grep -q -- '-sdk iphonesimulator' <<<"$available_sdks"; then
   # CI（macos-26 ランナー）には iOS Simulator SDK があるため、CI で無いのは異常として落とす
@@ -142,6 +142,41 @@ else
     echo "iOS アプリの MinimumOSVersion（${ios_built_minimum}）が ${ios_app_target} と一致しません。" >&2
     exit 1
   fi
+  # キーボード拡張（Extensions/iOSKeyboard）は本体アプリに埋め込まれてビルドされる
+  keyboard_appex="$ios_derived_data/App/Build/Products/Debug-iphonesimulator/utter.app/PlugIns/UtterKeyboard.appex"
+  keyboard_info_plist="$keyboard_appex/Info.plist"
+  if [[ ! -f "$keyboard_info_plist" ]]; then
+    echo "キーボード拡張のビルド成果物が見つかりません: $keyboard_info_plist" >&2
+    exit 1
+  fi
+  plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
+  if [[ "$(plist_value "$keyboard_info_plist" NSExtension:NSExtensionPointIdentifier)" != "com.apple.keyboard-service" ]]; then
+    echo "キーボード拡張の NSExtensionPointIdentifier が com.apple.keyboard-service ではありません。" >&2
+    exit 1
+  fi
+  if [[ "$(normalize_version "$(plist_value "$keyboard_info_plist" MinimumOSVersion)")" != "$ios_app_target" ]]; then
+    echo "キーボード拡張の MinimumOSVersion が ${ios_app_target} と一致しません。" >&2
+    exit 1
+  fi
+  # App Group（#56 の判定待ち）は既定で無効。既定のビルドではフルアクセスを要求せず、App Group ID も持たない
+  if [[ "$(plist_value "$keyboard_info_plist" NSExtension:NSExtensionAttributes:RequestsOpenAccess)" != "false" ]]; then
+    echo "既定のビルドでキーボード拡張の RequestsOpenAccess が false ではありません（App Group を有効にしたときだけ true）。" >&2
+    exit 1
+  fi
+  if [[ -n "$(plist_value "$keyboard_info_plist" UtterAppGroupID)" ]]; then
+    echo "既定のビルドでキーボード拡張に App Group ID が入っています（Config/Local.xcconfig で有効にしたときだけ入れる）。" >&2
+    exit 1
+  fi
+  # キーボード拡張は UtterCore と UtterPersistence だけに依存する（iAC-08: STT・クラウド AI を持たない）。
+  # Swift のシンボルに UtterSpeech / UtterAI のモジュール名が出ないことを確かめる
+  for binary in "$keyboard_appex"/*; do
+    [[ -f "$binary" && "$(file -b "$binary")" == *Mach-O* ]] || continue
+    # grep -q が先に終わると nm が SIGPIPE になり pipefail で見逃すため、出力を受け取ってから調べる
+    if grep -qE '11UtterSpeech|7UtterAI' <<<"$(nm "$binary" 2>/dev/null || true)"; then
+      echo "キーボード拡張に UtterSpeech / UtterAI がリンクされています: $binary" >&2
+      exit 1
+    fi
+  done
 fi
 
 echo "==> shellcheck"

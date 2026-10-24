@@ -3,8 +3,18 @@
 // （docs/ビルド・配布規約.md「署名と識別子」）。雛形は Local.xcconfig.example。
 // 既定値は署名なしビルド（scripts/verify.sh・CI）用のダミーで、このままでも署名なしならビルドできる。
 
-// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios になる
+// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios、キーボード拡張は <接頭辞>.ios.keyboard になる
 UTTER_BUNDLE_ID_PREFIX = invalid.utter
 DEVELOPMENT_TEAM =
+
+// App Group（Phase i0 #56 の判定待ち。既定は無効）。Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES と
+// UTTER_APP_GROUP_ID を設定したときだけ、キーボード拡張に App Group の Entitlement とフルアクセスの要求
+// （RequestsOpenAccess）を付け、共有結果を読む。無効なら拡張は「本体アプリでの共有が未設定」と表示する
+UTTER_APP_GROUP_ENABLED = NO
+UTTER_APP_GROUP_ID =
+
+// キーボードから本体アプリを開く自アプリの URL スキーム（Phase i0 #53 の判定待ち。既定は空で無効）。
+// 空なら拡張は手動で切り替える案内だけを出す。本体アプリ側のスキームの登録は #53 の成立後に追加する
+UTTER_HOST_APP_URL_SCHEME =
 
 #include? "Local.xcconfig"

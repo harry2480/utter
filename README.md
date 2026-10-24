@@ -42,7 +42,7 @@
 
 ### ビルド
 
-macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）と iOS アプリ（現在は起動画面だけのスケルトン）は、xcodegen でプロジェクトを生成してビルドします。
+macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）と iOS アプリ（現在は起動画面だけのスケルトン。カスタムキーボード拡張を同じプロジェクトでビルドする）は、xcodegen でプロジェクトを生成してビルドします。
 手順と開発用署名（`Config/Local.xcconfig`）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
 
 ## プロジェクト構成
@@ -56,7 +56,7 @@ utter/
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
 ├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
 ├── Apps/                 # macOS / iOS アプリ（現在はどちらもスケルトン）
-├── Extensions/           # iOS カスタムキーボード
+├── Extensions/           # iOS カスタムキーボード（文字入力・共有結果のプレビューと挿入。Apps/iOS/project.yml でビルド）
 └── Workers/              # macOS XPC STT Worker
 ```
 
