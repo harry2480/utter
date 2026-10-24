@@ -235,4 +235,87 @@ struct SharedResultInsertionCoordinatorTests {
     }
     #expect(String(describing: preview).contains("length: 5"))
   }
+  @Test("iOS-04, iOS-06: キーボードは保存されている結果のうち最も新しいものを待ち、挿入済み・壊れた結果は除く")
+  func latestSessionIDPicksNewest() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    let older = SharedResult(sessionID: SessionID(), text: "古い結果", createdAt: createdAt)
+    let newer = SharedResult(
+      sessionID: SessionID(), text: "新しい結果", createdAt: after(60))
+    var consumed = SharedResult(
+      sessionID: SessionID(), text: "挿入済み", createdAt: after(120))
+    try consumed.beginInsertion(for: consumed.sessionID, at: after(121))
+    try consumed.markConsumed(at: after(122))
+    for result in [older, newer, consumed] {
+      try await store.save(result, expectedRevision: nil)
+    }
+    // 壊れた結果（最も新しくても待たない）
+    try Data("壊れた".utf8).write(
+      to: directory.url.appendingPathComponent("\(SessionID().rawValue.uuidString).json"))
+
+    let latest = try await coordinator(RecordingInserter(), at: 180).latestSessionID()
+
+    #expect(latest == newer.sessionID)
+    // 挿入済み・壊れた結果は整理で削除する（iOS-IPC-05）
+    #expect(try await store.storedSessionIDs().count == 2)
+  }
+
+  @Test("iOS-IPC-06: 作成時刻が現在より後の結果は、後から作られた結果を隠さない")
+  func latestSessionIDSkipsFutureResults() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    let future = SharedResult(sessionID: SessionID(), text: "未来", createdAt: after(3600))
+    let current = SharedResult(sessionID: SessionID(), text: "現在", createdAt: createdAt)
+    for result in [future, current] {
+      try await store.save(result, expectedRevision: nil)
+    }
+
+    #expect(
+      try await coordinator(RecordingInserter(), at: 10).latestSessionID() == current.sessionID)
+  }
+
+  @Test("iOS-IPC-05: 期限切れの結果は整理で削除し、待たない。結果がなければ待つセッションはない")
+  func latestSessionIDSkipsExpired() async throws {
+    #expect(try await coordinator(RecordingInserter()).latestSessionID() == nil)
+
+    _ = try await saveReady()
+    let expiredAt = SharedResultConfiguration.defaultTimeToLive.components.seconds
+
+    #expect(
+      try await coordinator(RecordingInserter(), at: TimeInterval(expiredAt)).latestSessionID()
+        == nil)
+    #expect(try await stored() == nil)
+  }
+
+  @Test("iAC-07: 共有コンテナの一覧を読めなければ投げる")
+  func latestSessionIDThrowsWhenUnreadable() async throws {
+    // ディレクトリの代わりにファイルがあると一覧を読めない
+    try Data().write(to: directory.url)
+
+    await #expect(throws: (any Error).self) {
+      try await coordinator(RecordingInserter()).latestSessionID()
+    }
+  }
+
+  @Test(
+    "iOS-IPC-03: 挿入前後の文脈から、挿入した本文が入ったかを判定する",
+    arguments: [
+      // 本文で終わる
+      ("こんにちは", "" as String?, "こんにちは" as String?, SharedResultInsertionConfirmation.confirmed),
+      ("こんにちは", "前の文。", "前の文。こんにちは", .confirmed),
+      // 文脈が本文の末尾だけ（入力欄が現在の行だけを返す）
+      ("1行目\n2行目", "", "2行目", .confirmed),
+      // 取れない・空・変わらない・別の文字列
+      ("こんにちは", nil, nil, .unknown),
+      ("こんにちは", "", "", .unknown),
+      ("こんにちは", "前の文。", "前の文。", .unknown),
+      ("こんにちは", "", "こんばんは", .unknown),
+      ("", "前の文。", "前の文。x", .unknown),
+    ])
+  func confirmationFromContext(
+    _ text: String, _ before: String?, _ after: String?,
+    _ expected: SharedResultInsertionConfirmation
+  ) {
+    #expect(
+      SharedResultInsertionConfirmation(
+        insertedText: text, contextBefore: before, contextAfter: after) == expected)
+  }
 }

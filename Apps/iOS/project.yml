@@ -1,4 +1,4 @@
-# iOS 本体アプリの Xcode プロジェクト定義。
+# iOS 本体アプリとカスタムキーボード拡張（Extensions/iOSKeyboard）の Xcode プロジェクト定義。
 # 生成: xcodegen generate --spec Apps/iOS/project.yml
 # 生成した Utter.xcodeproj はコミットしない（.gitignore。project.yml が正）。
 # Team ID・Bundle ID は Config/Local.xcconfig（gitignore 済み）で上書きする（docs/ビルド・配布規約.md）。
@@ -39,6 +39,8 @@ targets:
       - package: UtterSpeech
       - package: UtterPersistence
       - package: UtteriOSKit
+      - target: UtterKeyboard
+        embed: true
     settings:
       base:
         PRODUCT_NAME: utter
@@ -60,13 +62,51 @@ targets:
         # SpeechAnalyzer に要るかは未確認で、Verification/iOSSTTProbe と同じく求めてから使う（不要と分かれば外す）
         INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。音声は保存・送信しません。
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: 話した内容を端末内で文字にするため、音声認識を使います。音声は端末の外に送りません。
-        # App Group は無料署名で使えるかの判定（#56）待ちのため既定では使わない。Config/Local.xcconfig で
-        # UTTER_APP_GROUP_ID と UTTER_IOS_CODE_SIGN_ENTITLEMENTS（UtteriOS-AppGroup.entitlements）を設定したときだけ有効にする
-        CODE_SIGN_ENTITLEMENTS: $(UTTER_IOS_CODE_SIGN_ENTITLEMENTS)
+        # App Group は無料署名で使えるかの判定（#56）待ちのため既定では使わない。キーボード拡張と同じく
+        # Config/Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES と UTTER_APP_GROUP_ID を設定したときだけ有効にする。
+        # 無効なら Entitlement を付けず、Info.plist の App Group ID を空にする（共有結果・本体アプリの状態を書かない）
+        CODE_SIGN_ENTITLEMENTS: $(UTTER_IOS_ENTITLEMENTS_$(UTTER_APP_GROUP_ENABLED))
+        UTTER_IOS_ENTITLEMENTS_YES: UtteriOS-AppGroup.entitlements
+        UTTER_IOS_ENTITLEMENTS_NO: ""
+        UTTER_IOS_APP_GROUP_ID: $(UTTER_IOS_APP_GROUP_ID_$(UTTER_APP_GROUP_ENABLED))
+        UTTER_IOS_APP_GROUP_ID_YES: $(UTTER_APP_GROUP_ID)
+        UTTER_IOS_APP_GROUP_ID_NO: ""
+  # カスタムキーボード（Extensions/iOSKeyboard）。UtterCore と UtterPersistence だけに依存する（iAC-08）。
+  # UtterSpeech・UtterAI をリンクせず、マイク・STT モデル・クラウド認証トークンを持たない
+  UtterKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../../Extensions/iOSKeyboard/Sources
+    dependencies:
+      - package: UtterCore
+      - package: UtterPersistence
+    settings:
+      base:
+        PRODUCT_NAME: UtterKeyboard
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).ios.keyboard
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+        INFOPLIST_FILE: ../../Extensions/iOSKeyboard/Info.plist
+        # App Group（#56 の判定待ち）は Config/Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES のときだけ有効にする。
+        # 無効なら Entitlement を付けず、Info.plist の App Group ID を空・RequestsOpenAccess を false にする
+        CODE_SIGN_ENTITLEMENTS: $(UTTER_KEYBOARD_ENTITLEMENTS_$(UTTER_APP_GROUP_ENABLED))
+        UTTER_KEYBOARD_ENTITLEMENTS_YES: ../../Extensions/iOSKeyboard/Keyboard.entitlements
+        UTTER_KEYBOARD_ENTITLEMENTS_NO: ""
+        UTTER_KEYBOARD_APP_GROUP_ID: $(UTTER_KEYBOARD_APP_GROUP_ID_$(UTTER_APP_GROUP_ENABLED))
+        UTTER_KEYBOARD_APP_GROUP_ID_YES: $(UTTER_APP_GROUP_ID)
+        UTTER_KEYBOARD_APP_GROUP_ID_NO: ""
+        INFOPLIST_PREPROCESS: "YES"
+        INFOPLIST_PREPROCESSOR_DEFINITIONS: UTTER_REQUESTS_OPEN_ACCESS_$(UTTER_APP_GROUP_ENABLED)
 schemes:
   UtteriOS:
     build:
       targets:
         UtteriOS: all
+        UtterKeyboard: all
     run:
       config: Debug

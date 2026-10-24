@@ -26,6 +26,8 @@ public struct KeyboardEnvironment: Hashable, Sendable {
 
 /// App Group の共有コンテナの状態。本体アプリの状態は共有コンテナから読むため、読めるときだけ持つ。
 public enum SharedContainerState: Hashable, Sendable {
+  /// このビルドでは App Group を設定していない（App Group ID が空）。共有結果を読まない
+  case notConfigured
   /// 読めない。共有結果を表示・挿入できず、本体アプリの状態も分からない
   case unavailable
   /// 読める。本体アプリが状態を残していなければ `hostApp` は `nil`
@@ -50,6 +52,24 @@ public struct KeyboardInputField: Hashable, Sendable {
 
   /// 通常の入力欄
   public static let regular = KeyboardInputField(secureTextEntry: .off, phoneNumber: .off)
+
+  /// 共有結果の挿入と本体アプリへの移動を提示しない理由。空なら制限のない入力欄。
+  ///
+  /// 拡張は共有コンテナを読む前にこれで確かめ、空でなければ共有結果を読まない（`KeyboardAvailability` と同じ判定）。
+  public var restrictions: Set<KeyboardFieldRestriction> {
+    var restrictions: Set<KeyboardFieldRestriction> = []
+    switch secureTextEntry {
+    case .on: restrictions.insert(.secureTextEntry)
+    case .unknown: restrictions.insert(.undetermined)
+    case .off: break
+    }
+    switch phoneNumber {
+    case .on: restrictions.insert(.phoneNumber)
+    case .unknown: restrictions.insert(.undetermined)
+    case .off: break
+    }
+    return restrictions
+  }
 }
 
 /// ネットワークの状態。

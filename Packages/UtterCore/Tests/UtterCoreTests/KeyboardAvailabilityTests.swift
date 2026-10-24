@@ -111,6 +111,35 @@ struct KeyboardAvailabilityTests {
     #expect(availability.notices.map(\.remedies) == [[.reinstallWithValidSigning]])
   }
 
+  @Test(
+    "iAC-07: App Group を設定していないビルドでは共有結果を提示せず、フルアクセス・署名ではなく共有が未設定と案内する",
+    arguments: [true, false])
+  func sharingNotConfigured(_ hasFullAccess: Bool) {
+    let availability = Self.availability(
+      Self.environment(
+        hasFullAccess: hasFullAccess, sharedContainer: .notConfigured, network: .offline))
+
+    #expect(availability.actions == [.typing, .openHostApp])
+    #expect(availability.notices == [.sharingNotConfigured])
+    #expect(availability.notices.map(\.remedies) == [[.rebuildWithAppGroup]])
+  }
+
+  @Test("iOS-09, iAC-06: App Group を設定していなくても、制限のある入力欄の案内を優先する")
+  func restrictedFieldOverridesNotConfigured() {
+    let availability = Self.availability(
+      Self.environment(
+        sharedContainer: .notConfigured,
+        inputField: KeyboardInputField(secureTextEntry: .off, phoneNumber: .on)))
+
+    #expect(availability.actions == [.typing])
+    #expect(availability.notices == [.restrictedInputField([.phoneNumber])])
+  }
+
+  @Test("iOS-09, iAC-06: 入力欄の制限の理由は、共有コンテナを読む前の確認と案内で同じになる", arguments: fieldCases)
+  func fieldRestrictions(_ field: KeyboardInputField, _ expected: Set<KeyboardFieldRestriction>) {
+    #expect(field.restrictions == expected)
+  }
+
   @Test("iAC-07: 共有結果を読めなければ、オフラインでも本体アプリの案内を出さない")
   func unavailableContainerShowsOnlyContainerNotice() {
     let availability = Self.availability(
@@ -216,6 +245,18 @@ struct KeyboardAvailabilityTests {
 
     #expect(availability.actions == [.typing, .sharedResult, .openHostApp])
     #expect(availability.notices == (used ? [.permissionDenied(.microphone)] : []))
+  }
+
+  @Test("iAC-07: 本体アプリの状態は App Group に残すため、符号化して戻しても同じ値になる")
+  func hostAppStatusRoundTrip() throws {
+    let host = Self.host(
+      deniedPermissions: [.microphone, .speechRecognition], speechModel: .notDownloaded,
+      usesCloudRefinement: false)
+
+    let decoded = try JSONDecoder().decode(
+      HostAppStatus.self, from: JSONEncoder().encode(host))
+
+    #expect(decoded == host)
   }
 
   @Test("iAC-07: 鮮度の上限の既定値は1時間")

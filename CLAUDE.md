@@ -36,7 +36,7 @@ Loopを使う場合は [docs/loop-engineering.md](docs/loop-engineering.md) の�
 
 ### 現在のフェーズ
 
-Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐するだけの macOS アプリターゲット（`Apps/macOS`）と、iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き。録音・Local Basic 整形・共有結果の保存と救済画面まで。STT は未設定、App Group は Local.xcconfig で設定したときだけ）がある。macOS の録音・ホットキー・HUD・挿入と STT は未結線で、キーボード拡張・STT Worker のターゲットはまだ存在しない。
+Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐するだけの macOS アプリターゲット（`Apps/macOS`）と、iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き。録音・整形・共有結果の保存と救済画面まで。STT は未設定）と、iOS カスタムキーボード拡張（`Extensions/iOSKeyboard`。文字入力と共有結果のプレビュー・挿入）がある。iOS の App Group は #56 判定待ちで、Local.xcconfig で設定したときだけ有効。macOS の録音・ホットキー・HUD・挿入と STT は未結線で、STT Worker のターゲットはまだ存在しない。
 検証結果で要件定義11章・14章の判定基準に従って方針が変わるため、検証前の前提でコードを広げない。
 
 ### アーキテクチャ

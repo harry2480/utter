@@ -4,14 +4,15 @@
 // Xcode > Settings > Accounts で確認できる Team ID
 DEVELOPMENT_TEAM = XXXXXXXXXX
 
-// 他人と重ならない逆ドメイン。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios になる
+// 他人と重ならない逆ドメイン。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios、キーボード拡張は <接頭辞>.ios.keyboard になる
 // PRODUCT_BUNDLE_IDENTIFIER は project.yml のターゲット設定が優先されるため、ここには書かず接頭辞を変える
 UTTER_BUNDLE_ID_PREFIX = com.example.yourname.utter
 
-// iOS の App Group を使う場合だけ、次の2行のコメントを外して自分の値にする（#56 の判定待ち。無料署名で使えるかは未確定）。
+// App Group（#56 の判定待ち。無料署名で使えるかは未確定）。使うときだけ次の2行のコメントを外し、
+// "group." で始まる自分の App Group ID にする。本体アプリとキーボード拡張の両方に同じ App Group が付く。
 // 設定しなければ、共有結果は iOS アプリの中にだけ保存し、キーボードとは共有しない
+// UTTER_APP_GROUP_ENABLED = YES
 // UTTER_APP_GROUP_ID = group.com.example.yourname.utter
-// UTTER_IOS_CODE_SIGN_ENTITLEMENTS = UtteriOS-AppGroup.entitlements
 
 // iOS で SpeechAnalyzer による音声認識を試す場合だけ、次の行のコメントを外す（#54 の判定待ち。既定は未設定で文字にしない）。
 // モデルはアプリの「音声認識の設定」の「モデルを取得」で取得する

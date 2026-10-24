@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- 自動生成する Info.plist（GENERATE_INFOPLIST_FILE）に足す独自のキーだけを置く。
-     UtterAppGroupIdentifier: Config/Local.xcconfig の UTTER_APP_GROUP_ID。未設定なら空で、結果はアプリ内にだけ保存する（#56）
+     UtterAppGroupIdentifier: Config/Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES のときの UTTER_APP_GROUP_ID。無効なら空で、結果はアプリ内にだけ保存し、本体アプリの状態も書かない（#56）
      UtterSpeechEngine: Config/Local.xcconfig の UTTER_IOS_STT_ENGINE。未設定なら空で、音声認識は使わない（#54） -->
 <plist version="1.0">
 <dict>
 	<key>UtterAppGroupIdentifier</key>
-	<string>$(UTTER_APP_GROUP_ID)</string>
+	<string>$(UTTER_IOS_APP_GROUP_ID)</string>
 	<key>UtterSpeechEngine</key>
 	<string>$(UTTER_IOS_STT_ENGINE)</string>
 </dict>

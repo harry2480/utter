@@ -25,7 +25,7 @@ public struct KeyboardAvailability: Hashable, Sendable {
     at now: Date,
     hostAppStatusMaximumAge: Duration = KeyboardAvailability.defaultHostAppStatusMaximumAge
   ) {
-    let restrictions = Self.restrictions(of: environment.inputField)
+    let restrictions = environment.inputField.restrictions
     guard restrictions.isEmpty else {
       actions = [.typing]
       notices = [.restrictedInputField(restrictions)]
@@ -43,24 +43,12 @@ public struct KeyboardAvailability: Hashable, Sendable {
     case .unavailable:
       // フルアクセスがあっても読めないなら、App Group の Entitlement・署名の不備
       notices.append(environment.hasFullAccess ? .sharedContainerUnavailable : .fullAccessRequired)
+    case .notConfigured:
+      // フルアクセスや署名の問題ではないため、それらの案内は出さない
+      notices.append(.sharingNotConfigured)
     }
     self.actions = actions
     self.notices = notices
-  }
-
-  private static func restrictions(of field: KeyboardInputField) -> Set<KeyboardFieldRestriction> {
-    var restrictions: Set<KeyboardFieldRestriction> = []
-    switch field.secureTextEntry {
-    case .on: restrictions.insert(.secureTextEntry)
-    case .unknown: restrictions.insert(.undetermined)
-    case .off: break
-    }
-    switch field.phoneNumber {
-    case .on: restrictions.insert(.phoneNumber)
-    case .unknown: restrictions.insert(.undetermined)
-    case .off: break
-    }
-    return restrictions
   }
 
   private static func notices(
@@ -107,6 +95,8 @@ public enum KeyboardNotice: Hashable, Sendable {
   case fullAccessRequired
   /// フルアクセスがあっても共有結果を読めない（App Group の Entitlement・署名の不備）
   case sharedContainerUnavailable
+  /// このビルドでは本体アプリとの共有（App Group）を設定していないため、共有結果を表示しない
+  case sharingNotConfigured
   /// 本体アプリの権限が拒否され、録音・認識できない
   case permissionDenied(HostAppPermission)
   /// STT モデルが未取得で、認識できない
@@ -122,6 +112,7 @@ public enum KeyboardNotice: Hashable, Sendable {
     case .restrictedInputField: [.switchToSystemKeyboard]
     case .fullAccessRequired: [.enableFullAccess]
     case .sharedContainerUnavailable: [.reinstallWithValidSigning]
+    case .sharingNotConfigured: [.rebuildWithAppGroup]
     case .permissionDenied(let permission): [.allowPermission(permission)]
     case .speechModelNotDownloaded: [.downloadSpeechModel]
     case .speechModelNotDownloadedOffline: [.connectToNetwork, .downloadSpeechModel]
@@ -138,6 +129,8 @@ public enum KeyboardRemedy: Hashable, Sendable {
   case enableFullAccess
   /// 本体アプリとキーボードを App Group を含む正しい署名で入れ直す
   case reinstallWithValidSigning
+  /// App Group ID を設定してビルドし直す（`Config/Local.xcconfig`）
+  case rebuildWithAppGroup
   /// 設定アプリで本体アプリに権限を許可する
   case allowPermission(HostAppPermission)
   /// 本体アプリで STT モデルを取得する
