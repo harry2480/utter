@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UtterAI
 import UtterCore
 import UtterPersistence
 
@@ -8,9 +9,13 @@ import UtterPersistence
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
 /// 整形の予算判定を結線するときは、`CloudCostBridge.makeBudgetGuard` に同じデータベースの `MonthlyUsageStore` を渡す（AI-05）。
+/// Claude 整形を結線するときは、同じ `claudeAPIKeyStore` を `ClaudeProvider(apiKeyStore:)` に渡す（AC-12）。
 @main
 struct UtterApp: App {
+  private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
+
   @State private var composition = AppComposition()
+  @State private var claudeAPIKeySettings = APIKeySettingsModel(store: Self.claudeAPIKeyStore)
   @State private var settings = SettingsModel(
     store: AppSettingsStore(defaults: .standard),
     openUsageStore: {
@@ -41,7 +46,7 @@ struct UtterApp: App {
     }
     // 設定画面は1つの Settings シーンにまとめ、項目はタブで分ける（API キーなどの画面もタブとして足す）
     Settings {
-      SettingsView(model: settings)
+      SettingsView(model: settings, apiKeyModel: claudeAPIKeySettings)
     }
   }
 

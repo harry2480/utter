@@ -9,22 +9,35 @@ import UtterPersistence
 /// 入力はまとめて「保存」で検証・保存する（数値・通貨・サイトなどの入力途中の値を保存しない）。
 struct SettingsView: View {
   @Bindable var model: SettingsModel
+  /// 「API キー」タブの状態。キーは Keychain に即時に保存し、下の「保存」とは別に扱う（AC-12）
+  let apiKeyModel: APIKeySettingsModel
+  @State private var selection: SettingsTab = .recording
 
   var body: some View {
     VStack(spacing: 0) {
-      TabView {
+      TabView(selection: $selection) {
         RecordingSettingsTab(model: model)
           .tabItem { Label("録音", systemImage: "mic") }
+          .tag(SettingsTab.recording)
         RefinementSettingsTab(model: model)
           .tabItem { Label("整形", systemImage: "text.badge.checkmark") }
+          .tag(SettingsTab.refinement)
         CostSettingsTab(model: model)
           .tabItem { Label("費用", systemImage: "yensign.circle") }
+          .tag(SettingsTab.cost)
         StyleSettingsTab(model: model)
           .tabItem { Label("スタイル", systemImage: "paintbrush") }
+          .tag(SettingsTab.style)
+        ClaudeAPIKeySettingsView(model: apiKeyModel)
+          .tabItem { Label("API キー", systemImage: "key") }
+          .tag(SettingsTab.apiKey)
       }
-      Divider()
-      SettingsFooter(model: model)
-        .padding()
+      // API キーのタブは独自の保存・削除を持つため、設定の「保存」「元に戻す」を出さない
+      if selection != .apiKey {
+        Divider()
+        SettingsFooter(model: model)
+          .padding()
+      }
     }
     .frame(minWidth: 560, minHeight: 480)
     .onAppear {
@@ -32,6 +45,14 @@ struct SettingsView: View {
       Task { await model.refreshCost() }
     }
   }
+}
+
+private enum SettingsTab: Hashable {
+  case recording
+  case refinement
+  case cost
+  case style
+  case apiKey
 }
 
 private struct SettingsFooter: View {
