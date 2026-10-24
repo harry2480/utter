@@ -163,12 +163,22 @@ struct MonthlyUsageLedgerRestoreTests {
       try MonthlyUsageLedger(currency: yen, spentByMonth: [:]) == MonthlyUsageLedger(currency: yen))
   }
 
-  @Test("AI-05: 加算後の累計が数値でなくなる記録は拒否し、累計を変えない")
+  @Test("AI-05: 非数の推定費用は記録せず、累計を変えない")
   func rejectsRecordThatMakesTotalNaN() throws {
     var ledger = try MonthlyUsageLedger(currency: yen, spentByMonth: [october: 5])
 
     #expect(throws: PricingError.invalidAmount) {
       try ledger.record(EstimatedCost(amount: .nan, currency: self.yen), in: self.october)
+    }
+    #expect(ledger.spent(in: october) == 5)
+  }
+
+  @Test("AI-05: 負の推定費用は記録せず、累計を減らさない")
+  func rejectsNegativeRecord() throws {
+    var ledger = try MonthlyUsageLedger(currency: yen, spentByMonth: [october: 5])
+
+    #expect(throws: PricingError.negativeAmount) {
+      try ledger.record(EstimatedCost(amount: -1, currency: self.yen), in: self.october)
     }
     #expect(ledger.spent(in: october) == 5)
   }

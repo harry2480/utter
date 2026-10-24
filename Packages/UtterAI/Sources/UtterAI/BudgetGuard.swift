@@ -53,7 +53,7 @@ public actor BudgetGuard {
 
   /// 送信後に予約を確定し、推定費用を台帳に記録する。
   ///
-  /// 実際の使用量がわからない、または推定できない場合は、課金されている可能性があるため予約した見込み費用を記録する。
+  /// 実際の使用量がわからない、または推定できない（数値で表せない額を含む）場合は、課金されている可能性があるため予約した見込み費用を記録する。
   /// 確定済み・取り消し済みの予約や、別の `BudgetGuard` の予約は何もしない。
   ///
   /// - Returns: 台帳に記録した推定費用と計上した月。記録しなかった場合は `nil`。記録した場合は `onRecord` にも同じ値を渡す
@@ -66,7 +66,8 @@ public actor BudgetGuard {
     }
     let amount: Decimal
     if let actualUsage,
-      let cost = try? estimator.estimate(model: reservation.model, usage: actualUsage)
+      let cost = try? estimator.estimate(model: reservation.model, usage: actualUsage),
+      !cost.amount.isNaN
     {
       amount = cost.amount
     } else {

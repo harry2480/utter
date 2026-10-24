@@ -172,4 +172,27 @@ struct BudgetGuardTests {
     #expect(await budgetGuard.ledger.spent(in: october) == 100)
     #expect(await budgetGuard.ledger.spent(in: september) == 100)
   }
+
+  @Test("AI-05: 実際の使用量の推定費用が数値で表せなければ、予約した見込み費用を記録する")
+  func settlesWithReservedAmountWhenActualCostOverflows() async throws {
+    let budgetGuard = BudgetGuard(
+      budget: try MonthlyBudget(limitAmount: Decimal(100), currency: yen),
+      estimator: CostEstimator(
+        priceTable: try PriceTable(
+          currency: yen, updatedOn: try CivilDate(year: 2026, month: 10, day: 1),
+          prices: [
+            try ModelPrice(
+              model: "m", inputPerMillionTokens: Decimal(1_000_000),
+              outputPerMillionTokens: Decimal.greatestFiniteMagnitude)
+          ])),
+      ledger: MonthlyUsageLedger(currency: yen))
+    let reservation = try await budgetGuard.reserve(
+      model: "m", expectedUsage: usage(30), in: october)
+
+    let recorded = await budgetGuard.settle(
+      reservation, actualUsage: TokenUsage(inputTokens: 0, outputTokens: 2_000_000))
+
+    #expect(recorded?.cost.amount == 30)
+    #expect(await budgetGuard.ledger.spent(in: october) == 30)
+  }
 }
