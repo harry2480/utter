@@ -23,9 +23,11 @@ packages:
     path: ../../Packages/UtterCore
   UtterSpeech:
     path: ../../Packages/UtterSpeech
+  UtterAI:
+    path: ../../Packages/UtterAI
   UtterPersistence:
     path: ../../Packages/UtterPersistence
-  # 録音セッションの進行・割り込みの変換・結果の保存先の選択（OS の API を使わずにテストする部分）
+  # 録音セッションの進行・割り込みの変換・結果の保存先の選択・クラウド整形の結線（OS の API を使わずにテストする部分）
   UtteriOSKit:
     path: UtteriOSKit
 targets:
@@ -37,6 +39,7 @@ targets:
     dependencies:
       - package: UtterCore
       - package: UtterSpeech
+      - package: UtterAI
       - package: UtterPersistence
       - package: UtteriOSKit
       - target: UtterKeyboard

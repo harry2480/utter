@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import UtterAI
+import UtterPersistence
 import UtterSpeech
 import UtteriOSKit
 
@@ -9,13 +11,16 @@ import UtteriOSKit
 /// - 音声認識は iOS の STT エンジンの判定（#54）まで `UnconfiguredSpeechRecognizer`（録音のみ・認識しない）。
 ///   Config/Local.xcconfig の `UTTER_IOS_STT_ENGINE`（Debug は起動引数 `-UtterSpeechEngine`）で `speechAnalyzer` を
 ///   明示したときだけ SpeechAnalyzer を使い、そのモデルは設定画面の操作でだけ取得する（PERM-03）
-/// - 整形は Local Basic だけ。クラウド整形と認証画面は別の PR で結線する
+/// - 整形は Local Basic。処理系にクラウド AI を選び、Claude への送信に同意し、API キー（本体アプリの Keychain）と月次予算・単価表がそろったときだけ
+///   Claude で整形する（iOS-10）。同意・設定は `UserDefaults.standard`（App Group ではない）に保存する
 /// - 共有結果は App Group ID（Config/Local.xcconfig）を設定したときだけ App Group に保存する（#56）
 @main
 struct UtterApp: App {
   @State private var model: RecordingSessionModel
   @State private var speechModel: SpeechModelSettingsModel?
   private let speechEngine: SpeechEngineSelection
+  @State private var consentSettings: ConsentSettingsModel
+  @State private var claudeAPIKeySettings: APIKeySettingsModel
   private let signals: RecordingSignalObserver
 
   init() {
@@ -24,20 +29,38 @@ struct UtterApp: App {
       appGroupIdentifier: Bundle.main.object(forInfoDictionaryKey: "UtterAppGroupIdentifier")
         as? String,
       appLocalDirectory: Self.appLocalResultsDirectory())
+    // 同意の画面とクラウド整形で同じ保存先を使い、撤回を次の送信から反映する（AC-06）
+    let settingsStore = AppSettingsStore(defaults: .standard)
+    let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
+    let databaseURL = Self.databaseURL()
+    let cloudRefinement = CloudRefinement(
+      settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore,
+      // データベースは最初のクラウド整形のときに、メインスレッドの外で開く
+      budgetSource: UsageStoreBudgetSource(
+        makeStore: { MonthlyUsageStore(database: try UtterDatabase.open(at: databaseURL)) },
+        pendingReservationURL: URL.applicationSupportDirectory.appending(
+          path: "PendingCloudRefinementCost.json")))
     let model = RecordingSessionModel(
       recorder: AudioEngineRecorder(
         requestsSpeechRecognitionPermission: speechEngine.requestsSpeechRecognitionPermission),
-      recognizer: Self.makeRecognizer(speechEngine), storage: storage, copier: PasteboardCopier())
+      recognizer: Self.makeRecognizer(speechEngine), cloudRefinement: cloudRefinement,
+      storage: storage, copier: PasteboardCopier())
     _model = State(initialValue: model)
     _speechModel = State(
       initialValue: speechEngine.makeModelAssets().map { SpeechModelSettingsModel(assets: $0) })
     self.speechEngine = speechEngine
+    _consentSettings = State(
+      initialValue: ConsentSettingsModel(
+        controller: ConsentSettingsController(store: settingsStore)))
+    _claudeAPIKeySettings = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
     signals = RecordingSignalObserver(model: model)
   }
 
   var body: some Scene {
     WindowGroup {
-      RecordingView(model: model, speechEngine: speechEngine, speechModel: speechModel)
+      RecordingView(
+        model: model, speechEngine: speechEngine, speechModel: speechModel,
+        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings)
     }
   }
 
@@ -50,6 +73,11 @@ struct UtterApp: App {
     values.isExcludedFromBackup = true
     try? directory.setResourceValues(values)
     return directory
+  }
+
+  /// 辞書・使用量（推定費用の累計）のデータベース。アプリ内にだけ置き、キーボードとは共有しない
+  private static func databaseURL() -> URL {
+    URL.applicationSupportDirectory.appending(path: "utter.sqlite")
   }
 
   /// STT エンジンの選択。既定は未設定（#54 の判定待ち）

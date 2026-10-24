@@ -1,7 +1,8 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
-// iOS 本体アプリのうち、OS の API を使わずにテストできる部分（録音セッションの進行・割り込みの変換・結果の保存先の選択）。
+// iOS 本体アプリのうち、OS の API を使わずにテストできる部分（録音セッションの進行・割り込みの変換・結果の保存先の選択・
+// 同意・API キー・予算によるクラウド整形とローカル整形の振り分け）。
 // アプリ（Apps/iOS/Sources）は AVAudioSession / AVAudioEngine / UIKit のアダプターと画面だけを持ち、これをリンクする。
 // macOS でも `swift test` で検査できるよう macOS も宣言する（アプリとしては iOS 専用）。
 let package = Package(
