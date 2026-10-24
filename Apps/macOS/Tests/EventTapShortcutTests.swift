@@ -38,7 +38,8 @@ struct EventTapShortcutTests {
     #expect(harness.controller.apply(target) == .active(target))
     #expect(harness.registrar.registered.isEmpty)
     let tap = try #require(harness.taps.live(.listen))
-    #expect(tap.events == [.flagsChanged, .keyDown])
+    // Toggle は他のキー・マウス操作を挟んだかを見る
+    #expect(tap.events == [.flagsChanged, .keyDown, .pointer])
     #expect(tap.isEnabled)
 
     // 監視ではイベントを止めない
@@ -53,6 +54,8 @@ struct EventTapShortcutTests {
     harness.permissions.granted = [.inputMonitoring]
     harness.controller.apply(modifierSetting(.function, .pushToTalk))
     let tap = try #require(harness.taps.live(.listen))
+    // 押下で渡すため、他のキー入力は見ない
+    #expect(tap.events == [.flagsChanged])
     tap.send(flagsChanged(.function, down: true))
     #expect(harness.commands == [.startRecording])
     tap.send(flagsChanged(.function, down: false))
@@ -128,6 +131,22 @@ struct EventTapShortcutTests {
     // 無効化中に取りこぼした解放の後の押下は、録音中の押下として停止する（ShortcutInterpreter の回復）
     tap.send(flagsChanged(.function, down: true))
     #expect(harness.commands == [.startRecording, .stopRecording])
+  }
+
+  @Test("PERM-02: OS がタップを無効化したときに入力監視の取り消しを検出したら、タップを外す")
+  func modifierTapDisabledAfterRevoke() throws {
+    let harness = Harness(
+      capabilities: ShortcutCapabilities(supportsModifierOnly: true, supportsEscapeCapture: false))
+    harness.permissions.granted = [.inputMonitoring]
+    let target = modifierSetting(.function)
+    harness.controller.apply(target)
+    let tap = try #require(harness.taps.live(.listen))
+    harness.permissions.granted = []
+    tap.disableByOS()
+    #expect(tap.isInvalidated)
+    #expect(
+      harness.controller.status
+        == .unavailable(target, .eventTapUnavailable(.permissionMissing(.inputMonitoring))))
   }
 
   @Test("REC-02: 修飾キー単独の Toggle は、その修飾キーを含むシステムのショートカットと重なっても登録する")
@@ -282,6 +301,39 @@ struct EventTapShortcutTests {
     harness.phase = .idle
     tap.disableByOS()
     #expect(!tap.isEnabled)
+  }
+
+  @Test("REC-01: Esc の解放を取りこぼしたまま待機に戻っても、次の Esc で回復してタップを無効にする")
+  func escapeLostKeyUpDisablesTapWhenIdle() throws {
+    let harness = Harness(capabilities: allEnabled)
+    harness.permissions.granted = [.accessibility]
+    harness.controller.apply(try setting("ctrl+option+k"))
+    let tap = try #require(harness.taps.live(.filter))
+    harness.registrar.send(.pressed)
+    #expect(!tap.send(escape()))
+    // 解放が届かず、止める状態のまま待機中
+    #expect(tap.isEnabled)
+    #expect(tap.send(escape()))
+    #expect(!tap.isEnabled)
+    #expect(harness.commands == [.startRecording, .cancelSession])
+  }
+
+  @Test("PERM-02: OS が Esc のタップを無効化したときにアクセシビリティの取り消しを検出したら、Esc 捕捉だけを外す")
+  func escapeTapDisabledAfterRevoke() throws {
+    let harness = Harness(capabilities: allEnabled)
+    harness.permissions.granted = [.accessibility]
+    let target = try setting("ctrl+option+k")
+    harness.controller.apply(target)
+    let tap = try #require(harness.taps.live(.filter))
+    harness.registrar.send(.pressed)
+    harness.permissions.granted = []
+    tap.disableByOS()
+    #expect(tap.isInvalidated)
+    #expect(harness.controller.escapeStatus == .unavailable(.permissionMissing(.accessibility)))
+    #expect(harness.controller.status == .active(target))
+    // ショートカットは使い続けられる
+    harness.registrar.send(.pressed)
+    #expect(harness.commands == [.startRecording, .stopRecording])
   }
 
   @Test("REC-01: ショートカットを登録できなければ Esc 捕捉も使わない。割当を外すとタップも外す")

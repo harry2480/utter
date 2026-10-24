@@ -206,10 +206,12 @@ final class GlobalShortcutController {
     guard permissions.isGranted(permission) else {
       return .unavailable(setting, .eventTapUnavailable(.permissionMissing(permission)))
     }
+    let detector = ModifierOnlyDetector(
+      key: key, firing: ModifierOnlyDetector.Firing(mode: setting.mode))
     guard
       let tap = tapFactory.makeTap(
         mode: .listen,
-        events: [.flagsChanged, .keyDown],
+        events: detector.observedEvents,
         enabled: true,
         handler: { [weak self] event in
           self?.receiveModifierEvent(event)
@@ -222,8 +224,7 @@ final class GlobalShortcutController {
       return .unavailable(setting, .eventTapUnavailable(.tapCreationFailed))
     }
     modifierTap = tap
-    detector = ModifierOnlyDetector(
-      key: key, firing: ModifierOnlyDetector.Firing(mode: setting.mode))
+    self.detector = detector
     return .active(setting)
   }
 
@@ -307,17 +308,17 @@ final class GlobalShortcutController {
     guard var filter = escapeFilter else { return true }
     let verdict = filter.handle(event, capturing: capturesEscapeNow)
     escapeFilter = filter
+    // 解放の取りこぼしからの回復（.pass）でもフィルタの状態が変わるため、判定によらずタップの有効・無効を更新する
+    defer { updateEscapeTap() }
     switch verdict {
     case .pass:
       return true
     case .swallow:
-      updateEscapeTap()
       return false
     case .cancel:
       if case .consumed(let command?) = interpreter.handle(.escapePressed, phase: currentPhase()) {
         perform(command)
       }
-      updateEscapeTap()
       return false
     }
   }

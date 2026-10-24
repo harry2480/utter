@@ -10,8 +10,8 @@ struct ModifierOnlyDetector: Hashable, Sendable {
   enum Firing: Hashable, Sendable {
     /// 押下で押下、解放で解放として渡す（Push-to-talk）
     case onPress
-    /// 他のキーを挟まずに離したときだけ、押下＋解放として渡す（Toggle）。
-    /// 右 Option での記号入力や Fn+F キーなど、修飾キーとしての通常の使い方では反応しない
+    /// 他のキー・マウス操作を挟まずに離したときだけ、押下＋解放として渡す（Toggle）。
+    /// 右 Option での記号入力や Fn+F キー、⌘クリックなど、修飾キーとしての通常の使い方では反応しない
     case onCleanRelease
 
     init(mode: ShortcutTriggerMode) {
@@ -21,6 +21,11 @@ struct ModifierOnlyDetector: Hashable, Sendable {
 
   let key: ModifierOnlyKey
   let firing: Firing
+
+  /// タップで受け取るイベント。押下で渡す Push-to-talk は、他のキー入力を見る必要がないため flagsChanged だけにする
+  var observedEvents: Set<KeyTapEventKind> {
+    firing == .onPress ? [.flagsChanged] : [.flagsChanged, .keyDown, .pointer]
+  }
   private(set) var isDown = false
   /// 今回の押下をショートカットとして扱っているか
   private var accepted = false
@@ -34,7 +39,8 @@ struct ModifierOnlyDetector: Hashable, Sendable {
   /// イベントを判定する。ショートカットとして渡すものがなければ空。
   mutating func handle(_ event: KeyTapEvent) -> [HotKeyPhase] {
     switch event.kind {
-    case .keyDown:
+    case .keyDown, .pointer:
+      // 押下中の通常のキー・クリック・スクロール（⌘クリック、⌥ドラッグ等）は修飾キーとしての使用
       if isDown { otherKeyDuringHold = true }
       return []
     case .keyUp:

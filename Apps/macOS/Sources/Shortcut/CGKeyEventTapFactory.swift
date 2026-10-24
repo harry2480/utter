@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 
@@ -46,7 +47,7 @@ final class CGKeyEventTap: KeyEventTap {
     -> Bool
   {
     let mask = events.reduce(CGEventMask(0)) { mask, kind in
-      mask | (CGEventMask(1) << Self.eventType(for: kind).rawValue)
+      Self.eventTypes(for: kind).reduce(mask) { $0 | (CGEventMask(1) << $1.rawValue) }
     }
     guard
       let port = CGEvent.tapCreate(
@@ -105,15 +106,17 @@ final class CGKeyEventTap: KeyEventTap {
     case .keyDown: .keyDown
     case .keyUp: .keyUp
     case .flagsChanged: .flagsChanged
+    case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel: .pointer
     default: nil
     }
   }
 
-  private static func eventType(for kind: KeyTapEventKind) -> CGEventType {
+  private static func eventTypes(for kind: KeyTapEventKind) -> [CGEventType] {
     switch kind {
-    case .keyDown: .keyDown
-    case .keyUp: .keyUp
-    case .flagsChanged: .flagsChanged
+    case .keyDown: [.keyDown]
+    case .keyUp: [.keyUp]
+    case .flagsChanged: [.flagsChanged]
+    case .pointer: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
     }
   }
 }
@@ -127,12 +130,15 @@ private func keyEventTapCallback(
 ) -> Unmanaged<CGEvent>? {
   guard let userInfo else { return Unmanaged.passUnretained(event) }
   let tapEvent = CGKeyEventTap.kind(for: type).map { kind in
-    KeyTapEvent(
-      kind: kind,
-      keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
-      flags: event.flags.rawValue,
-      isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-    )
+    // マウス操作は種類だけを渡す（位置・キーコードは読まない）
+    kind == .pointer
+      ? KeyTapEvent(kind: .pointer, keyCode: -1)
+      : KeyTapEvent(
+        kind: kind,
+        keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
+        flags: event.flags.rawValue,
+        isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+      )
   }
   // ポインタは Sendable ではないため、アドレスの値として MainActor に渡す
   let address = UInt(bitPattern: userInfo)
@@ -164,11 +170,24 @@ final class SystemEventTapPermissions: EventTapPermissionChecking {
   func request(_ permission: EventTapPermission) {
     switch permission {
     case .inputMonitoring:
-      _ = CGRequestListenEventAccess()
+      // ダイアログを出すのは初回だけ。拒否済みなら何も出ないため、システム設定の該当画面を開く
+      if !CGRequestListenEventAccess() {
+        openSettings("Privacy_ListenEvent")
+      }
     case .accessibility:
       // kAXTrustedCheckOptionPrompt の実体の文字列。C のグローバル変数は Swift 6 で並行安全でないため直接使わない
       let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-      _ = AXIsProcessTrustedWithOptions(options)
+      if !AXIsProcessTrustedWithOptions(options) {
+        openSettings("Privacy_Accessibility")
+      }
     }
+  }
+
+  private func openSettings(_ anchor: String) {
+    guard
+      let url = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")
+    else { return }
+    NSWorkspace.shared.open(url)
   }
 }

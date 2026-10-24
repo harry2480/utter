@@ -43,7 +43,7 @@ struct EscapeCaptureFilter: Hashable, Sendable {
   mutating func handle(_ event: KeyTapEvent, capturing: Bool) -> Verdict {
     guard event.keyCode == kVK_Escape else { return .pass }
     switch event.kind {
-    case .flagsChanged:
+    case .flagsChanged, .pointer:
       return .pass
     case .keyUp:
       guard isSwallowingUntilKeyUp else { return .pass }

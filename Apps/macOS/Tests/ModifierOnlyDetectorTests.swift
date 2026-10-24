@@ -57,6 +57,19 @@ struct ModifierOnlyDetectorTests {
     #expect(detector.handle(flagsChanged(.rightOption, down: false)) == [.pressed, .released])
   }
 
+  @Test("REC-02: Toggle で押下中にクリック・スクロールがあれば（⌘クリック等）渡さない")
+  func toggleIgnoresPointerUse() {
+    var detector = ModifierOnlyDetector(key: .rightCommand, firing: .onCleanRelease)
+    #expect(detector.observedEvents == [.flagsChanged, .keyDown, .pointer])
+    _ = detector.handle(flagsChanged(.rightCommand, down: true))
+    #expect(detector.handle(KeyTapEvent(kind: .pointer, keyCode: -1)).isEmpty)
+    #expect(detector.handle(flagsChanged(.rightCommand, down: false)).isEmpty)
+    // 押下していないときのクリックは影響しない
+    _ = detector.handle(KeyTapEvent(kind: .pointer, keyCode: -1))
+    _ = detector.handle(flagsChanged(.rightCommand, down: true))
+    #expect(detector.handle(flagsChanged(.rightCommand, down: false)) == [.pressed, .released])
+  }
+
   @Test(
     "REC-02: 押下時に他の修飾キーが押されていれば、別のショートカットの途中とみなして渡さない",
     arguments: [ModifierOnlyDetector.Firing.onPress, .onCleanRelease])

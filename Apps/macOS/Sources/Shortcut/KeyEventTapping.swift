@@ -98,4 +98,6 @@ enum KeyTapEventKind: Hashable, Sendable {
   case keyDown
   case keyUp
   case flagsChanged
+  /// マウスボタンの押下・スクロール（修飾キーを押しながらのクリック等の判定にだけ使う。位置は持たない）
+  case pointer
 }
