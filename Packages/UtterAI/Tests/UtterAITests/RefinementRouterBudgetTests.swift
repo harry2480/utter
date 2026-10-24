@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UtterCore
 
 @testable import UtterAI
 
@@ -41,7 +42,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: true, budget: budget(budgetGuard))
+      request, consent: .refinementGranted(), budget: budget(budgetGuard))
 
     #expect(outcome.source == .cloud)
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
@@ -54,7 +55,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: true, budget: budget(budgetGuard, expected: 30))
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30))
 
     #expect(await stub.callCount == 0)
     #expect(outcome.fallbackReason == .providerFailed(.budgetExceeded))
@@ -68,7 +69,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: false, budget: budget(budgetGuard, expected: 30))
+      request, consent: ConsentState(), budget: budget(budgetGuard, expected: 30))
 
     #expect(await stub.callCount == 0)
     #expect(outcome.fallbackReason == .consentNotGranted)
@@ -86,7 +87,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .fail(error)))
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: true, budget: budget(budgetGuard, expected: 30))
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30))
 
     #expect(outcome.fallbackReason == .providerFailed(error))
     #expect(await budgetGuard.ledger.spent(in: october) == 70)
@@ -103,7 +104,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .fail(error)))
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: true, budget: budget(budgetGuard, expected: 30))
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30))
 
     #expect(outcome.fallbackReason == .providerFailed(error))
     #expect(await budgetGuard.ledger.spent(in: october) == 40)
@@ -117,7 +118,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: true, budget: budget(budgetGuard))
+      request, consent: .refinementGranted(), budget: budget(budgetGuard))
 
     #expect(outcome.fallbackReason != nil)
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
@@ -129,7 +130,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .echo))
 
     let outcome = try await router.refine(
-      request, cloudConsentGranted: true, budget: budget(budgetGuard, expected: 30))
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30))
 
     #expect(outcome.source == .cloud)
     #expect(await budgetGuard.ledger.spent(in: october) == 40)
@@ -145,7 +146,7 @@ struct RefinementRouterBudgetTests {
     let request = request
     let budget = budget(budgetGuard, expected: 30)
     let task = Task {
-      try await router.refine(request, cloudConsentGranted: true, budget: budget)
+      try await router.refine(request, consent: .refinementGranted(), budget: budget)
     }
     while await stub.callCount == 0 {
       await Task.yield()
