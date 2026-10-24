@@ -29,7 +29,8 @@ struct RefinementRequestPreparerTests {
     let stub = StubAIProvider(behavior: .echo)
     let router = try RefinementRouter(provider: stub)
 
-    _ = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    _ = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     let received = try #require(await stub.receivedRequests.first)
     #expect(received.text == "えーとSwiftUIで作ります")
@@ -75,7 +76,8 @@ struct RefinementRequestPreparerTests {
     let stub = StubAIProvider(behavior: .echo)
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(request.text == "えーとすいふとゆーあいで作ります")
     #expect(outcome == RefinementOutcome(text: "えーとすいふとゆーあいで作ります", source: .raw))
@@ -89,7 +91,8 @@ struct RefinementRequestPreparerTests {
     let stub = StubAIProvider(behavior: .fail(.networkUnavailable))
     let router = try RefinementRouter(provider: stub, localRefiner: LocalBasicRefiner())
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome
@@ -105,7 +108,8 @@ struct RefinementRequestPreparerTests {
     let stub = StubAIProvider(behavior: .echo)
     let router = try RefinementRouter(provider: stub, localRefiner: LocalBasicRefiner())
 
-    let outcome = try await router.refine(request, consent: ConsentState(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: ConsentState(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
     #expect(outcome.text == "SwiftUIで作ります。")
