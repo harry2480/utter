@@ -26,9 +26,9 @@ public struct RefinementValidator: Sendable {
     if refined.allSatisfy(\.isWhitespace) {
       return .empty
     }
-    if containsAddedPhrase(
+    if Self.containsAddedPhrase(
       configuration.preamblePhrases, in: refined, original: original, prefixOnly: true)
-      || containsAddedPhrase(
+      || Self.containsAddedPhrase(
         configuration.refusalPhrases, in: refined, original: original, prefixOnly: false)
     {
       return .preambleOrRefusal
@@ -54,8 +54,8 @@ public struct RefinementValidator: Sendable {
     return nil
   }
 
-  /// 整形前にない定型句が応答にあるか。英字の大文字小文字は区別しない。
-  private func containsAddedPhrase(
+  /// 整形前にない定型句が応答にあるか。英字の大文字小文字は区別しない。`EditValidator` と共用する。
+  static func containsAddedPhrase(
     _ phrases: [String],
     in refined: String,
     original: String,
