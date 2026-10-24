@@ -1,36 +1,53 @@
 import Foundation
 import UtterAI
 import UtterCore
+import UtterPersistence
 import UtterSpeech
 
 /// アプリ全体で1つずつ持つ部品の組み立て（Composition Root）。
 ///
 /// 録音（`AVAudioEngineRecorder`）→ STT Worker → ローカル整形 → 挿入（`InsertionExecutor`）→ HUD を
 /// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
+/// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
 @MainActor
 final class AppComposition {
   let hud: HUDController
   let session: SessionCoordinator
   let shortcuts: ShortcutCoordinator
+  /// 起動時の復旧。一時音声の保存先を作れなければ `nil`（保存も復旧もしない）
+  let launchRecovery: LaunchAudioRecovery?
 
   init() {
     let hud = HUDController(
       presenter: HUDPanelPresenter(),
       scheduler: TaskHUDRefreshScheduler()
     )
-    let insertion = InsertionExecutor.system(preview: InsertionPreviewPanel())
+    let preview = InsertionPreviewPanel()
+    let insertion = InsertionExecutor.system(preview: preview)
     let engine = Self.selectedEngine()
     // エンジンが選ばれていなければ STT Worker を作らない（SessionCoordinator が「音声認識が設定されていません」を表示する）
     let recognizer = engine.flatMap { STTWorkerComposition.makeRecognizer(engine: $0) }
+    let refinementMode = Self.refinementMode()
+    let audioQueue = TemporaryAudioStoreQueue.applicationStore().map(TemporaryAudioStoreQueue.init)
     let session = SessionCoordinator(
       recorder: AVAudioEngineRecorder(),
       recognizer: recognizer,
-      refinementMode: Self.refinementMode(),
+      refinementMode: refinementMode,
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       hud: hud,
-      deadlineScheduler: TaskHUDRefreshScheduler())
+      deadlineScheduler: TaskHUDRefreshScheduler(),
+      audioRetention: audioQueue.map(TemporaryAudioRetention.init),
+      recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init))
     self.hud = hud
     self.session = session
+    launchRecovery = audioQueue.map {
+      LaunchAudioRecovery(
+        queue: $0, recognizer: recognizer, refinementMode: refinementMode,
+        prompt: AudioRecoveryAlert(), preview: preview, gate: session)
+    }
+    // セッションの保存より先に整理と候補の取得をキューに積む（起動後に録音した音声を候補に含めない）
+    launchRecovery?.start()
     shortcuts = ShortcutCoordinator(
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })

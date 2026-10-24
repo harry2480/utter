@@ -77,6 +77,8 @@ public actor STTWorkerSpeechRecognizer: SpeechRecognizer {
   private var connectionGeneration: UInt64 = 0
   private var active: ActiveSession?
   private var resources: STTWorkerResources?
+  /// 最後に認識中の異常終了で失敗にしたセッション
+  private var lastTermination: STTWorkerTermination?
 
   /// - Parameters:
   ///   - engine: 使うエンジン。既定値はない。`nil` なら Worker を起動しない
@@ -120,6 +122,16 @@ public actor STTWorkerSpeechRecognizer: SpeechRecognizer {
   public func updateResources(_ resources: STTWorkerResources) {
     self.resources = resources
     connection?.send(.updateResources(resources))
+  }
+
+  /// `session` が認識中の Worker の異常終了で失敗になったか（7章, AC-10）。なっていれば、そのときの `STTWorkerTermination`。
+  ///
+  /// 受け手が `failed(.engineFailed)` を受け取った時点で記録済みのため、受け手はその後に呼べば、
+  /// 異常終了による失敗か（起動の失敗・回数制限・Worker の報告した失敗ではないか）を順序に依らずに見分けられる。
+  /// `onTermination` は失敗を流した後に呼ぶため、受け手がそれを待つと、異常終了でない失敗では待ち続けてしまう。
+  /// 記録するのは最後の1件だけで、次の異常終了で置き換わる
+  public func termination(of session: SessionID) -> STTWorkerTermination? {
+    lastTermination?.session == session ? lastTermination : nil
   }
 
   /// 再起動の回数制限を解除する（利用者が再試行を選んだときなど）
@@ -242,9 +254,11 @@ public actor STTWorkerSpeechRecognizer: SpeechRecognizer {
     state = .idle
     // 待機中の終了は数えない（OS がアイドルの Worker を終了させることがある）
     guard let session = active?.session else { return }
+    // 受け手が `failed(.engineFailed)` を受け取った時点で `termination(of:)` が答えられるよう、先に記録する
+    let termination = STTWorkerTermination(session: session, canRestart: recordFailure())
+    lastTermination = termination
     finishActive(with: .failed(.engineFailed))
-    let canRestart = recordFailure()
-    await onTermination?(STTWorkerTermination(session: session, canRestart: canRestart))
+    await onTermination?(termination)
   }
 
   /// 認識中のセッションを終端イベントで終える

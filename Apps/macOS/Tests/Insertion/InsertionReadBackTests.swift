@@ -136,6 +136,7 @@ struct InsertionReadBackTests {
       InsertionPreviewCause.plan(.targetUnknown), .plan(.targetMissing), .plan(.targetChanged),
       .plan(.allRoutesFailed), .plan(.noAvailableRoute), .plan(.multilineInTerminal),
       .sensitiveInput([.secureField]), .accessibilityNotTrusted, .insertionInProgress, .cancelled,
+      .recoveredAfterRestart,
     ])
   func previewMessages(_ cause: InsertionPreviewCause) {
     #expect(!InsertionPreviewMessage.text(for: cause).isEmpty)
