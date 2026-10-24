@@ -421,6 +421,43 @@ struct HUDStateTests {
     #expect(HUDContent(status: nil, notices: []).notice == nil)
   }
 
+  @Test(
+    "REC-04: macOS の割り込みで録音を止めたら、処理中に理由を通知する",
+    arguments: [
+      (RecordingInterruption.systemWillSleep, RecordingInterruptionCause.systemSleep),
+      (.audioRouteChanged(.inputDeviceChanged), .inputDeviceChanged),
+      (.microphoneAccessRevoked, .microphoneAccessRevoked),
+    ]
+  )
+  func showsMacOSInterruptionNotice(
+    _ interruption: RecordingInterruption, _ cause: RecordingInterruptionCause
+  ) {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    machine.handleInterruption(
+      interruption, capturedAudioDuration: .seconds(1), policy: RecordingInterruptionPolicy())
+    hud.update(from: machine, at: t0)
+
+    #expect(
+      hud.content(at: t0) == HUDContent(status: .recognizing, notice: .recordingInterrupted(cause)))
+  }
+
+  @Test("REC-04: 音声がないまま割り込みで中止したら、失敗と理由を表示する")
+  func showsAbortedInterruptionNotice() {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    machine.handleInterruption(
+      .systemWillSleep, capturedAudioDuration: .zero, policy: RecordingInterruptionPolicy())
+    hud.update(from: machine, at: t0)
+
+    #expect(
+      hud.content(at: t0)
+        == HUDContent(status: .failed(.recording), notice: .recordingInterrupted(.systemSleep)))
+    #expect(hud.errorDismissDeadline == t0.advanced(by: hud.configuration.errorDisplayDuration))
+  }
+
   // MARK: - Helpers
 
   enum Stop {
