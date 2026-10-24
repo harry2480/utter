@@ -144,6 +144,9 @@ enum Probe {
 
     let text = options.text.text
     let before = ReadBack.snapshot(target.element)
+    // 読み取りの間にフォーカスが別のアプリへ移っていたら挿入しない。要素の同一性は Electron などで
+    // 取り直すたびに変わるため、ここではアプリだけを比べる（要素の比較は --hold で行う）
+    guard AX.focusedApplicationPID() == target.pid else { return skip("target-changed") }
     let clock = ContinuousClock()
     let start = clock.now
     var pending: PendingRestore?
