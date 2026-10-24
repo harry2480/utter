@@ -67,7 +67,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 - 上部: `hasFullAccess`、`needsInputModeSwitchKey`、App Group のコンテナ URL 取得可否、入力欄の属性、各操作の結果、手動切替の案内
 - **読む**: 全保護クラスのファイルを読み、成否とエラーの種類（ドメイン・コードの連鎖）を表示
 - **書く**: 拡張から `keyboard-write-test.json` を書く（フルアクセスの有無で書けるかを見る）。本体アプリの「キーボードが書いたファイルを読む」で確認できる
-- **挿入**: 直前に読めた共有結果のうち最新のものを `textDocumentProxy.insertText` で挿入。読めていなければ固定のダミーを挿入し、その旨を表示
+- **挿入**: 直前に読めた共有結果のうち最新のものを `textDocumentProxy.insertText` で挿入。読めていなければ固定のダミーを挿入し、その旨を表示。セキュア入力欄・電話番号欄（`isSecureTextEntry == true`、`keyboardType` が `phonePad` / `namePhonePad`）では挿入せず、その旨を表示する（iAC-06）
 - **更新**: 入力欄の属性などを再表示（入力欄を移ったときに押す）
 - **🌐**: 地球儀キー（`handleInputModeList(from:with:)`）。`needsInputModeSwitchKey` が false のときは隠れる
 - **開く(ctx)**: `extensionContext.open` で `utterkeyboardprobe://` を開く。返った成否を表示

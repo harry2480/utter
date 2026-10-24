@@ -197,6 +197,14 @@ final class KeyboardViewController: UIInputViewController {
   }
 
   @objc private func insertTapped() {
+    // セキュア入力欄・電話番号欄には挿入しない（iAC-06）。OS が標準キーボードへ切り替えなかった場合の保険。
+    let proxy = textDocumentProxy
+    let isPhoneField = proxy.keyboardType == .phonePad || proxy.keyboardType == .namePhonePad
+    if proxy.isSecureTextEntry == true || isPhoneField {
+      insertLine = "挿入 \(ProbeTime.format(Date())): セキュア入力欄・電話番号欄のため挿入しない"
+      refreshStatus()
+      return
+    }
     let source: String
     let text: String
     if let payload = lastReadPayload {
