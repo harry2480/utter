@@ -7,6 +7,7 @@ import UtterSpeech
 ///
 /// 録音（`AVAudioEngineRecorder`）→ STT Worker → ローカル整形 → 挿入（`InsertionExecutor`）→ HUD を
 /// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
 @MainActor
 final class AppComposition {
   let hud: HUDController
@@ -26,14 +27,18 @@ final class AppComposition {
       recorder: AVAudioEngineRecorder(),
       recognizer: recognizer,
       refinementMode: Self.refinementMode(),
+      showsRealtimePreview: Self.showsRealtimePreview(),
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       hud: hud,
       deadlineScheduler: TaskHUDRefreshScheduler())
     self.hud = hud
     self.session = session
-    shortcuts = ShortcutCoordinator(
+    let shortcuts = ShortcutCoordinator(
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })
+    self.shortcuts = shortcuts
+    // 認識の完了・自動停止・メニューの操作など、ショートカット以外の要因による変化も Esc の捕捉に反映する（REC-01）
+    session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
   }
 
   /// 使う STT エンジン。既定のエンジンは Phase 0 の判定（11章）待ちのため、構成で明示的に選ばない限り `nil`。
@@ -61,6 +66,18 @@ final class AppComposition {
       }
     #endif
     return .raw
+  }
+
+  /// 入力モードが Realtime Preview か（2.2節）。入力モードの設定（#130）を結線するまでは、MVP 標準の Instant を使う。
+  ///
+  /// Debug ビルドに限り起動引数で選べる: `-UtterDebugInputMode realtimePreview`（`instant` は既定と同じ）
+  private static func showsRealtimePreview() -> Bool {
+    #if DEBUG
+      if debugArgument("UtterDebugInputMode") == "realtimePreview" {
+        return true
+      }
+    #endif
+    return false
   }
 
   #if DEBUG

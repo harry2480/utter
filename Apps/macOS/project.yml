@@ -63,8 +63,9 @@ targets:
       - path: Sources/Shortcut
       - path: Sources/Insertion
       - path: Sources/Session
-      # Session が使う型（TaskHUDRefreshScheduler）。パネルと画面は含めない
+      # Session が使う型（TaskHUDRefreshScheduler）と、表示の依頼のまとめ（HUDDisplayQueue）。パネルと画面は含めない
       - path: Sources/HUD/TaskHUDRefreshScheduler.swift
+      - path: Sources/HUD/HUDDisplayQueue.swift
     dependencies:
       - package: UtterCore
       - package: UtterSpeech
