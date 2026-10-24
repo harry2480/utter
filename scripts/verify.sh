@@ -54,7 +54,7 @@ xcodebuild \
   -derivedDataPath "$derived_data" \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
   -quiet build
-# メニューバー常駐で Dock に出さない設定が入っていることを確かめる（アプリは起動しない）
+# メニューバー常駐で Dock に出さない設定と、マイクの用途説明が入っていることを確かめる（アプリは起動しない）
 mac_info_plist="$derived_data/Build/Products/Debug/utter.app/Contents/Info.plist"
 if [[ ! -f "$mac_info_plist" ]]; then
   echo "macOS アプリのビルド成果物が見つかりません: $mac_info_plist" >&2
@@ -62,6 +62,11 @@ if [[ ! -f "$mac_info_plist" ]]; then
 fi
 if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != "true" ]]; then
   echo "macOS アプリの Info.plist に LSUIElement = YES がありません。" >&2
+  exit 1
+fi
+# マイクの用途説明がないと、録音を始めたときに OS がアプリを終了させる（PERM-01）
+if ! /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$mac_info_plist" >/dev/null 2>&1; then
+  echo "macOS アプリの Info.plist に NSMicrophoneUsageDescription がありません。" >&2
   exit 1
 fi
 
