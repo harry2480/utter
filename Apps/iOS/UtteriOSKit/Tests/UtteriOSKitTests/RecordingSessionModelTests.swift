@@ -70,6 +70,7 @@ struct RecordingSessionModelTests {
     let results = try await storedResults()
     #expect(results.map(\.text) == [refined])
     #expect(results.first?.createdAt == createdAt)
+    #expect(await waitUntil { !model.rescueList.items.isEmpty })
     #expect(model.rescueList.items.map(\.state) == [.notInserted(text: refined)])
     #expect(model.failure == nil)
     #expect(model.stopNotice == nil)
@@ -400,7 +401,8 @@ struct RecordingSessionModelTests {
     await model.startRecording()
     recorder.emit(seconds: 1)
     model.stopRecording()
-    #expect(await waitUntil { model.phase == .idle })
+    // 待機に戻った後に一覧を読み直すため、一覧に出るまで待つ
+    #expect(await waitUntil { model.phase == .idle && !model.rescueList.items.isEmpty })
     let sessionID = try #require(model.rescueList.items.first?.sessionID)
 
     await model.copyResult(sessionID)
