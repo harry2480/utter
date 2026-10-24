@@ -3,7 +3,7 @@ import UtterCore
 
 /// 選択されたクラウドプロバイダーへ1回だけ送信し、応答を検証して返す（4.1節, AC-16）。
 ///
-/// 同意がない・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
+/// 同意がない・機密入力・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
 /// 失敗しても再送や別のクラウドプロバイダーへの切り替えはしない（AI-04）。
 public struct RefinementRouter: Sendable {
   /// クラウド整形の応答待ちの上限時間の既定値（暫定）
@@ -43,11 +43,18 @@ public struct RefinementRouter: Sendable {
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
   ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す
-  /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない
+  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。`allowsCloudTransmission` でなければ
+  ///     プロバイダーを呼ばずに `.sensitiveInputSuppressed` で退避する。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
+  ///     予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。確認を省略できないよう既定値は持たせない。
+  ///     同期的に呼ぶため、メインスレッドを待たずに返す（入力先の最新の判定を保持しておき、それを返すなど）
+  /// - Returns: 整形結果。予算の台帳に記録した推定費用は `recordedCost` に入る（AI-05）
+  /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない。
+  ///   送信後にキャンセルされた場合も推定費用は台帳に記録し、`BudgetGuard` の `onRecord` に渡す
   public func refine(
     _ request: RefinementRequest,
     consent: ConsentState,
-    budget: RefinementBudget?
+    budget: RefinementBudget?,
+    sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> RefinementOutcome {
     if Task.isCancelled {
       throw CancellationError()
@@ -57,6 +64,10 @@ public struct RefinementRouter: Sendable {
     }
     guard consent.allows(.textRefinement(provider.destination)) else {
       return fallback(request, reason: .consentNotGranted)
+    }
+    // 機密入力なら予約もしない
+    guard sensitivity().allowsCloudTransmission else {
+      return fallback(request, reason: .sensitiveInputSuppressed)
     }
 
     var reservation: BudgetReservation?
@@ -79,10 +90,16 @@ public struct RefinementRouter: Sendable {
       }
       throw CancellationError()
     }
+    // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
+    if let budget, let reservation, !sensitivity().allowsCloudTransmission {
+      await budget.guard.cancel(reservation)
+      return fallback(request, reason: .sensitiveInputSuppressed)
+    }
 
     let result = await requestWithTimeout(request)
+    var recordedCost: RecordedEstimatedCost?
     if let budget, let reservation {
-      await Self.resolve(reservation, with: result, in: budget.guard)
+      recordedCost = await Self.resolve(reservation, with: result, in: budget.guard)
     }
     if Task.isCancelled {
       throw CancellationError()
@@ -91,13 +108,16 @@ public struct RefinementRouter: Sendable {
     switch result {
     case .success(let response):
       if let failure = validator.validate(response.text, for: request) {
-        return fallback(request, reason: .validationFailed(failure), usage: response.usage)
+        return fallback(
+          request, reason: .validationFailed(failure), usage: response.usage,
+          recordedCost: recordedCost)
       }
       // 末尾の改行がコマンドの実行にならないよう、前後の空白・改行を除いて挿入する。
       return RefinementOutcome(
-        text: Self.trimmingWhitespace(response.text), source: .cloud, usage: response.usage)
+        text: Self.trimmingWhitespace(response.text), source: .cloud, usage: response.usage,
+        recordedCost: recordedCost)
     case .failure(let error):
-      return fallback(request, reason: .providerFailed(error))
+      return fallback(request, reason: .providerFailed(error), recordedCost: recordedCost)
     }
   }
 
@@ -106,29 +126,34 @@ public struct RefinementRouter: Sendable {
   /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
   /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
   /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
+  ///
+  /// - Returns: 台帳に記録した推定費用。取り消した場合は `nil`
   private static func resolve(
     _ reservation: BudgetReservation,
     with result: Result<RefinementResponse, AIProviderError>,
     in guard: BudgetGuard
-  ) async {
+  ) async -> RecordedEstimatedCost? {
     switch result {
     case .success(let response):
-      await `guard`.settle(reservation, actualUsage: response.usage)
+      return await `guard`.settle(reservation, actualUsage: response.usage)
     case .failure(.authenticationExpired), .failure(.quotaExceeded), .failure(.budgetExceeded):
       await `guard`.cancel(reservation)
+      return nil
     case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled),
       .failure(.networkUnavailable):
-      await `guard`.settle(reservation, actualUsage: nil)
+      return await `guard`.settle(reservation, actualUsage: nil)
     }
   }
 
   private func fallback(
     _ request: RefinementRequest,
     reason: RefinementFallbackReason,
-    usage: TokenUsage? = nil
+    usage: TokenUsage? = nil,
+    recordedCost: RecordedEstimatedCost? = nil
   ) -> RefinementOutcome {
     RefinementOutcome(
-      text: localRefiner.refine(request), source: .localFallback(reason), usage: usage)
+      text: localRefiner.refine(request), source: .localFallback(reason), usage: usage,
+      recordedCost: recordedCost)
   }
 
   private static func trimmingWhitespace(_ text: String) -> String {
