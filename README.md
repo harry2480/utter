@@ -28,13 +28,13 @@
 ### 前提
 
 - Xcode 26 以降（Swift 6）
-- shellcheck（`brew install shellcheck`）
+- shellcheck・xcodegen（`brew install shellcheck xcodegen`）
 
 ### コマンド
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → shellcheck） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → shellcheck） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
 | `scripts/merge-pr.sh [PR]` | PR を squash マージしてブランチ削除 |
@@ -42,8 +42,8 @@
 
 ### ビルド
 
-アプリターゲット作成後に、Xcode でのビルド手順と開発用署名（`Local.xcconfig`）の設定方法を記載します。
-署名・配布の方針は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) を参照してください。
+macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）は xcodegen でプロジェクトを生成してビルドします。
+手順と開発用署名（`Config/Local.xcconfig`）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
 
 ## プロジェクト構成
 
@@ -53,13 +53,14 @@ utter/
 ├── .github/workflows/    # CI（macOS ランナーで scripts/verify.sh）と Loop 用ワークフロー
 ├── docs/                 # 要件定義・設計規約・検証結果
 ├── scripts/              # verify / format / Loop
+├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
 ├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
-├── Apps/                 # macOS / iOS アプリ
+├── Apps/                 # macOS / iOS アプリ（現在は macOS のスケルトンのみ）
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
 ```
 
-`Packages/` 以下は Phase 1 / i1 で作成します。設計は [docs/アーキテクチャ.md](docs/アーキテクチャ.md) を参照してください。
+設計は [docs/アーキテクチャ.md](docs/アーキテクチャ.md) を参照してください。
 
 ## AI エージェントでの開発
 
