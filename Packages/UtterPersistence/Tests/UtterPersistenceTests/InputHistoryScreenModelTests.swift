@@ -24,7 +24,30 @@ private final class TestDefaults {
 private let allowedInput = SensitiveInputPolicy().decide(
   SensitiveInputContext(secureField: .off, secureEventInput: .off, app: "com.example.editor"))
 
+/// データベースを押さえる間の合図
+private final class DatabaseHold: Sendable {
+  let locked = DispatchSemaphore(value: 0)
+  let released = DispatchSemaphore(value: 0)
+  let finished = DispatchSemaphore(value: 0)
+
+  func release() {
+    released.signal()
+  }
+
+  /// 合図を専用のスレッドで待つ（スレッドプールを止めない）
+  func wait(for semaphore: DispatchSemaphore) async {
+    await withCheckedContinuation { continuation in
+      Thread.detachNewThread {
+        semaphore.wait()
+        continuation.resume()
+      }
+    }
+  }
+}
+
+// データベースを押さえるテストが並行して動かないよう直列にし、止まったときは時間切れで失敗させる
 @MainActor
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct InputHistoryScreenModelTests {
   private let suite: TestDefaults
   private let settingsStore: AppSettingsStore
@@ -182,26 +205,22 @@ struct InputHistoryScreenModelTests {
     #expect(model.entries.count == 1)
   }
 
-  /// データベースを書き込みで押さえ、ほかの読み書きを待たせる。`release` を呼ぶと離す
-  private func holdDatabase() async -> (
-    release: @Sendable () -> Void, holder: Task<Void, any Error>
-  ) {
-    let locked = DispatchSemaphore(value: 0)
-    let release = DispatchSemaphore(value: 0)
+  /// データベースを書き込みで押さえ、ほかの読み書きを待たせる。`release()` で離す。
+  ///
+  /// 押さえている間に止まるスレッドは、Swift Concurrency のスレッドプール（CI ではコア数が少ない）を使わないよう
+  /// 専用のスレッドにする。プールのスレッドを止めると、ほかのテストと合わせてプールを使い切り、止まったままになりうる
+  private func holdDatabase() async -> DatabaseHold {
+    let hold = DatabaseHold()
     let database = database
-    let holder = Task.detached {
-      try database.writer.write { _ in
-        locked.signal()
-        release.wait()
+    Thread.detachNewThread {
+      try? database.writer.write { _ in
+        hold.locked.signal()
+        hold.released.wait()
       }
+      hold.finished.signal()
     }
-    await withCheckedContinuation { continuation in
-      DispatchQueue.global().async {
-        locked.wait()
-        continuation.resume()
-      }
-    }
-    return ({ release.signal() }, holder)
+    await hold.wait(for: hold.locked)
+    return hold
   }
 
   /// 履歴の表を消して、読み書きを失敗させる
@@ -260,7 +279,7 @@ struct InputHistoryScreenModelTests {
     model.close()
     lock.release()
     await loading.value
-    try await lock.holder.value
+    await lock.wait(for: lock.finished)
 
     #expect(model.phase == .closed)
     #expect(model.entries.isEmpty)
@@ -286,7 +305,7 @@ struct InputHistoryScreenModelTests {
     lock.release()
     await disabling.value
     await enabling.value
-    try await lock.holder.value
+    await lock.wait(for: lock.finished)
 
     #expect(settingsStore.load().historyEnabled)
     #expect(try historyStore.entries().isEmpty)
