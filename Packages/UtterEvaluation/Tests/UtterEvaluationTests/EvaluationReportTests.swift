@@ -161,6 +161,23 @@ struct EvaluationReportTests {
         ],
         .selfCorrectionUnchanged(id: "j")
       ),
+      (
+        // 正規化すると空になる言い直した後の語
+        [
+          EvaluationSample(
+            id: "k", category: .selfCorrection, reference: "赤、いや青",
+            selfCorrections: [SelfCorrection(retracted: "赤", corrected: "、")])
+        ],
+        .selfCorrectionNotInReference(id: "k")
+      ),
+      (
+        [
+          EvaluationSample(
+            id: "l", category: .selfCorrection, reference: "赤、いや青",
+            selfCorrections: [SelfCorrection(retracted: "", corrected: "青")])
+        ],
+        .selfCorrectionNotInReference(id: "l")
+      ),
     ])
   func rejectsInvalidSamples(_ samples: [EvaluationSample], _ expected: EvaluationSampleError) {
     #expect(throws: expected) {
