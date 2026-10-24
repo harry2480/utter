@@ -54,10 +54,13 @@ struct EvaluationReportTests {
     let lines = table.split(separator: "\n")
 
     #expect(lines.count == 2 + EvaluationCategory.allCases.count + 1)
-    #expect(table.contains("| 日本語 | 2 | 2 | 18.8% (n=16) | - | 2 | - | 2 | 50.0% (n=2) |"))
     #expect(
-      table.contains("| 日英混在 | 1 | 1 | 50.0% (n=10) | 0.0% (n=1) | 1 | 100.0% (n=1) | 0 | - |"))
-    #expect(table.contains("| 騒音 | 0 | 0 | - | - | 0 | - | 0 | - |"))
+      table.contains("| 日本語 | 2 | 2 | 18.8% (n=16) | - | 2 | - | 2 | 50.0% (n=2) | 0 | - | 0 | - |")
+    )
+    #expect(
+      table.contains(
+        "| 日英混在 | 1 | 1 | 50.0% (n=10) | 0.0% (n=1) | 1 | 100.0% (n=1) | 0 | - | 0 | - | 0 | - |"))
+    #expect(table.contains("| 騒音 | 0 | 0 | - | - | 0 | - | 0 | - | 0 | - | 0 | - |"))
     #expect(table.contains("| 合計 | 4 | 3 |"))
   }
 
@@ -117,6 +120,47 @@ struct EvaluationReportTests {
         [EvaluationSample(id: "d", category: .japanese, reference: "はい", meaningChanges: [])],
         .meaningChangesWithoutRefinedOutput(id: "d")
       ),
+      (
+        [EvaluationSample(id: "e", category: .japanese, reference: "はい", fillers: ["えー"])],
+        .fillerNotInReference(id: "e")
+      ),
+      (
+        // 正解に1回しかないフィラーを2回注釈している
+        [
+          EvaluationSample(
+            id: "f", category: .japanese, reference: "えー、はい", fillers: ["えー", "えー"])
+        ],
+        .fillerNotInReference(id: "f")
+      ),
+      (
+        // 正規化すると空になるフィラー
+        [EvaluationSample(id: "g", category: .japanese, reference: "えー、はい", fillers: ["、"])],
+        .fillerNotInReference(id: "g")
+      ),
+      (
+        [
+          EvaluationSample(
+            id: "h", category: .selfCorrection, reference: "赤、いや青",
+            selfCorrections: [SelfCorrection(retracted: "黄", corrected: "青")])
+        ],
+        .selfCorrectionNotInReference(id: "h")
+      ),
+      (
+        [
+          EvaluationSample(
+            id: "i", category: .selfCorrection, reference: "赤、いや青",
+            selfCorrections: [SelfCorrection(retracted: "赤", corrected: "緑")])
+        ],
+        .selfCorrectionNotInReference(id: "i")
+      ),
+      (
+        [
+          EvaluationSample(
+            id: "j", category: .selfCorrection, reference: "三時、いや3時",
+            selfCorrections: [SelfCorrection(retracted: "三時", corrected: "3時")])
+        ],
+        .selfCorrectionUnchanged(id: "j")
+      ),
     ])
   func rejectsInvalidSamples(_ samples: [EvaluationSample], _ expected: EvaluationSampleError) {
     #expect(throws: expected) {
@@ -155,6 +199,104 @@ struct EvaluationReportTests {
     #expect(developerTerms.sttCharacterErrors == ErrorCount(errors: 9, total: 26))
     #expect(developerTerms.sttTermErrors == ErrorCount(errors: 2, total: 3))
     #expect(report.overall.meaningChanges == ErrorCount(errors: 1, total: 3))
+    #expect(report.categories[.japanese]?.fillerRemovals == ErrorCount(errors: 0, total: 1))
+    #expect(report.categories[.selfCorrection]?.selfCorrections == ErrorCount(errors: 1, total: 1))
+  }
+
+  private static let annotatedSamples = [
+    EvaluationSample(
+      id: "ja-001", category: .japanese, reference: "えー、明日は三時に集合です",
+      refinedOutput: "明日は3時に集合です。", fillers: ["えー"]),
+    EvaluationSample(
+      id: "ja-002", category: .japanese, reference: "あのー、えーと、雨です",
+      refinedOutput: "えーと、雨です。", fillers: ["あのー", "えーと"]),
+    // 整形結果がない発話は、注釈があっても分母に入れない
+    EvaluationSample(
+      id: "ja-003", category: .japanese, reference: "えー、晴れです", sttOutput: "えー晴れです",
+      fillers: ["えー"]),
+    // 注釈がない発話は分母に入れない（空の注釈も同じ）
+    EvaluationSample(
+      id: "ja-004", category: .japanese, reference: "えー、曇りです", refinedOutput: "えー曇りです",
+      fillers: [], selfCorrections: []),
+    EvaluationSample(
+      id: "self-001", category: .selfCorrection, reference: "えー、会議は三時、いや四時からです",
+      refinedOutput: "会議は4時からです。", fillers: ["えー"],
+      selfCorrections: [SelfCorrection(retracted: "三時", corrected: "四時")]),
+    EvaluationSample(
+      id: "self-002", category: .selfCorrection, reference: "赤、じゃなくて青、いや緑",
+      refinedOutput: "青、緑",
+      selfCorrections: [
+        SelfCorrection(retracted: "赤", corrected: "青"),
+        SelfCorrection(retracted: "青", corrected: "緑"),
+      ]),
+  ]
+
+  @Test("AC-04: フィラー除去・自己訂正は注釈と整形結果がある発話だけを区分ごとに数える")
+  func summarizesFillerAndSelfCorrection() throws {
+    let report = try EvaluationReport(samples: Self.annotatedSamples)
+    let japanese = try #require(report.categories[.japanese])
+    let selfCorrection = try #require(report.categories[.selfCorrection])
+
+    #expect(japanese.sampleCount == 4)
+    #expect(japanese.fillerRemovals == ErrorCount(errors: 1, total: 2))
+    #expect(japanese.selfCorrections == .zero)
+    #expect(selfCorrection.fillerRemovals == ErrorCount(errors: 0, total: 1))
+    // self-002 は「青」をさらに言い直したのに残っているため失敗
+    #expect(selfCorrection.selfCorrections == ErrorCount(errors: 1, total: 2))
+    #expect(report.overall.fillerRemovals == ErrorCount(errors: 1, total: 3))
+    #expect(report.overall.selfCorrections == ErrorCount(errors: 1, total: 2))
+  }
+
+  @Test("AC-04: 表にフィラー除去・自己訂正の判定件数と成功率を出し、本文を含めない")
+  func markdownTableHasFillerAndSelfCorrection() throws {
+    let table = try EvaluationReport(samples: Self.annotatedSamples).markdownTable()
+
+    #expect(
+      table.contains("| 日本語 | 4 | 1 | 0.0% (n=6) | - | 3 | - | 0 | - | 2 | 50.0% (n=2) | 0 | - |"))
+    #expect(
+      table.contains(
+        "| 自己訂正 | 2 | 0 | - | - | 2 | - | 0 | - | 1 | 100.0% (n=1) | 2 | 50.0% (n=2) |"))
+    #expect(
+      table.contains(
+        "| 合計 | 6 | 1 | 0.0% (n=6) | - | 5 | - | 0 | - | 3 | 66.7% (n=3) | 2 | 50.0% (n=2) |"))
+    let annotations = Self.annotatedSamples.flatMap {
+      ($0.fillers ?? []) + ($0.selfCorrections ?? []).flatMap { [$0.retracted, $0.corrected] }
+    }
+    for text in annotations where text.count > 1 {
+      #expect(!table.contains(text))
+    }
+  }
+
+  @Test("AC-04: 注釈のない従来の JSON はそのまま読め、書き出しても注釈のキーを足さない")
+  func annotationsAreBackwardCompatible() throws {
+    let json = """
+      [{"id": "ja-001", "category": "japanese", "reference": "はい", "refinedOutput": "はい"}]
+      """
+    let samples = try JSONDecoder().decode([EvaluationSample].self, from: Data(json.utf8))
+    let encoded = try JSONEncoder().encode(samples)
+    let object = try #require(
+      try JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])
+
+    #expect(samples[0].fillers == nil)
+    #expect(samples[0].selfCorrections == nil)
+    #expect(object[0]["fillers"] == nil)
+    #expect(object[0]["selfCorrections"] == nil)
+    #expect(try EvaluationReport(samples: samples).overall.fillerRemovals == .zero)
+  }
+
+  @Test("AC-04: フィラー・自己訂正の注釈を JSON から読み込める")
+  func decodesAnnotations() throws {
+    let json = """
+      [{"id": "self-001", "category": "selfCorrection", "reference": "えー、三時、いや四時",
+        "fillers": ["えー"], "selfCorrections": [{"retracted": "三時", "corrected": "四時"}]}]
+      """
+    let samples = try JSONDecoder().decode([EvaluationSample].self, from: Data(json.utf8))
+
+    #expect(samples[0].fillers == ["えー"])
+    #expect(samples[0].selfCorrections == [SelfCorrection(retracted: "三時", corrected: "四時")])
+    #expect(
+      try JSONDecoder().decode([EvaluationSample].self, from: JSONEncoder().encode(samples))
+        == samples)
   }
 
   @Test("AC-04: 評価セットは9章の6区分")
