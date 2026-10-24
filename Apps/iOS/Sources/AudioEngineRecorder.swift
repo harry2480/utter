@@ -1,4 +1,5 @@
 import AVFoundation
+import Speech
 import Synchronization
 import UtterSpeech
 import UtteriOSKit
@@ -10,6 +11,8 @@ import UtteriOSKit
 /// 経路の変更（ヘッドセットの抜き差しなど）でエンジンが止まったら、新しい入力の形式で作り直して続ける。
 /// 録音を止めるかは割り込みの通知（`RecordingSignalObserver`）と `RecordingInterruptionPolicy` が決め、
 /// 作り直せなかったときだけ `onFailure` で知らせる。
+/// 音声認識の権限は、それを使うエンジン（`SpeechEngineSelection.requestsSpeechRecognitionPermission`）のときだけ、
+/// マイクの許可の後に求める（PERM-01）。
 @MainActor
 final class AudioEngineRecorder: AudioRecorder {
   enum RecorderError: Error {
@@ -29,9 +32,23 @@ final class AudioEngineRecorder: AudioRecorder {
   private var isSessionActive = false
   /// 録音を始めたときの入力ポート。経路の変更でこれが消えたら作り直さない
   private var inputPortIDs: Set<String> = []
+  /// マイクの許可の後に、音声認識の権限も求めるか
+  private let requestsSpeechRecognitionPermission: Bool
+
+  init(requestsSpeechRecognitionPermission: Bool) {
+    self.requestsSpeechRecognitionPermission = requestsSpeechRecognitionPermission
+  }
 
   func requestPermission() async -> Bool {
-    await AVAudioApplication.requestRecordPermission()
+    guard await AVAudioApplication.requestRecordPermission() else { return false }
+    // SpeechAnalyzer に音声認識の権限が要るかは未確認のため、拒否されても録音は止めない。
+    // 要る場合は認識が失敗として返り、録音の結果として表示される
+    if requestsSpeechRecognitionPermission,
+      SFSpeechRecognizer.authorizationStatus() == .notDetermined
+    {
+      _ = await SpeechRecognitionAuthorization.request()
+    }
+    return true
   }
 
   func start(
@@ -224,5 +241,14 @@ private final class PendingInput: Sendable {
 
   func take() -> AVAudioPCMBuffer? {
     buffer.withLock { $0.take() }
+  }
+}
+
+/// 音声認識の権限の要求。完了の通知は任意のスレッドから届くため、MainActor の外のクロージャで受ける
+private enum SpeechRecognitionAuthorization {
+  nonisolated static func request() async -> SFSpeechRecognizerAuthorizationStatus {
+    await withCheckedContinuation { continuation in
+      SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+    }
   }
 }
