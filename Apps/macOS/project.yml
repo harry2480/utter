@@ -27,6 +27,11 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+    # Hardened Runtime で録音するために要る（PERM-01）。権限を要求する機能の分だけ足す
+    entitlements:
+      path: Sources/UtterMac.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
     settings:
       base:
         PRODUCT_NAME: utter
@@ -38,7 +43,9 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: utter
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
-        # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+        # 権限の用途説明と Entitlement は、その権限を実際に要求する PR で追加する（PERM-01）。
+        # マイクは権限オンボーディングの画面から要求する。音声認識は要否の判定（#48）後に追加する
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音にマイクを使います。
 schemes:
   UtterMac:
     build:
