@@ -13,6 +13,11 @@ WhisperKit（オンデバイス STT）の以下を確定：
 - デバイス: MacBook Pro, iPhone 実機（複数機種）
 - ネットワーク: オフライン環境（モデルロード完了後）
 
+## 検証用コード
+
+計測には [Verification/WhisperKitProbe](../Verification/WhisperKitProbe/README.md) を使う（モデル取得と初回ロード、推論時間・RTF、phys_footprint の推移、連続推論、`utter-eval` 用の STT 結果の出力）。
+熱・電力は `powermetrics` を並行して記録する。手順・出力の見方・モデル重みのライセンスと取得元は同 README を参照。
+
 ## テスト項目
 
 ### 1. モデルサイズ比較

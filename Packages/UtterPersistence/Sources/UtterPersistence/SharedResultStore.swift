@@ -74,6 +74,16 @@ public actor SharedResultStore: Sendable {
     }
   }
 
+  /// 保存されている結果のセッションID（iOS-07 の救済導線で一覧にする）。
+  ///
+  /// ファイル名が保存時の形（大文字の UUID）でない結果は `load(sessionID:)` で読めないため含めない。
+  /// 内容は読まないため、壊れた結果やロック中で読めない結果も含む。
+  public func storedSessionIDs() throws -> [SessionID] {
+    try storedFiles().compactMap { sessionID, storedURL in
+      storedURL.lastPathComponent == fileURL(for: sessionID).lastPathComponent ? sessionID : nil
+    }
+  }
+
   /// 不要になった結果を整理し、中断された挿入を復旧する（iOS-IPC-05, iOS-IPC-06）。
   ///
   /// 本体アプリの起動時やキーボードの表示時に呼ぶ。端末の再起動・拡張の強制終了・本体アプリの中断の後でも、

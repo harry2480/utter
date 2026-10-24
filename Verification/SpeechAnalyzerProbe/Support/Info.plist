@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.utter.verification.SpeechAnalyzerProbe</string>
+	<key>CFBundleName</key>
+	<string>SpeechAnalyzerProbe</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Phase 0 検証（#48）で、マイク入力を SpeechAnalyzer に渡して部分認識と遅延を計測します。音声は保存しません。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Phase 0 検証（#48）で、端末内の SpeechAnalyzer による日本語認識を計測します。</string>
+</dict>
+</plist>

@@ -1,0 +1,11 @@
+// Local.xcconfig の雛形。このファイルを同じディレクトリに Local.xcconfig としてコピーし、自分の値に書き換える。
+// Local.xcconfig はコミットしない（リポジトリの .gitignore で除外済み）。
+
+// Xcode > Settings > Accounts で確認できる Team ID（無料 Personal Team でも可）
+DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// 他人と重ならない逆ドメイン。本体は <prefix>.keyboardprobe、拡張は <prefix>.keyboardprobe.keyboard になる
+PROBE_BUNDLE_ID_PREFIX = com.example.yourname
+
+// "group." で始まる App Group ID。本体と拡張の両方の Entitlement に入る
+PROBE_APP_GROUP_ID = group.com.example.yourname.utter.keyboardprobe

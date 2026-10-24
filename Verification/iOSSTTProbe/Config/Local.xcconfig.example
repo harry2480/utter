@@ -1,0 +1,4 @@
+// Local.xcconfig の雛形。同じディレクトリに Local.xcconfig としてコピーし、自分の値に書き換える。
+// Local.xcconfig は gitignore 済み。Team ID・Bundle ID をコミットしない。
+DEVELOPMENT_TEAM = XXXXXXXXXX
+PRODUCT_BUNDLE_IDENTIFIER = com.example.yourname.iOSSTTProbe
