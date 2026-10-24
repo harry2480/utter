@@ -555,7 +555,15 @@ final class ProbeModel {
 
   /// 書き出したファイルと、メモリ上の認識結果・計測値をすべて消す
   func deleteAllOutputs() {
-    try? FileManager.default.removeItem(at: Self.outputRoot)
+    do {
+      try FileManager.default.removeItem(at: Self.outputRoot)
+    } catch CocoaError.fileNoSuchFile {
+      // まだ何も書き出していない
+    } catch {
+      // ファイルが残ったまま「削除した」と表示しないよう、メモリ上の値も残して知らせる
+      message = "削除に失敗しました: \(Self.errorSummary(error))"
+      return
+    }
     exportedFiles = []
     samples = []
     runs = []

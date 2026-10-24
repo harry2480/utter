@@ -17,7 +17,7 @@ iPhone 実機で Apple の Speech API（SpeechAnalyzer）による日本語認�
 | 入力 | マイク（`AVAudioSession` `.record` + `AVAudioEngine`）、または「ファイル」から選んだ音声ファイル（複数可・繰り返し可） |
 | 遅延 | モデル準備（`prepareToAnalyze`）、録音開始（ボタン→最初の音声バッファの先頭サンプル。`AVAudioTime.hostTime` から求める。参考に `engine.start()` が戻るまでも記録）、初回の暫定・確定結果、停止→最終確定、ファイルの処理時間と RTF |
 | 資源 | 0.5 秒ごとの `phys_footprint`（`task_vm_info`）、プロセスのピーク（`ledger_phys_footprint_peak`）、`os_proc_available_memory`、`ProcessInfo.thermalState`、電池残量、低電力モード。実行ごとの開始前・最大・終了時・終了 5 秒後、実行開始時のアセットの状態 |
-| 書き出し | `results.json`（`utter-eval` が読める評価サンプル）、`metrics.json`（計測値。発話本文なし）、`timeline.csv`（資源の推移。発話本文なし）。計測値は実行ごとに `ProbeOutput/autosave-metrics.json` へ自動保存する（jetsam などで強制終了しても、それまでの値が残る） |
+| 書き出し | `results.json`（`utter-eval` が読める評価サンプル）、`metrics.json`（計測値。発話本文なし）、`timeline.csv`（資源の推移。発話本文なし）。計測値は実行ごとに `ProbeOutput/autosave-metrics.json` へ自動保存する（jetsam などで強制終了しても、それまでに終わった実行の値が残る。強制終了された実行中の値は残らないため、その回は解析データの JetsamEvent で確認する） |
 
 録音中は画面の自動ロックを止める。電話着信などのオーディオ割り込みの開始、またはヘッドセットの抜き差しなどの入力経路の変更（`AVAudioEngineConfigurationChange`）が起きたら録音を止め、`interrupted: true` と理由を記録する。割り込みで止まった録音の途中までのテキストは評価サンプルに入れない（既存の結果も上書きしない）。
 
