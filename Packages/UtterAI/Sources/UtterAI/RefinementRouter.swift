@@ -59,28 +59,22 @@ public struct RefinementRouter: Sendable {
       return fallback(request, reason: .consentNotGranted)
     }
 
-    var reservation: BudgetReservation?
-    if let budget {
-      do {
-        reservation = try await budget.guard.reserve(
-          model: budget.model, expectedUsage: budget.expectedUsage, in: budget.month)
-      } catch {
-        // 予約を待つ間にキャンセルされていれば、予算超過でも退避の結果を返さない
-        if Task.isCancelled {
-          throw CancellationError()
-        }
-        return fallback(request, reason: .providerFailed(.budgetExceeded))
-      }
-    }
-    // 予約を待つ間にキャンセルされたら、送信せずに予約を取り消す
-    if Task.isCancelled {
-      if let budget, let reservation {
-        await budget.guard.cancel(reservation)
-      }
-      throw CancellationError()
+    let reservation: BudgetReservation?
+    switch try await Self.reserve(budget) {
+    case .success(let reserved):
+      reservation = reserved
+    case .failure(let error):
+      return fallback(request, reason: .providerFailed(error))
     }
 
-    let result = await requestWithTimeout(request)
+    let provider = provider
+    let result = await Self.requestWithTimeout(timeout) { () async -> RefinementResult in
+      do throws(AIProviderError) {
+        return .success(try await provider.refine(request))
+      } catch {
+        return .failure(error)
+      }
+    }
     if let budget, let reservation {
       await Self.resolve(reservation, with: result, in: budget.guard)
     }
@@ -101,14 +95,45 @@ public struct RefinementRouter: Sendable {
     }
   }
 
+  /// 予算があれば送信前に見込み費用を予約する（AI-04, AI-05）。`EditRouter` と共用する。
+  ///
+  /// 予算がなければ `nil` を、上限を超えるなら `.budgetExceeded` を返す。
+  /// 予約を待つ間にキャンセルされたら、予約を取り消して `CancellationError` を投げる（予算超過でも退避の結果を返さない）。
+  static func reserve(
+    _ budget: RefinementBudget?
+  ) async throws(CancellationError) -> Result<BudgetReservation?, AIProviderError> {
+    if Task.isCancelled {
+      throw CancellationError()
+    }
+    guard let budget else {
+      return .success(nil)
+    }
+    let reservation: BudgetReservation
+    do throws(AIProviderError) {
+      reservation = try await budget.guard.reserve(
+        model: budget.model, expectedUsage: budget.expectedUsage, in: budget.month)
+    } catch {
+      if Task.isCancelled {
+        throw CancellationError()
+      }
+      return .failure(error)
+    }
+    // 予約を待つ間にキャンセルされたら、送信せずに予約を取り消す
+    if Task.isCancelled {
+      await budget.guard.cancel(reservation)
+      throw CancellationError()
+    }
+    return .success(reservation)
+  }
+
   /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
   ///
   /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
   /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
   /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
-  private static func resolve(
+  static func resolve(
     _ reservation: BudgetReservation,
-    with result: Result<RefinementResponse, AIProviderError>,
+    with result: RefinementResult,
     in guard: BudgetGuard
   ) async {
     switch result {
@@ -131,32 +156,26 @@ public struct RefinementRouter: Sendable {
       text: localRefiner.refine(request), source: .localFallback(reason), usage: usage)
   }
 
-  private static func trimmingWhitespace(_ text: String) -> String {
+  static func trimmingWhitespace(_ text: String) -> String {
     String(text.drop(while: \.isWhitespace).reversed().drop(while: \.isWhitespace).reversed())
   }
 
-  /// プロバイダーの応答と上限時間を競わせ、先に決まった方を返す。
+  /// プロバイダーの応答と上限時間を競わせ、先に決まった方を返す。`EditRouter` と共用する。
   ///
   /// 上限時間を過ぎたら、プロバイダーがキャンセルに応じなくても待たずに戻る。
   /// 呼び出し元がキャンセルされた場合は `.cancelled` を返す。
-  private func requestWithTimeout(
-    _ request: RefinementRequest
-  ) async -> Result<RefinementResponse, AIProviderError> {
+  ///
+  /// - Parameter operation: プロバイダーを呼ぶ処理。Task のクロージャに typed throws を書くと壊れるため
+  ///   （AIProvider の doc を参照）、エラーは値として返す
+  static func requestWithTimeout(
+    _ timeout: Duration,
+    _ operation: @escaping @Sendable () async -> RefinementResult
+  ) async -> RefinementResult {
     let race = Race()
-    let provider = provider
-    let timeout = timeout
     return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
         race.install(continuation)
-        // Task のクロージャに typed throws を書くと壊れるため、エラーは値として受け取る（AIProvider の doc を参照）。
-        race.add(
-          Task {
-            do throws(AIProviderError) {
-              race.finish(.success(try await provider.refine(request)))
-            } catch {
-              race.finish(.failure(error))
-            }
-          })
+        race.add(Task { race.finish(await operation()) })
         race.add(
           Task {
             try? await Task.sleep(for: timeout)
@@ -169,9 +188,12 @@ public struct RefinementRouter: Sendable {
   }
 }
 
+/// プロバイダー1回分の結果
+typealias RefinementResult = Result<RefinementResponse, AIProviderError>
+
 /// 最初に届いた結果で1回だけ continuation を再開し、残りの Task をキャンセルする。
 final class Race: Sendable {
-  typealias Outcome = Result<RefinementResponse, AIProviderError>
+  typealias Outcome = RefinementResult
 
   private struct State {
     var continuation: CheckedContinuation<Outcome, Never>?
