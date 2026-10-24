@@ -1,0 +1,9 @@
+// Phase i0 検証用（#56, #53）の共通ビルド設定。
+// Team ID・bundle ID・App Group ID はここに固定しない（docs/ビルド・配布規約.md）。
+// 実機で試すときは Local.xcconfig.example を Local.xcconfig にコピーして上書きする（Local.xcconfig は gitignore 済み）。
+
+// 既定値はシミュレータ向けの署名なしビルド用のダミー。
+PROBE_BUNDLE_ID_PREFIX = com.example.utter
+PROBE_APP_GROUP_ID = group.example.utter.keyboardprobe
+
+#include? "Local.xcconfig"

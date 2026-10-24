@@ -238,7 +238,7 @@ struct UtterDatabaseTests {
     let applied = try second.writer.read { db in
       try UtterDatabase.migrator.appliedMigrations(db)
     }
-    #expect(applied == ["v1"])
+    #expect(applied == ["v1", "v2"])
     #expect(try first.writer.read { db in try UtterDatabase.migrator.hasCompletedMigrations(db) })
   }
 }

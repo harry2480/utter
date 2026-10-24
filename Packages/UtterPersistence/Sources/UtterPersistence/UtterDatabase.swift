@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// 辞書・使用量を保存する SQLite データベース（3章, TXT-03, AI-05）。
+/// 辞書・使用量・任意の入力履歴を保存する SQLite データベース（3章, TXT-03, AI-05, 7章）。
 ///
 /// 開くたびにスキーマ移行（マイグレーション）を適用する。テストは `inMemory()` を使う。
 /// 読み書きは同期的にディスクへアクセスするため、メインスレッド以外から呼ぶ。
@@ -13,14 +13,23 @@ public struct UtterDatabase: Sendable {
     try FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     // 同じファイルを別のインスタンスやプロセスが開いていても、書き込みのロックをしばらく待つ
-    var configuration = Configuration()
+    var configuration = Self.configuration
     configuration.busyMode = .timeout(5)
     return try UtterDatabase(writer: DatabaseQueue(path: url.path, configuration: configuration))
   }
 
   /// メモリ上のデータベースを開く。閉じると内容は消える
   public static func inMemory() throws -> UtterDatabase {
-    try UtterDatabase(writer: DatabaseQueue())
+    try UtterDatabase(writer: DatabaseQueue(configuration: configuration))
+  }
+
+  /// 削除した行（入力履歴の本文など）がファイルの空き領域に残らないよう、削除した領域を上書きする（7章）
+  private static var configuration: Configuration {
+    var configuration = Configuration()
+    configuration.prepareDatabase { db in
+      try db.execute(sql: "PRAGMA secure_delete = ON")
+    }
+    return configuration
   }
 
   private init(writer: any DatabaseWriter) throws {
@@ -48,6 +57,15 @@ public struct UtterDatabase: Sendable {
         table.column("currencyCode", .text).notNull()
         table.column("amount", .text).notNull()
         table.primaryKey(["monthIndex", "currencyCode"])
+      }
+    }
+    // 入力履歴（7章, AC-12）。初期無効で、有効にした利用者だけが使う
+    migrator.registerMigration("v2") { db in
+      try db.create(table: "inputHistory") { table in
+        table.autoIncrementedPrimaryKey("id")
+        table.column("sessionID", .text).notNull().unique()
+        table.column("text", .text).notNull()
+        table.column("createdAt", .double).notNull().indexed()
       }
     }
     return migrator
