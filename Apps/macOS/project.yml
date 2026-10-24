@@ -19,6 +19,10 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterAI:
+    path: ../../Packages/UtterAI
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -27,6 +31,8 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterAI
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter
@@ -39,6 +45,8 @@ targets:
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
         # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+        # keychain-access-groups: Claude API キーを data protection keychain（本デバイス限定）に保存するため（AC-12）
+        CODE_SIGN_ENTITLEMENTS: Utter.entitlements
 schemes:
   UtterMac:
     build:
