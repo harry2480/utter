@@ -13,7 +13,8 @@ import UtteriOSKit
 ///   明示したときだけ SpeechAnalyzer を使い、そのモデルは設定画面の操作でだけ取得する（PERM-03）
 /// - 整形は Local Basic。処理系にクラウド AI を選び、Claude への送信に同意し、API キー（本体アプリの Keychain）と月次予算・単価表がそろったときだけ
 ///   Claude で整形する（iOS-10）。同意・設定は `UserDefaults.standard`（App Group ではない）に保存する
-/// - 共有結果は App Group ID（Config/Local.xcconfig）を設定したときだけ App Group に保存する（#56）
+/// - 共有結果と本体アプリの状態（キーボード拡張の案内用, iAC-07）は、App Group（Config/Local.xcconfig）を設定したときだけ
+///   App Group に書く（#56）
 @main
 struct UtterApp: App {
   @State private var model: RecordingSessionModel
@@ -21,14 +22,17 @@ struct UtterApp: App {
   private let speechEngine: SpeechEngineSelection
   @State private var consentSettings: ConsentSettingsModel
   @State private var claudeAPIKeySettings: APIKeySettingsModel
+  private let hostAppStatus: HostAppStatusPublisher?
   private let signals: RecordingSignalObserver
 
   init() {
     let speechEngine = Self.speechEngine()
+    // 設定画面と本体アプリの状態の書き込みで同じものを使う
+    let modelAssets = speechEngine.makeModelAssets()
+    let appGroupIdentifier =
+      Bundle.main.object(forInfoDictionaryKey: "UtterAppGroupIdentifier") as? String
     let storage = SharedResultStorage.resolve(
-      appGroupIdentifier: Bundle.main.object(forInfoDictionaryKey: "UtterAppGroupIdentifier")
-        as? String,
-      appLocalDirectory: Self.appLocalResultsDirectory())
+      appGroupIdentifier: appGroupIdentifier, appLocalDirectory: Self.appLocalResultsDirectory())
     // 同意の画面とクラウド整形で同じ保存先を使い、撤回を次の送信から反映する（AC-06）
     let settingsStore = AppSettingsStore(defaults: .standard)
     let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
@@ -47,12 +51,16 @@ struct UtterApp: App {
       storage: storage, copier: PasteboardCopier())
     _model = State(initialValue: model)
     _speechModel = State(
-      initialValue: speechEngine.makeModelAssets().map { SpeechModelSettingsModel(assets: $0) })
+      initialValue: modelAssets.map { SpeechModelSettingsModel(assets: $0) })
     self.speechEngine = speechEngine
     _consentSettings = State(
       initialValue: ConsentSettingsModel(
         controller: ConsentSettingsController(store: settingsStore)))
     _claudeAPIKeySettings = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
+    hostAppStatus = HostAppStatusPublisher.resolve(
+      appGroupIdentifier: appGroupIdentifier, permissions: SystemHostAppPermissionReader(),
+      speechEngine: speechEngine, speechModel: modelAssets,
+      settingsStore: settingsStore)
     signals = RecordingSignalObserver(model: model)
   }
 
@@ -60,7 +68,8 @@ struct UtterApp: App {
     WindowGroup {
       RecordingView(
         model: model, speechEngine: speechEngine, speechModel: speechModel,
-        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings)
+        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings,
+        hostAppStatus: hostAppStatus)
     }
   }
 

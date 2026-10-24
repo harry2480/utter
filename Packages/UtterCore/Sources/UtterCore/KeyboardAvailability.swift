@@ -60,7 +60,7 @@ public struct KeyboardAvailability: Hashable, Sendable {
     switch (hostApp.speechModel, network) {
     case (.notDownloaded, .offline): notices.append(.speechModelNotDownloadedOffline)
     case (.notDownloaded, _): notices.append(.speechModelNotDownloaded)
-    case (.ready, _): break
+    case (.ready, _), (.notApplicable, _): break
     }
     if hostApp.usesCloudRefinement, network == .offline {
       notices.append(.cloudRefinementOffline)

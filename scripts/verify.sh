@@ -144,6 +144,18 @@ else
     echo "iOS アプリの MinimumOSVersion（${ios_built_minimum}）が ${ios_app_target} と一致しません。" >&2
     exit 1
   fi
+  plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
+  # 本体アプリも App Group（#56 の判定待ち）は既定で無効。既定のビルドでは App Group ID を持たず、
+  # 共有結果・本体アプリの状態を App Group に書かない
+  # Info.plist の結線が壊れていないこと（キーがあること）も確かめる
+  if ! /usr/libexec/PlistBuddy -c 'Print :UtterAppGroupIdentifier' "$ios_info_plist" >/dev/null 2>&1; then
+    echo "iOS アプリの Info.plist に UtterAppGroupIdentifier がありません。" >&2
+    exit 1
+  fi
+  if [[ -n "$(plist_value "$ios_info_plist" UtterAppGroupIdentifier)" ]]; then
+    echo "既定のビルドで iOS アプリに App Group ID が入っています（Config/Local.xcconfig で有効にしたときだけ入れる）。" >&2
+    exit 1
+  fi
   # キーボード拡張（Extensions/iOSKeyboard）は本体アプリに埋め込まれてビルドされる
   keyboard_appex="$ios_derived_data/App/Build/Products/Debug-iphonesimulator/utter.app/PlugIns/UtterKeyboard.appex"
   keyboard_info_plist="$keyboard_appex/Info.plist"
@@ -151,7 +163,6 @@ else
     echo "キーボード拡張のビルド成果物が見つかりません: $keyboard_info_plist" >&2
     exit 1
   fi
-  plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
   if [[ "$(plist_value "$keyboard_info_plist" NSExtension:NSExtensionPointIdentifier)" != "com.apple.keyboard-service" ]]; then
     echo "キーボード拡張の NSExtensionPointIdentifier が com.apple.keyboard-service ではありません。" >&2
     exit 1
