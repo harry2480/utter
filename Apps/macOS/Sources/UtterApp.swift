@@ -12,7 +12,7 @@ import UtterCore
 struct UtterApp: App {
   private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
 
-  @State private var claudeAPIKeySettings = APIKeySettingsModel(store: claudeAPIKeyStore)
+  @State private var claudeAPIKeySettings = APIKeySettingsModel(store: Self.claudeAPIKeyStore)
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {

@@ -38,7 +38,7 @@ public final class APIKeySettingsModel {
     self.store = store
   }
 
-  /// 前後の空白・改行・制御文字以外の入力があれば保存できる（`APIKey` と同じ基準）。
+  /// 空白・改行以外の入力があれば保存できる（`APIKey` と同じ基準）。
   public var canSave: Bool {
     input.unicodeScalars.contains { !APIKey.isTrimmable($0) }
   }

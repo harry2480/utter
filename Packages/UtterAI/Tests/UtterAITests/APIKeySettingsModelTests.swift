@@ -50,12 +50,16 @@ struct APIKeySettingsModelTests {
     #expect(model.status == .unavailable(.invalidStoredData))
   }
 
-  @Test("AC-12: 制御文字だけの入力は保存できない")
-  func controlOnlyInputCannotBeSaved() {
-    let model = APIKeySettingsModel(store: StubAPIKeyStore())
-    model.input = "\u{0}\u{7F}"
+  @Test("AC-12: 前後に制御文字がある入力は取り除かずに拒否する")
+  func rejectsSurroundingControlCharacters() {
+    let store = StubAPIKeyStore()
+    let model = APIKeySettingsModel(store: store)
+    model.input = "\u{0}sk-ant-new"
 
-    #expect(!model.canSave)
+    model.save()
+
+    #expect(model.feedback == .invalidInput(.invalidCharacters))
+    #expect(store.storedKey == nil)
   }
 
   @Test("AC-12: 前後の空白を除いて保存し、入力を消す")

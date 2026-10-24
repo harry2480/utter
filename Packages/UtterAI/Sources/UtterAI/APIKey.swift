@@ -1,6 +1,6 @@
 /// 利用者が設定したクラウド AI の API キー（AC-12）。
 ///
-/// 入力の前後の空白・改行は貼り付けで混ざりやすいため取り除く。空のキーと、途中に空白・制御文字・
+/// 入力の前後の空白・改行は貼り付けで混ざりやすいため取り除く。空のキーと、制御文字（前後を含む）・途中の空白・
 /// ASCII 以外の文字を含むキーは拒否する（HTTP ヘッダーに載せられず、貼り付けの誤りの可能性が高いため）。
 /// 接頭辞などの形式は提供元が変えうるため確かめず、正しいかどうかは送信時の認証エラーで分かる。
 ///
@@ -25,7 +25,8 @@ public struct APIKey: Hashable, Sendable {
   }
 
   static func isTrimmable(_ scalar: Unicode.Scalar) -> Bool {
-    scalar.properties.isWhitespace || scalar.properties.generalCategory == .control
+    // 制御文字は前後にあっても取り除かずに拒否する（タブ・改行は空白として取り除く）
+    scalar.properties.isWhitespace
   }
 }
 

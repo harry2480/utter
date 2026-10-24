@@ -23,7 +23,11 @@ struct APIKeyTests {
 
   @Test(
     "AC-12: 途中の空白・改行・制御文字・ASCII 以外の文字を拒否する",
-    arguments: ["sk-ant abc", "sk-ant\nabc", "sk-ant\u{0}abc", "sk-ant-ａｂｃ", "sk-ant-キー"])
+    arguments: [
+      "sk-ant abc", "sk-ant\nabc", "sk-ant\u{0}abc", "\u{0}sk-ant-abc", "sk-ant-abc\u{7F}",
+      "sk-ant-ａｂｃ",
+      "sk-ant-キー",
+    ])
   func rejectsInvalidCharacters(_ input: String) {
     #expect(throws: APIKeyValidationError.invalidCharacters) {
       try APIKey(input)
