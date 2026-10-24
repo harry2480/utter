@@ -86,27 +86,71 @@ final class StubSessionInserter: SessionTextInserting {
   }
 }
 
-/// 一時音声の差し込み口の呼び出しを記録する。
+/// 一時音声の差し込み口の呼び出しを記録し、届いたチャンクをメモリ上の録音音声に溜める。
 @MainActor
 final class StubAudioRetention: SessionAudioRetaining {
   enum Event: Equatable {
     case begin(SessionID)
+    case finishRecording(SessionID)
     case end(SessionID, completed: Bool)
   }
 
   private(set) var events: [Event] = []
   private(set) var appendedSampleCount = 0
+  private var audio: (session: SessionID, audio: RecordedAudio)?
+
+  /// `finishRecording` を除いた記録（録音の止まり方で順序の変わらないもの）
+  var lifecycle: [Event] {
+    events.filter {
+      if case .finishRecording = $0 { return false }
+      return true
+    }
+  }
 
   func begin(_ session: SessionID) {
     events.append(.begin(session))
+    audio = nil
   }
 
   func append(_ chunk: AudioChunk, to session: SessionID) {
     appendedSampleCount += chunk.samples.count
+    if audio == nil, let recorded = try? RecordedAudio(sampleRate: chunk.sampleRate) {
+      audio = (session, recorded)
+    }
+    try? audio?.audio.append(chunk)
+  }
+
+  func finishRecording(_ session: SessionID) {
+    events.append(.finishRecording(session))
+  }
+
+  func recordedAudio(for session: SessionID) -> RecordedAudio? {
+    audio?.session == session ? audio?.audio : nil
   }
 
   func end(_ session: SessionID, completed: Bool) {
     events.append(.end(session, completed: completed))
+    audio = nil
+  }
+}
+
+/// 認識をやり直すかの判断を固定の値で返し、問い合わせを記録する。
+final class StubRecognitionRecovery: SessionRecognitionRecovering {
+  private let answer: Bool
+  private let asked = Mutex<[SpeechRecognitionError]>([])
+
+  init(answer: Bool) {
+    self.answer = answer
+  }
+
+  var questions: [SpeechRecognitionError] {
+    asked.withLock { $0 }
+  }
+
+  func shouldRecognizeAgain(_ session: SessionID, after error: SpeechRecognitionError) async -> Bool
+  {
+    asked.withLock { $0.append(error) }
+    return answer
   }
 }
 
@@ -120,6 +164,18 @@ final class ScriptedSpeechRecognizer: SpeechRecognizer {
 
   private let runs = Mutex<[Run]>([])
   private let terminated = Mutex<Set<Int>>([])
+  private let receivedSamples = Mutex<[Int: Int]>([:])
+  private let finishedAudio = Mutex<Set<Int>>([])
+
+  /// `run` 番目の認識が受け取った音声のサンプル数
+  func sampleCount(of run: Int) -> Int {
+    receivedSamples.withLock { $0[run] ?? 0 }
+  }
+
+  /// `run` 番目の認識の音声が終わったか（録音の終わり）
+  func isAudioFinished(_ run: Int) -> Bool {
+    finishedAudio.withLock { $0.contains(run) }
+  }
 
   /// `run` 番目の認識のストリームが閉じたか（受け手の破棄・終端イベント）
   func isTerminated(_ run: Int) -> Bool {
@@ -145,9 +201,12 @@ final class ScriptedSpeechRecognizer: SpeechRecognizer {
     continuation.onTermination = { [weak self] _ in
       self?.terminated.withLock { _ = $0.insert(index) }
     }
-    // 音声は読み捨てる（読まないと録音側に溜まる）
-    Task {
-      for await _ in audio {}
+    // 音声は数えて読み捨てる（読まないと録音側に溜まる）
+    Task { [weak self] in
+      for await chunk in audio {
+        self?.receivedSamples.withLock { $0[index, default: 0] += chunk.samples.count }
+      }
+      self?.finishedAudio.withLock { _ = $0.insert(index) }
     }
     return stream
   }

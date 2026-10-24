@@ -32,15 +32,27 @@ extension TaskHUDRefreshScheduler: SessionDeadlineScheduling {}
 
 /// 一時音声の保存と復旧の差し込み口（7章, AC-10）。
 ///
-/// `TemporaryAudioStore`（#132）を結線するまで本番では渡さない（`nil`）。結線するときは、届いたチャンクを
-/// `RecordedAudio.append(_:)` で溜め、`encoded()` を保存し、正常に終わったら削除する（docs/アーキテクチャ.md「一時音声と再処理」）。
+/// 本番は `TemporaryAudioRetention`（届いたチャンクを `RecordedAudio` に溜め、録音の終わりに `TemporaryAudioStore` へ保存し、
+/// セッションの終わりに削除する）。docs/アーキテクチャ.md「一時音声と再処理」
 @MainActor
 protocol SessionAudioRetaining: AnyObject {
   /// 録音を始めた
   func begin(_ session: SessionID)
   /// 録音のチャンクが届いた。音声認識へ渡す前に呼ぶ
   func append(_ chunk: AudioChunk, to session: SessionID)
+  /// 録音のチャンクをすべて渡し終えた（録音が止まった）。セッションごとに1回だけ、`end` より前に呼ぶ
+  func finishRecording(_ session: SessionID)
+  /// 認識をやり直すための、メモリ上の録音音声。音声がない、または `end` を伝えた後なら `nil`
+  func recordedAudio(for session: SessionID) -> RecordedAudio?
   /// `begin` を伝えたセッションが終わった。セッションごとに1回だけ呼ぶ。`completed` は挿入（またはプレビューへの退避）まで終えたとき `true`、
   /// キャンセル・失敗で終えたとき `false`
   func end(_ session: SessionID, completed: Bool)
+}
+
+/// 失敗した認識を、メモリ上の録音音声でやり直すかの判断（7章, AC-10）。
+///
+/// 本番は `STTWorkerRecognitionRecovery`（STT Worker の異常終了で失敗にしたセッションで、再起動の回数制限の範囲内のときだけ）。
+protocol SessionRecognitionRecovering: Sendable {
+  /// 認識が `error` で失敗した `session` を、録音音声で認識し直すか。受け手が失敗を受け取った後に呼ぶ
+  func shouldRecognizeAgain(_ session: SessionID, after error: SpeechRecognitionError) async -> Bool
 }
