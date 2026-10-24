@@ -9,8 +9,9 @@ import UtterCore
 /// 無効化の際に削除できず残った履歴があれば削除する。
 ///
 /// 設定（`AppSettingsStore`）は `Sendable` でないため、この型はメインアクターに隔離する。データベースの読み書きは
-/// メインスレッドを避けて行う。画面を閉じたら `close()` を呼び、一覧の本文を手放す。閉じた後に終わった読み込みの結果は捨てる。
-/// 閉じた時点で途中の操作があると、開き直した後の操作と並んで走りうるため、画面を開くたびに新しく作る。
+/// メインスレッドを避けて行う。画面を閉じたら `close()` を呼び、一覧の本文を手放す。閉じた後に終わった操作の結果は画面に戻さない。
+/// 操作は受け付けた順に1つずつ行い、閉じても途中の操作（削除・設定の保存）は最後まで行う。開き直した後の操作はその完了を待つため、
+/// 閉じる前の削除が開き直した後に有効にして記録した履歴を消すことはない。そのためアプリ全体で1つを使い回す。
 /// 履歴への記録（セッション完了時の `InputHistoryStore.record`）はこの型の責務ではない。
 @MainActor
 @Observable
@@ -30,13 +31,17 @@ public final class InputHistoryScreenModel {
   public private(set) var entries: [InputHistoryEntry] = []
   /// 直近の操作の失敗。次の操作を始めると消す
   public private(set) var failure: InputHistoryScreenFailure?
-  /// 操作の途中か。途中の間はほかの操作を受け付けない
+  /// 操作の途中か、操作が待っているか。画面を閉じても、閉じる前の操作が終わるまでは `true`
   public private(set) var isBusy = false
 
   private let settingsStore: AppSettingsStore
   private let historyStore: InputHistoryStore
-  /// `close()` のたびに進める。閉じる前に始まった操作の結果を画面に反映しないために使う
+  /// `close()` のたびに進める。閉じる前に受け付けた操作の結果を画面に反映しないために使う
   private var generation = 0
+  /// 受け付けて終わっていない操作の数
+  private var pendingOperations = 0
+  /// 最後に受け付けた操作。次の操作はこの完了を待つ
+  private var lastOperation: Task<Void, Never>?
 
   public init(settingsStore: AppSettingsStore, historyStore: InputHistoryStore) {
     self.settingsStore = settingsStore
@@ -100,25 +105,31 @@ public final class InputHistoryScreenModel {
     phase = .closed
     entries = []
     failure = nil
-    isBusy = false
   }
 
   // MARK: - 内部
 
-  /// 操作を1つずつ行い、失敗を画面に反映する
+  /// 操作を受け付けた順に1つずつ行い、失敗を画面に反映する。前の操作（閉じる前のものを含む）の完了を待ってから始める
   private func perform(
-    _ operation: (Int) async throws(InputHistoryScreenFailure) -> Void
+    _ operation: @escaping @MainActor (Int) async throws(InputHistoryScreenFailure) -> Void
   ) async {
-    guard !isBusy else { return }
+    let previous = lastOperation
     let generation = generation
+    pendingOperations += 1
     isBusy = true
-    failure = nil
-    do {
-      try await operation(generation)
-    } catch {
-      if generation == self.generation { failure = error }
+    let current = Task { @MainActor in
+      await previous?.value
+      if generation == self.generation { self.failure = nil }
+      do throws(InputHistoryScreenFailure) {
+        try await operation(generation)
+      } catch {
+        if generation == self.generation { self.failure = error }
+      }
+      self.pendingOperations -= 1
+      self.isBusy = self.pendingOperations > 0
     }
-    if generation == self.generation { isBusy = false }
+    lastOperation = current
+    await current.value
   }
 
   private func show(_ phase: Phase, generation: Int) {

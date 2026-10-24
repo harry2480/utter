@@ -5,12 +5,11 @@ import UtterPersistence
 
 /// 入力履歴のウインドウ（7章, AC-12）。状態と操作は `InputHistoryScreenModel` が持ち、ここは表示だけを行う。
 ///
-/// 開くたびに設定と履歴を読み込み、閉じたら一覧の本文を手放す。
+/// 開くたびに設定と履歴を読み込み、閉じたら一覧の本文を手放す。状態はアプリ全体で1つを使い回す（`InputHistoryModelProvider`）。
 struct InputHistoryWindow: View {
   static let id = "inputHistory"
 
-  let database: AppDatabaseProvider
-  let settingsStore: AppSettingsStore
+  let models: InputHistoryModelProvider
   @State private var model: InputHistoryScreenModel?
   @State private var openFailed = false
 
@@ -29,11 +28,9 @@ struct InputHistoryWindow: View {
     .frame(minWidth: 420, minHeight: 360)
     .task {
       do {
-        let historyStore = InputHistoryStore(database: try await database.database())
-        // 開いている間にウインドウを閉じたら、閉じた画面に本文を読み込まない
+        let model = try await models.screenModel()
+        // データベースを開く間にウインドウを閉じたら、閉じた画面に本文を読み込まない
         guard !Task.isCancelled else { return }
-        let model = InputHistoryScreenModel(
-          settingsStore: settingsStore, historyStore: historyStore)
         self.model = model
         await model.load()
       } catch {

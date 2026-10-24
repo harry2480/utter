@@ -182,6 +182,28 @@ struct InputHistoryScreenModelTests {
     #expect(model.entries.count == 1)
   }
 
+  /// データベースを書き込みで押さえ、ほかの読み書きを待たせる。`release` を呼ぶと離す
+  private func holdDatabase() async -> (
+    release: @Sendable () -> Void, holder: Task<Void, any Error>
+  ) {
+    let locked = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let database = database
+    let holder = Task.detached {
+      try database.writer.write { _ in
+        locked.signal()
+        release.wait()
+      }
+    }
+    await withCheckedContinuation { continuation in
+      DispatchQueue.global().async {
+        locked.wait()
+        continuation.resume()
+      }
+    }
+    return ({ release.signal() }, holder)
+  }
+
   /// 履歴の表を消して、読み書きを失敗させる
   private func breakHistoryTable() throws {
     try database.writer.write { try $0.execute(sql: "DROP TABLE inputHistory") }
@@ -232,30 +254,45 @@ struct InputHistoryScreenModelTests {
     try record("一件目")
 
     // データベースを書き込みで押さえ、読み込みが読み取りを待つ間に閉じる
-    let locked = DispatchSemaphore(value: 0)
-    let release = DispatchSemaphore(value: 0)
-    let database = database
-    let holder = Task.detached {
-      try database.writer.write { _ in
-        locked.signal()
-        release.wait()
-      }
-    }
-    await withCheckedContinuation { continuation in
-      DispatchQueue.global().async {
-        locked.wait()
-        continuation.resume()
-      }
-    }
+    let lock = await holdDatabase()
     let loading = Task { await model.load() }
     while !model.isBusy { try await Task.sleep(for: .milliseconds(5)) }
     model.close()
-    release.signal()
+    lock.release()
     await loading.value
-    try await holder.value
+    try await lock.holder.value
 
     #expect(model.phase == .closed)
     #expect(model.entries.isEmpty)
     #expect(!model.isBusy)
+  }
+
+  @Test("7章, AC-12: 閉じる前の無効化の削除が終わるまで、開き直した後の有効化を待たせ、新しい履歴を消さない")
+  func reopenWaitsForPendingRemoval() async throws {
+    await model.enable()
+    try record("古い履歴")
+    let lock = await holdDatabase()
+
+    let disabling = Task { await model.disable() }
+    while !model.isBusy { try await Task.sleep(for: .milliseconds(5)) }
+    model.close()
+    let enabling = Task { await model.enable() }
+    try await Task.sleep(for: .milliseconds(20))
+
+    // 削除が終わるまで有効化は始まらない
+    #expect(!settingsStore.load().historyEnabled)
+    #expect(model.isBusy)
+
+    lock.release()
+    await disabling.value
+    await enabling.value
+    try await lock.holder.value
+
+    #expect(settingsStore.load().historyEnabled)
+    #expect(try historyStore.entries().isEmpty)
+    #expect(!model.isBusy)
+    try record("新しい履歴")
+    await model.load()
+    #expect(model.entries.map(\.text) == ["新しい履歴"])
   }
 }

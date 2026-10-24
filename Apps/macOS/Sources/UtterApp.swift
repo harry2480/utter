@@ -9,9 +9,15 @@ import UtterPersistence
 /// 録音・ホットキー・HUD・挿入は Phase 0 の判定後に、ここで本番実装と Stub を組み立てて結線する。
 @main
 struct UtterApp: App {
-  @State private var database = AppDatabaseProvider()
-  /// 設定の保存先。履歴への記録を結線するときも同じ保存先を読む（無効化は設定を先に書いてから削除するため）
-  private let settingsStore = AppSettingsStore(defaults: .standard)
+  @State private var historyModels: InputHistoryModelProvider
+
+  init() {
+    let database = AppDatabaseProvider()
+    // 設定の保存先。履歴への記録を結線するときも同じ保存先を読む（無効化は設定を先に書いてから削除するため）
+    let settingsStore = AppSettingsStore(defaults: .standard)
+    _historyModels = State(
+      initialValue: InputHistoryModelProvider(database: database, settingsStore: settingsStore))
+  }
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
@@ -20,7 +26,7 @@ struct UtterApp: App {
 
     // 入力履歴（7章, AC-12）。MVP 外の先行実装で、履歴は既定で無効
     Window("入力履歴", id: InputHistoryWindow.id) {
-      InputHistoryWindow(database: database, settingsStore: settingsStore)
+      InputHistoryWindow(models: historyModels)
     }
     .defaultSize(width: 520, height: 480)
     // 起動時・前回の状態の復元で開かない（履歴の本文を利用者が開くまで画面に出さない）
