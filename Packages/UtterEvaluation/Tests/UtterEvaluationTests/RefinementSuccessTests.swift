@@ -90,6 +90,17 @@ struct RefinementSuccessTests {
       Self.selfCorrected([("赤", "青"), ("青", "緑")], "赤、じゃなくて青、いや緑", refined) == expected)
   }
 
+  @Test("AC-04: 言い直した後の語がフィラーと同じ語でも、フィラーの件数では残すべき件数を減らさない")
+  func correctedSameAsFiller() {
+    let success = RefinementSuccess(
+      fillers: ["えー"], selfCorrections: [SelfCorrection(retracted: "赤", corrected: "えー")])
+    let reference = "えー、赤、いやえー"
+
+    #expect(success.missingWords(in: reference) == (fillers: false, selfCorrections: false))
+    #expect(success.selfCorrected(reference: reference, refined: "えー"))
+    #expect(!success.selfCorrected(reference: reference, refined: "はい"))
+  }
+
   @Test("AC-04: 注釈の語が正解に足りなければ不備として示す")
   func missingWords() {
     let fillers = RefinementSuccess(fillers: ["えー", "えー"], selfCorrections: [])

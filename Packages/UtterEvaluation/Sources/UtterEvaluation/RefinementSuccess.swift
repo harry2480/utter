@@ -44,8 +44,10 @@ public struct RefinementSuccess: Sendable {
     self.fillers = Set(normalizedFillers)
     self.retracted = Set(normalizedRetracted)
     self.removals = removals
+    let retractedCounts = Self.tally(normalizedRetracted)
+    // フィラーの件数は引かない（フィラーと同じ語を言い直した後の語にした場合も、その語は残す）
     self.keeps = Self.tally(normalizedCorrected).reduce(into: [:]) { keeps, entry in
-      let remaining = entry.value - removals[entry.key, default: 0]
+      let remaining = entry.value - retractedCounts[entry.key, default: 0]
       if remaining > 0 { keeps[entry.key] = remaining }
     }
     self.words = Set(normalizedFillers + normalizedRetracted + normalizedCorrected)
