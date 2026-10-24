@@ -287,7 +287,26 @@ iOS 専用の数値目標（p50/p95、ピークメモリ、10分連続使用時�
   - Xcode 同梱の Remote Virtual Interface（`rvictl`）と Wireshark 等のパケットキャプチャ。暗号化された中身は見えないが、接続先のホスト名と通信の有無を確認できる
   - Instruments の「Network」テンプレート（本体アプリの通信の有無と接続先）
 - ログの確認には、Mac の「コンソール」アプリ（iPhone を接続して表示）と、sysdiagnose（公開されているログ収集手順）を使う
-- 共有結果の期限切れ削除は、`SharedResultStore` の `cleanUp(at:)`（PR #94）を本体アプリの起動時とキーボードの表示時に呼ぶ実装を前提にする。**PR #94 は本書の作成時点で未マージ** のため、実施前にマージ済みであることと、呼び出し箇所を確認する
+- 共有結果の期限切れ削除は、`SharedResultStore` の `cleanUp(at:)`（PR #94）を本体アプリの起動時とキーボードの表示時に呼ぶ実装を前提にする。`cleanUp(at:)` は PR #94 で main にマージ済み（d408710）。実施前に、本体アプリとキーボード拡張での呼び出し箇所を確認する
+
+### 自動テストで確認済みの範囲
+
+パッケージ層（`Packages/`）で確かめられることは、`scripts/verify.sh` の自動テストと静的検査で確認済み。実機では、アプリ・キーボード拡張・OS（通信、OSLog、クラッシュレポート、App Group、ファイル保護）が絡む部分を本書の手順で確認する。自動テストが通っていても、次の手順は省略しない。
+
+| 手順 | 自動で確認していること | テスト・検査 |
+|---|---|---|
+| 3-1 | 同意がない・撤回した状態では、AI プロバイダーと HTTP 送信を呼ばない（Stub の呼び出し回数が0） | `RefinementRouterTests`「AC-06: 同意がオフのときはプロバイダーを呼ばずローカル結果を返す」、`ClaudeProviderTests`「AC-06: 同意がなければ RefinementRouter は送信しない」、`RefinementRouterBudgetTests`「AC-06: 同意がないときは予約も送信もしない」、`ConsentStateTests`、`EditSessionTests`（AC-06） |
+| 3-2 | 送信する入力が整形対象の文字列・整形モード・スタイル区分・辞書語だけ | `RefinementRequestTests`（CTX-03）、`RefinementPromptBuilderTests`（CTX-03） |
+| 3-4 | 本文・API キーを持つ型の `String(describing:)`・`String(reflecting:)`・`Mirror` の子要素に、本文・キー・辞書語が出ない | `ClaudeProviderTests`「AI-06: 文字列表現に API キーを含めない」、`RefinementRequestTests`（CTX-03 の文字列表現、AI-06 の応答）、`RefinementPromptBuilderTests`「TXT-04: 文字列表現とリフレクションに発話と辞書語を含めない」、`RefinementRouterTests`「AC-16: 結果の文字列表現に本文を含めない」、`RecognitionEventTests`（認識イベントと音声チャンク）、`SharedResultTests`「iOS-IPC-01: 文字列表現とリフレクションに本文を含めない」 |
+| 3-4 | 上記に加えて `dump` の出力にも本文が出ない | `StubAIProviderTests`「iAC-10: 振る舞いの文字列表現とリフレクションに応答の本文を含めない」、`SharedResultInsertionCoordinatorTests`「iOS-05, iAC-10: プレビューの文字列表現とリフレクションに本文を出さない」 |
+| 3-4 | `String(describing:)`・`String(reflecting:)` と `dump` に、本文・ファイルの場所・セッションID が出ない（`Mirror` の子要素は直接確かめていない） | `TemporaryAudioStoreTests`「AC-10: 記録の文字列表現とリフレクションにファイルの場所とセッションID を出さない」 |
+| 3-4 | `description` と `dump` に本文が出ない（`String(reflecting:)` は確かめていない） | `ProtectedSpanExtractorTests`「TXT-02: 説明文字列に本文を含めない」、`ProtectionCheckerTests`「TXT-02: 違反の説明文字列に本文を含めない」 |
+| 3-4 | `String(describing:)`・`String(reflecting:)` に本文が出ない（`Mirror` は項目名だけ、または確かめていない） | `TextDiffTests`「AC-14: 文字列表現とリフレクションに本文を出さない」（差分の区間の `Mirror` は項目名が種類と長さだけであることを確認）、`EditSessionTests`「AC-14: 文字列表現・リフレクション・エラーに本文を出さない」（エラーは `String(describing:)` のみ）、`StubSpeechRecognizerTests`「REC-06: 手順の文字列表現に認識テキストを含めない」、`InsertionPolicyTests`「INS-01: 入力対象の識別子の文字列表現に値を出さない」、`ClaudeProviderTests`「AI-06: 送信するリクエストの文字列表現に API キーと発話を含めない」 |
+| 3-4 | エラーに本文・API キーが出ない | `ClaudeProviderTests`「AI-06: エラーは本文・API キーを持たない」（`String(reflecting:)` と、`Mirror` の子要素がないこと）、`UserDictionaryTests`「TXT-03: 検証エラーの説明文字列に利用者の入力を含めない」（`String(describing:)` のみ） |
+| 3-4 | 製品コードで `print` / `debugPrint` / `dump` / `NSLog` / `fputs` などや `FileHandle.standardOutput` / `standardError` で値をそのまま出さない。`fatalError` / `precondition` / `assert` のメッセージで補間しない（検出する範囲と既知の誤検知はスクリプト冒頭に記載） | `scripts/check-logging.sh`（`scripts/verify.sh` から実行） |
+| 3-4 | 共有結果の保存ファイルの項目が、入れ子（`status` の各状態、`configuration`）まで含めて `sessionID`・`createdAt`・`expiresAt`・`status`（`consumedAt` を含む）・`text`・`revision`・`configuration` の項目だけで、ほかは中身が空のロックファイルだけ（4つの状態それぞれで確認） | `SharedResultResidueTests`「iOS-IPC-01, iOS-IPC-04: 保存ファイルの項目は入れ子まで共有結果の項目だけで、ほかに中身のあるファイルを作らない」 |
+| 3-5 | 期限切れ・挿入済みの結果を整理・プレビュー・挿入操作で削除し、保存先のどのファイル（一時ファイル・ロックファイルを含む）にも本文が残らない。期限内のほかの結果は残る | `SharedResultResidueTests`「iAC-10, iOS-IPC-05: 期限切れ・挿入後に削除した結果の本文は、保存先のどのファイルにも残らない」、`SharedResultCleanUpTests`、`SharedResultInsertionCoordinatorTests` |
+| 3-5 | 挿入結果が不明な結果を自動で再挿入しない。読めない結果（ロック中の代わりに権限を外したファイル）は整理で変更せずスキップする | `SharedResultCleanUpTests`（iOS-IPC-05, iOS-IPC-06）、`SharedResultTests`（iOS-IPC-03） |
 
 ### 手順
 

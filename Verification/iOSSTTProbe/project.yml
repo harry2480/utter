@@ -1,0 +1,39 @@
+# Phase i0 検証（#54）用の使い捨て iOS アプリ。本番コードではなく、Packages/ からは参照しない。
+# 生成: xcodegen generate --spec Verification/iOSSTTProbe/project.yml
+# Team ID・Bundle ID は Config/Local.xcconfig（gitignore 済み）で上書きする。
+name: iOSSTTProbe
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
+targets:
+  iOSSTTProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: "YES"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: STT Probe
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 音声認識の検証のため、マイクの音声を端末内で認識します。音声は保存・送信しません。
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: 音声認識の検証のため、端末内の音声認識を使います。
+        # 書き出したファイルを「ファイル」アプリの「このiPhone内」から取り出し・削除できるようにする
+        INFOPLIST_KEY_UIFileSharingEnabled: "YES"
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: "YES"

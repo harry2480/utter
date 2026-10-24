@@ -1,0 +1,2 @@
+# 計測の出力（trace・XML・CSV）。結果は人が docs/計測/ に転記する
+out/

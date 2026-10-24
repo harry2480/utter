@@ -1,0 +1,29 @@
+[
+  {
+    "id": "ja-001",
+    "category": "japanese",
+    "reference": "えー、明日は三時に集合です。",
+    "audio": "ja-001.m4a"
+  },
+  {
+    "id": "mix-001",
+    "category": "mixedJapaneseEnglish",
+    "reference": "来週の meeting は Zoom でお願いします",
+    "terms": [
+      "meeting",
+      "Zoom"
+    ],
+    "audio": "mix-001.m4a"
+  },
+  {
+    "id": "dev-001",
+    "category": "developerTerms",
+    "reference": "SwiftUI の View を Xcode でプレビューする",
+    "terms": [
+      "SwiftUI",
+      "View",
+      "Xcode"
+    ],
+    "audio": "dev-001.m4a"
+  }
+]

@@ -20,7 +20,7 @@ public struct SharedResult: Hashable, Sendable, Codable {
   public private(set) var revision: UInt64
   public let configuration: SharedResultConfiguration
 
-  /// 挿入を確定した時刻（iOS-IPC-01）
+  /// 挿入を確定した時刻（iOS-IPC-01）。本体アプリでコピーした時刻も含む（iOS-07）
   public var consumedAt: Date? {
     guard case .consumed(let at) = status else {
       return nil
@@ -150,7 +150,7 @@ public struct SharedResult: Hashable, Sendable, Codable {
   }
 
   /// 時刻が作成時より戻っていれば `invalidTimestamp`、期限切れなら `expired`、問題なければ `nil`。
-  private func timeValidity(at now: Date) -> SharedResultInsertability? {
+  func timeValidity(at now: Date) -> SharedResultInsertability? {
     guard now >= createdAt else {
       return .invalidTimestamp
     }
@@ -190,7 +190,7 @@ public enum SharedResultStatus: Hashable, Sendable, Codable {
   case inserting(startedAt: Date)
   /// 挿入を試みたが成功を確認できなかった
   case insertionUnknown
-  /// 挿入済み
+  /// 挿入済み（本体アプリでコピーした場合も含む）
   case consumed(at: Date)
 }
 
