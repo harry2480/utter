@@ -296,18 +296,16 @@ func requireLocalModel(_ options: ModelOptions) throws {
   guard let repository = tokenizerRepository(modelFolder: folder) else {
     throw ProbeError.tokenizerUnknown(folder.path)
   }
-  let tokenizer = HubApiWrapper(downloadBase: options.modelsDirURL)
+  let tokenizerFolder = HubApiWrapper(downloadBase: options.modelsDirURL)
     .localRepoLocation(HubApiWrapper.Repo(id: repository))
-    .appending(path: "tokenizer.json")
-  guard FileManager.default.fileExists(atPath: tokenizer.path) else {
-    throw ProbeError.tokenizerNotFound(tokenizer.path)
-  }
   // WhisperKit はローカルのトークナイザーを読めないと Hugging Face から取得し直すため、
-  // 壊れた・途中までのファイルはロード前に止めて、計測中に通信しないようにする
-  for file in [
-    tokenizer, tokenizer.deletingLastPathComponent().appending(path: "tokenizer_config.json"),
-  ]
-  where FileManager.default.fileExists(atPath: file.path) {
+  // 欠けた・壊れた・途中までのファイルはロード前に止めて、計測中に通信しないようにする。
+  // tokenizer_config.json が無くてもローカル読み込みは失敗する
+  for name in ["tokenizer.json", "tokenizer_config.json"] {
+    let file = tokenizerFolder.appending(path: name)
+    guard FileManager.default.fileExists(atPath: file.path) else {
+      throw ProbeError.tokenizerNotFound(file.path)
+    }
     guard let data = FileManager.default.contents(atPath: file.path),
       (try? JSONSerialization.jsonObject(with: data)) != nil
     else { throw ProbeError.tokenizerCorrupted(file.path) }
