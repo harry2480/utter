@@ -25,6 +25,8 @@ Local.xcconfig
 # STTモデル・評価用音声（初回取得 / ローカル保持）
 Models/
 eval/audio/
+# 実機の検証用アプリから取り出した結果（発話の認識結果を含む。Verification/iOSSTTProbe/README.md）
+eval/device/
 
 # 計測結果
 *.trace
