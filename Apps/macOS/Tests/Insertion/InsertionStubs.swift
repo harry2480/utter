@@ -52,6 +52,8 @@ final class FakeTextField {
 final class InsertionLog {
   enum Event: Equatable {
     case axInsert(String)
+    /// Realtime Direct の範囲の置き換え（位置・長さは UTF-16）
+    case axReplace(location: Int, length: Int, String, caret: Int)
     case pasteboardWrite(String, markers: [String])
     case pasteboardRestore
     case commandV
@@ -65,7 +67,7 @@ final class InsertionLog {
   var sentInsertions: [Event] {
     events.filter {
       switch $0 {
-      case .axInsert, .commandV, .typed: true
+      case .axInsert, .axReplace, .commandV, .typed: true
       default: false
       }
     }
