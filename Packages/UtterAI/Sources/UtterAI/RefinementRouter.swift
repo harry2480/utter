@@ -5,6 +5,7 @@ import UtterCore
 ///
 /// 同意がない・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
 /// 失敗しても再送や別のクラウドプロバイダーへの切り替えはしない（AI-04）。
+/// 別のクラウドプロバイダーへの切り替えは、明示的な許可がある場合に `CloudFallbackRouter` が行う。
 public struct RefinementRouter: Sendable {
   /// クラウド整形の応答待ちの上限時間の既定値（暫定）
   public static let defaultTimeout: Duration = .seconds(10)
@@ -103,9 +104,8 @@ public struct RefinementRouter: Sendable {
 
   /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
   ///
-  /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
-  /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
-  /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
+  /// 応答があれば実際の使用量で確定する。課金されない失敗（`AIProviderError.isUnbilled`）は取り消し、
+  /// それ以外の失敗は課金されている可能性があるため見込み費用で確定する。
   private static func resolve(
     _ reservation: BudgetReservation,
     with result: Result<RefinementResponse, AIProviderError>,
@@ -114,10 +114,9 @@ public struct RefinementRouter: Sendable {
     switch result {
     case .success(let response):
       await `guard`.settle(reservation, actualUsage: response.usage)
-    case .failure(.authenticationExpired), .failure(.quotaExceeded), .failure(.budgetExceeded):
+    case .failure(let error) where error.isUnbilled:
       await `guard`.cancel(reservation)
-    case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled),
-      .failure(.networkUnavailable):
+    case .failure:
       await `guard`.settle(reservation, actualUsage: nil)
     }
   }
