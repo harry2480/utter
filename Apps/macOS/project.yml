@@ -7,6 +7,9 @@ options:
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
+  # Xcode のプロジェクトでは Package.resolved が生成物（*.xcodeproj）の中に置かれるため、
+  # コミットした Apps/macOS/Package.resolved を生成のたびに中へ写す（docs/ビルド・配布規約.md「依存」）
+  postGenCommand: ../../scripts/install-mac-package-resolved.sh
 configFiles:
   Debug: ../../Config/Base.xcconfig
   Release: ../../Config/Base.xcconfig
@@ -19,6 +22,11 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  # 自動更新（Sparkle 2）。Phase 0 #47（依存のライセンス確定）の判定待ちの先行実装で、既定で無効。
+  # 版を上げるときは docs/ライセンス・依存関係.md の表を再確認し、Package.resolved も更新する
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 targets:
   UtterMac:
     type: application
@@ -27,6 +35,7 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: Sparkle
     settings:
       base:
         PRODUCT_NAME: utter
@@ -38,6 +47,8 @@ targets:
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: "YES"
+        # 生成する Info.plist に足すキー（自動更新の設定。INFOPLIST_KEY_ で書けないもの）
+        INFOPLIST_FILE: Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: utter
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"

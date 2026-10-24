@@ -52,7 +52,9 @@ xcodebuild \
   -configuration Debug \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$derived_data" \
+  -disableAutomaticPackageResolution \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
+  UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= \
   -quiet build
 # メニューバー常駐で Dock に出さない設定が入っていることを確かめる（アプリは起動しない）
 mac_info_plist="$derived_data/Build/Products/Debug/utter.app/Contents/Info.plist"
@@ -62,6 +64,24 @@ if [[ ! -f "$mac_info_plist" ]]; then
 fi
 if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != "true" ]]; then
   echo "macOS アプリの Info.plist に LSUIElement = YES がありません。" >&2
+  exit 1
+fi
+# 自動更新（Sparkle）: URL と公開鍵を空にした（Local.xcconfig の値を上書きした）ビルドで、Info.plist に空のまま入り、アプリは Sparkle を起動しない。
+# 低頻度の確認・システムプロファイルを送らない・自動インストールを選べないことも確かめる（Apps/macOS/Info.plist）
+mac_plist_value() {
+  /usr/libexec/PlistBuddy -c "Print :$1" "$mac_info_plist" 2>/dev/null || echo "<なし>"
+}
+for key_and_expected in "SUFeedURL=" "SUPublicEDKey=" "SUScheduledCheckInterval=604800" \
+  "SUEnableSystemProfiling=false" "SUAllowsAutomaticUpdates=false"; do
+  key="${key_and_expected%%=*}"
+  expected="${key_and_expected#*=}"
+  if [[ "$(mac_plist_value "$key")" != "$expected" ]]; then
+    echo "macOS アプリの Info.plist の $key が想定（${expected:-空}）と違います: $(mac_plist_value "$key")" >&2
+    exit 1
+  fi
+done
+if /usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "$mac_info_plist" >/dev/null 2>&1; then
+  echo "SUEnableAutomaticChecks は Info.plist に置かない（初回に Sparkle が利用者に確かめる）。" >&2
   exit 1
 fi
 

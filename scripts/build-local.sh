@@ -88,6 +88,7 @@ xcodebuild \
   -configuration "$configuration" \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$derived_data" \
+  -disableAutomaticPackageResolution \
   -allowProvisioningUpdates \
   -quiet build
 

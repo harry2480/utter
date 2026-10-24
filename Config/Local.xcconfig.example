@@ -7,3 +7,9 @@ DEVELOPMENT_TEAM = XXXXXXXXXX
 // 他人と重ならない逆ドメイン。macOS アプリは <接頭辞>.mac になる
 // PRODUCT_BUNDLE_IDENTIFIER は project.yml のターゲット設定が優先されるため、ここには書かず接頭辞を変える
 UTTER_BUNDLE_ID_PREFIX = com.example.yourname.utter
+
+// 自動更新（Sparkle 2）を試すときだけ設定する（既定は空で無効）。両方そろったときだけ Sparkle を起動する。
+// xcconfig では // 以降がコメントになるため、URL の // は /$()/ と書く（例: https:/$()/example.com/appcast.xml）。https だけ受け付ける
+// UTTER_SPARKLE_FEED_URL = https:/$()/example.com/utter/appcast.xml
+// 公開鍵は Sparkle の generate_keys が表示する Base64 の値（秘密鍵はコミットしない）
+// UTTER_SPARKLE_PUBLIC_ED_KEY = <generate_keys の公開鍵>
