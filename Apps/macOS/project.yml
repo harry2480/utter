@@ -23,6 +23,8 @@ packages:
     path: ../../Packages/UtterSpeech
   UtterAI:
     path: ../../Packages/UtterAI
+  UtterText:
+    path: ../../Packages/UtterText
   UtterPersistence:
     path: ../../Packages/UtterPersistence
 targets:
@@ -35,6 +37,7 @@ targets:
       - package: UtterCore
       - package: UtterSpeech
       - package: UtterAI
+      - package: UtterText
       - package: UtterPersistence
       # XPC STT Worker を utter.app/Contents/XPCServices に組み込む
       - target: UtterSTTWorker
@@ -72,10 +75,12 @@ targets:
       - path: Sources/Settings
         excludes:
           - "Views/**"
+      - path: Sources/Dictionary/DictionaryEditorModel.swift
     dependencies:
       - package: UtterCore
       - package: UtterSpeech
       - package: UtterAI
+      - package: UtterText
       - package: UtterPersistence
     settings:
       base:

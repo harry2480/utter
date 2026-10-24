@@ -34,7 +34,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → shellcheck） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild build/test → shellcheck） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
 | `scripts/merge-pr.sh [PR]` | PR を squash マージしてブランチ削除 |

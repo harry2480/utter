@@ -18,6 +18,9 @@ struct UtterApp: App {
   @State private var claudeAPIKeySettings = APIKeySettingsModel(store: Self.claudeAPIKeyStore)
   @State private var consentSettings = ConsentSettingsModel(
     controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
+  @State private var dictionaryEditor = DictionaryEditorModel {
+    DictionaryStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
+  }
   @State private var settings = SettingsModel(
     store: AppSettingsStore(defaults: .standard),
     openUsageStore: {
@@ -40,7 +43,8 @@ struct UtterApp: App {
       .disabled(!session.canCancel)
       Divider()
       SettingsMenuButton()
-      ConsentMenuButton()
+      WindowMenuButton(title: "クラウド送信の同意…", id: WindowID.consentSettings)
+      WindowMenuButton(title: "辞書を編集…", id: WindowID.dictionary)
       Divider()
       Button("utter を終了") {
         NSApplication.shared.terminate(nil)
@@ -55,6 +59,9 @@ struct UtterApp: App {
       ConsentSettingsView(model: consentSettings)
     }
     .windowResizability(.contentMinSize)
+    Window("辞書", id: WindowID.dictionary) {
+      DictionaryEditorView(model: dictionaryEditor)
+    }
   }
 
   private static func toggleTitle(_ phase: SessionPhase) -> String {
@@ -82,16 +89,18 @@ private struct SettingsMenuButton: View {
 
 enum WindowID {
   static let consentSettings = "consentSettings"
+  static let dictionary = "dictionary"
 }
 
-/// 同意の画面を開くメニュー項目
-private struct ConsentMenuButton: View {
+/// 別のウインドウを開くメニュー項目。Dock に出ないアプリのため、前面に出さないとウインドウがほかのアプリの後ろに開く
+private struct WindowMenuButton: View {
+  let title: String
+  let id: String
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
-    Button("クラウド送信の同意…") {
-      openWindow(id: WindowID.consentSettings)
-      // Dock に出ないアプリのため、開いた画面を前面に出す
+    Button(title) {
+      openWindow(id: id)
       NSApplication.shared.activate()
     }
   }
