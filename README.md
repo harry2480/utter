@@ -53,7 +53,7 @@ utter/
 ├── .github/workflows/    # CI（macOS ランナーで scripts/verify.sh）と Loop 用ワークフロー
 ├── docs/                 # 要件定義・設計規約・検証結果
 ├── scripts/              # verify / format / Loop
-├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
+├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterSpeechWhisperKit / UtterAI / UtterText / UtterPersistence）
 ├── Apps/                 # macOS / iOS アプリ
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
