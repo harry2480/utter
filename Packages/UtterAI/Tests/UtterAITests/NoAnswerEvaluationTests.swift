@@ -56,7 +56,7 @@ struct NoAnswerEvaluationTests {
         let router = try RefinementRouter(
           provider: StubAIProvider(behavior: .respond(example)), localRefiner: LocalBasicRefiner())
 
-        let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+        let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
         #expect(outcome == RefinementOutcome(text: example, source: .cloud), "\(mode), \(style)")
       }
@@ -74,7 +74,7 @@ struct NoAnswerEvaluationTests {
         let router = try RefinementRouter(
           provider: StubAIProvider(behavior: .respond(answer.text)), localRefiner: localRefiner)
 
-        let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+        let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
         // 期待する理由は、どの判定が回答を捉えているかの記録（閾値を決めるときの判断材料）
         #expect(
