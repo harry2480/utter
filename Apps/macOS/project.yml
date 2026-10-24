@@ -32,6 +32,9 @@ targets:
         PRODUCT_NAME: utter
         PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac
         CODE_SIGN_STYLE: Automatic
+        # 自前ビルドは各自の開発用証明書で署名する（既定の "-" は Ad Hoc になり、再ビルドで許可が外れる）。
+        # 署名なしビルド（verify.sh・CI）と公式バイナリ（scripts/release-macos.sh）はコマンドラインで上書きする
+        CODE_SIGN_IDENTITY: Apple Development
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: "YES"
@@ -39,6 +42,13 @@ targets:
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
         # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+        # Entitlement は UtterMac.entitlements に足す。Release は Hardened Runtime のため、
+        # マイクを使うなら com.apple.security.device.audio-input が要る（scripts/check-release-config.sh が確かめる）
+        CODE_SIGN_ENTITLEMENTS: UtterMac.entitlements
+      configs:
+        # 配布用（Developer ID 署名・公証、docs/ビルド・配布規約.md「リリース」）。公証には Hardened Runtime が必須
+        Release:
+          ENABLE_HARDENED_RUNTIME: "YES"
 schemes:
   UtterMac:
     build:
