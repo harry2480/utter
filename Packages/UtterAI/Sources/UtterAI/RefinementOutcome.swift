@@ -45,6 +45,8 @@ extension RefinementOutcome: CustomStringConvertible, CustomReflectable {
 public enum RefinementFallbackReason: Hashable, Sendable {
   /// クラウド送信の同意がない。プロバイダーは呼ばない（AC-06）
   case consentNotGranted
+  /// 入力先が機密入力（パスワード欄・機密アプリ・除外アプリ・判定不能）のため送信しない。プロバイダーは呼ばない（7章, AC-12）
+  case sensitiveInputSuppressed
   /// プロバイダーが失敗した。上限時間の超過は `.timeout` になる
   case providerFailed(AIProviderError)
   /// 応答が検証を通らなかった
