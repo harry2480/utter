@@ -135,7 +135,7 @@ scripts/battery-log.sh stop --label utter-idle-01
 scripts/battery-log.sh report --target utter-idle-01 --control control-01
 ```
 
-- AC 電源を外して計測する（接続中は警告し、集計の `ac_during` が `Yes` になる。その計測は無効）
+- AC 電源を外して計測する（開始・終了時の接続は警告し、途中の接続も `pmset -g log` から拾って集計の `ac_during` が `Yes` になる。その計測は無効。途中の電源がログから読めなければ `Unknown` になるので、条件を確認できない計測として扱う）
 - 消費量は表示上の % ではなく mAh（`RemainingCapacity`）の差を満充電容量で割った値（`percent_of_full_used`）で見る。1% 未満の差は表示上の % では分からない
 - 「待機」の条件（Mac をスリープさせるか、`caffeinate -i` で起こしておくか、画面の状態、ネットワーク）は人が決め、対象と対照で揃えて `--note` に残す。スリープ・復帰の回数も集計に出るので、条件が揃っているかの確認に使う
 - 1回ずつの差はバッテリー残量の推定誤差に埋もれやすい。対象・対照を複数回ずつ繰り返す

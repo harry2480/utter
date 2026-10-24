@@ -116,13 +116,16 @@ case "$command" in
     stop_row="$(raw_row "$label" stop)"
     start_time="$(cut -d, -f3 <<<"$start_row")"
     stop_time="$(cut -d, -f3 <<<"$stop_row")"
-    # 計測中のスリープ・復帰の回数（pmset -g log は "日付 時刻 TZ 種別" の形式。同じタイムゾーンなら文字列比較で範囲を絞れる）
+    # 計測中のスリープ・復帰の回数と電源（pmset -g log は "日付 時刻 TZ 種別" の形式。同じタイムゾーンなら文字列比較で範囲を絞れる）
+    # 途中だけ AC に接続した場合も拾えるよう、範囲内の行に付く "Using AC" / "Using BATT" を数える
     sleep_counts="$(pmset -g log | awk -v from="$start_time" -v to="$stop_time" '
       { stamp = $1 " " $2 " " $3 }
       stamp >= from && stamp <= to && $5 != "Requests" {
         if ($4 == "Sleep") s++; else if ($4 == "Wake") w++; else if ($4 == "DarkWake") d++
       }
-      END { printf "%d,%d,%d", s, w, d }')"
+      stamp >= from && stamp <= to && /Using AC/ { ac++ }
+      stamp >= from && stamp <= to && /Using (BATT|Batt)/ { batt++ }
+      END { printf "%d,%d,%d,%d,%d", s, w, d, ac, batt }')"
     if [[ ! -f "$summary_csv" ]]; then
       echo "label,hours,percent_used,mah_used,percent_of_full_used,avg_watts,sleeps,wakes,dark_wakes,ac_during,note" >"$summary_csv"
     fi
@@ -133,8 +136,12 @@ case "$command" in
       full = (a[7] + b[7]) / 2
       volts = (a[8] + b[8]) / 2 / 1000
       watts = hours > 0 ? mah * volts / 1000 / hours : 0
-      ac = (a[9] == "Yes" || b[9] == "Yes" || a[10] == "Yes" || b[10] == "Yes") ? "Yes" : "No"
-      printf "%s,%.3f,%d,%d,%.3f,%.4f,%s,%s,%s\n", a[1], hours, a[5] - b[5], mah, mah / full * 100, watts, counts, ac, a[11]
+      split(counts, c, ",")
+      # 開始・終了時のどちらか、または途中のログに AC があれば Yes。途中の電源がログから読めなければ Unknown（判定不能）
+      if (a[9] == "Yes" || b[9] == "Yes" || a[10] == "Yes" || b[10] == "Yes" || c[4] > 0) ac = "Yes"
+      else if (c[5] > 0) ac = "No"
+      else ac = "Unknown"
+      printf "%s,%.3f,%d,%d,%.3f,%.4f,%s,%s,%s,%s,%s\n", a[1], hours, a[5] - b[5], mah, mah / full * 100, watts, c[1], c[2], c[3], ac, a[11]
     }' >>"$summary_csv"
     tail -n 1 "$summary_csv" | awk -F, '{
       printf "経過 %.2f 時間 / 消費 %d%%（%d mAh = 満充電比 %.3f%%）/ 平均 %.4f W / スリープ %d 回・復帰 %d 回・DarkWake %d 回 / 計測中の AC 接続: %s\n",
