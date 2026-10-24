@@ -21,6 +21,10 @@ struct UtterApp: App {
   @State private var dictionaryEditor = DictionaryEditorModel {
     DictionaryStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
   }
+  @State private var historyModels = InputHistoryModelProvider(
+    database: AppDatabaseProvider(),
+    // 設定の保存先。履歴への記録も同じ保存先を読む（無効化は設定を先に書いてから削除するため）
+    settingsStore: AppSettingsStore(defaults: .standard))
   @State private var settings = SettingsModel(
     store: AppSettingsStore(defaults: .standard),
     openUsageStore: {
@@ -45,6 +49,7 @@ struct UtterApp: App {
       SettingsMenuButton()
       WindowMenuButton(title: "クラウド送信の同意…", id: WindowID.consentSettings)
       WindowMenuButton(title: "辞書を編集…", id: WindowID.dictionary)
+      WindowMenuButton(title: "入力履歴…", id: InputHistoryWindow.id)
       Divider()
       Button("utter を終了") {
         NSApplication.shared.terminate(nil)
@@ -62,6 +67,14 @@ struct UtterApp: App {
     Window("辞書", id: WindowID.dictionary) {
       DictionaryEditorView(model: dictionaryEditor)
     }
+    // 入力履歴（7章, AC-12）。MVP 外の先行実装で、履歴は既定で無効
+    Window("入力履歴", id: InputHistoryWindow.id) {
+      InputHistoryWindow(models: historyModels)
+    }
+    .defaultSize(width: 520, height: 480)
+    // 起動時・前回の状態の復元で開かない（履歴の本文を利用者が開くまで画面に出さない）
+    .defaultLaunchBehavior(.suppressed)
+    .restorationBehavior(.disabled)
   }
 
   private static func toggleTitle(_ phase: SessionPhase) -> String {
