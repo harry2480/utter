@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド → シェルスクリプト lint
+# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド・テスト → シェルスクリプト lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
-# 新しいターゲットを作ったら「アプリの署名なしビルド」に追加する。
+# 新しいターゲットを作ったら「アプリの署名なしビルド・テスト」に追加する。
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,7 +33,7 @@ else
   done
 fi
 
-echo "==> アプリの署名なしビルド（xcodegen → xcodebuild）"
+echo "==> アプリの署名なしビルド・テスト（xcodegen → xcodebuild）"
 if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen が見つかりません。brew install xcodegen で導入してください。" >&2
   exit 1
@@ -64,6 +64,15 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != 
   echo "macOS アプリの Info.plist に LSUIElement = YES がありません。" >&2
   exit 1
 fi
+# 画面の状態のユニットテスト（アプリは起動しない。テストバンドルにテスト対象のソースを直接含める）
+xcodebuild \
+  -project Apps/macOS/Utter.xcodeproj \
+  -scheme UtterMac \
+  -configuration Debug \
+  -destination "platform=macOS,arch=$(uname -m)" \
+  -derivedDataPath "$derived_data" \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
+  -quiet test
 
 echo "==> shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then

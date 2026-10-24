@@ -96,6 +96,6 @@ Loopに向くのは、`Packages/` 内で完結し、Stubを使ったUnitテス�
 
 GitHub Actions上で専用のテスト用リポジトリを使い、信頼できる作成者のready IssueからPR作成、CI失敗修正、CodeRabbit指摘修正、品質ゲート通過、squash自動マージまでを確認します。外部ユーザーのIssueにreadyを付けた場合は自動処理されずhumanへ移ること、CIや外部サービスが失敗した場合にLoopが停止すること、通常PRと手動レビューが維持されることも確認してください。
 
-CIでは `macos-26` ランナーで `scripts/verify.sh`（swift format lint、Swift Packageのbuild/test、アプリの署名なし `xcodebuild` ビルド、shellcheck）を実行します。アプリのテスト・ターゲットを作成したら、署名なしの `xcodebuild test` も同じ集約checkに追加します。
+CIでは `macos-26` ランナーで `scripts/verify.sh`（swift format lint、Swift Packageのbuild/test、アプリの署名なし `xcodebuild` ビルドとテスト、shellcheck）を実行します。
 
 ローカルではshell構文、workflow構文（actionlint）、CodeRabbit YAML、Issue templateを検証し、`scripts/verify.sh` を実行します。実際のCodeRabbitレビュー、GitHubのbranch protection、自動マージ、Issue作成からマージまでの一連の動作は外部設定に依存し、ローカル検証だけでは証明できません。
