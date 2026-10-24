@@ -95,7 +95,11 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, InsertionFie
     return Element(element: element, pid: pid)
   }
 
-  /// セキュア入力欄か。subrole がない要素は該当しない。問い合わせ自体が失敗したら判定できない（7章）
+  /// セキュア入力欄か。subrole がない要素は該当しない。問い合わせ自体が失敗したら判定できない（7章）。
+  ///
+  /// subrole のない入力欄（多くの NSTextView・Web の textarea など）を判定できない扱いにすると、ほぼすべての入力欄で挿入できなくなる。
+  /// パスワード欄は AppKit・WebKit では `AXSecureTextField` を公開し（ほかのアプリは要実機確認）、多くはフォーカス中にシステムのセキュア入力も有効にするため、
+  /// 両方の信号を併用して判定する（7章）
   private func secureFieldSignal(_ element: AXUIElement) -> SensitiveSignal {
     var value: CFTypeRef?
     switch AXUIElementCopyAttributeValue(element, Attribute.subrole as CFString, &value) {

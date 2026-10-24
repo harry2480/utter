@@ -342,6 +342,21 @@ struct InsertionExecutorTests {
     #expect(log.previews == [.preview("ls\nrm -rf ~", .plan(.multilineInTerminal))])
   }
 
+  @Test("AC-08: 本番の既定では、既知のターミナル系アプリに改行を含む文字列を自動挿入しない")
+  func knownTerminalsAreTerminal() async {
+    let policy = InsertionPolicy(profiles: KnownTerminalApps.profiles)
+    inspector.targets = [Self.target(Self.recorded, app: "com.apple.terminal")]
+
+    let report = await insert("ls\nrm -rf ~", executor: executor(policy: policy))
+
+    #expect(report.outcome == .preview(.plan(.multilineInTerminal)))
+    #expect(log.sentInsertions.isEmpty)
+    for app in KnownTerminalApps.bundleIDs {
+      // 経路の順は Phase 0 の判定前のため設定しない
+      #expect(policy.profile(for: app) == AppInsertionProfile(routes: nil, isTerminal: true))
+    }
+  }
+
   @Test("AC-08: 末尾の改行は除いて挿入する（Enter として実行させない）")
   func trailingNewlineIsTrimmed() async {
     let policy = InsertionPolicy(profiles: [Self.app: AppInsertionProfile(isTerminal: true)])

@@ -127,14 +127,31 @@ final class ContinuousInsertionClock: InsertionClock {
   }
 }
 
+/// ターミナル系のアプリ（シェルを操作するアプリ）の設定（INS-03, AC-08）。
+///
+/// 改行が Enter として実行される危険があるため、互換性表の判定にかかわらず `isTerminal` を有効にする（docs/挿入互換性表.md 6章）。
+/// 経路の順（`routes`）は Phase 0（#41）の判定前のため設定せず、既定の順を使う。bundle ID は AXInsertionProbe と同じ一覧で、実機で確かめて直す
+enum KnownTerminalApps {
+  static let bundleIDs = [
+    "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
+    "net.kovidgoyal.kitty", "com.mitchellh.ghostty", "org.alacritty", "io.alacritty",
+    "com.github.wez.wezterm",
+  ]
+
+  static var profiles: [String: AppInsertionProfile] {
+    Dictionary(uniqueKeysWithValues: bundleIDs.map { ($0, AppInsertionProfile(isTerminal: true)) })
+  }
+}
+
 extension InsertionExecutor {
   /// 本番のアダプターで組み立てる。
   ///
-  /// `profiles`（アプリ別の既定経路）は Phase 0（#41）の判定後に `docs/挿入互換性表.md` から入れる。それまでは空で、
-  /// すべてのアプリで既定の順（AX → Pasteboard → CGEvent）を試す。
+  /// アプリ別の既定経路（`AppInsertionProfile.routes`）は Phase 0（#41）の判定後に `docs/挿入互換性表.md` から入れる。
+  /// それまでは設定せず、すべてのアプリで既定の順（AX → Pasteboard → CGEvent）を試す。ターミナル系のアプリの `isTerminal` だけは
+  /// 判定によらず入れる（`KnownTerminalApps`）。
   static func system(
     preview: any InsertionPreviewPresenting,
-    policy: InsertionPolicy = InsertionPolicy(),
+    policy: InsertionPolicy = InsertionPolicy(profiles: KnownTerminalApps.profiles),
     sensitivePolicy: SensitiveInputPolicy = SensitiveInputPolicy()
   ) -> (executor: InsertionExecutor, inspector: any InsertionTargetInspector) {
     let target = AccessibilityInsertionTarget()
