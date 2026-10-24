@@ -13,7 +13,7 @@ struct RefinementRouterBudgetTests {
 
   /// 1トークン 1 円の単価表と、上限 100 円の予算を持つ BudgetGuard
   private func makeGuard(
-    spent: Int = 0, onRecord: (@Sendable (RecordedEstimatedCost) -> Void)? = nil
+    spent: Int = 0, onRecord: (@Sendable (RecordedEstimatedCost) throws -> Void)? = nil
   ) throws -> BudgetGuard {
     let estimator = CostEstimator(
       priceTable: try PriceTable(

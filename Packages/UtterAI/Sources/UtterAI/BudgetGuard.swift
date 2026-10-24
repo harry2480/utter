@@ -13,16 +13,21 @@ public actor BudgetGuard {
   public let estimator: CostEstimator
   public private(set) var ledger: MonthlyUsageLedger
   private var reservations: [UUID: BudgetReservation] = [:]
-  private let onRecord: (@Sendable (RecordedEstimatedCost) -> Void)?
+  private let onRecord: (@Sendable (RecordedEstimatedCost) throws -> Void)?
+  /// `onRecord` が失敗した（推定費用を永続化できなかった）か。
+  ///
+  /// 失敗すると再起動後に累計を少なく数えうるため、以降の予約はすべて拒否する（安全側）。
+  /// アプリは利用者に保存の失敗を知らせ、保存できる状態に戻してから台帳を復元し直した `BudgetGuard` を作る
+  public private(set) var hasPersistenceFailure = false
 
   /// - Parameter onRecord: 台帳に推定費用を記録するたびに、この actor の上で同期的に呼ばれる（AI-05）。
   ///   送信後に呼び出し元がキャンセルして `RefinementRouter.refine` が結果を返さない場合も呼ばれるため、
-  ///   永続化はこの経路で行う。長く待つ処理をしない
+  ///   永続化はこの経路で行う。長く待つ処理をしない。エラーを投げると `hasPersistenceFailure` になり、以降の予約を拒否する
   public init(
     budget: MonthlyBudget,
     estimator: CostEstimator,
     ledger: MonthlyUsageLedger,
-    onRecord: (@Sendable (RecordedEstimatedCost) -> Void)? = nil
+    onRecord: (@Sendable (RecordedEstimatedCost) throws -> Void)? = nil
   ) {
     self.budget = budget
     self.estimator = estimator
@@ -30,12 +35,16 @@ public actor BudgetGuard {
     self.onRecord = onRecord
   }
 
-  /// 予算に収まれば見込み費用を予約して返す。収まらない・推定できない場合は `budgetExceeded` を投げる。
+  /// 予算に収まれば見込み費用を予約して返す。収まらない・推定できない場合と、
+  /// 推定費用を永続化できなかった後（`hasPersistenceFailure`）は `budgetExceeded` を投げる。
   public func reserve(
     model: String,
     expectedUsage: TokenUsage,
     in month: YearMonth
   ) throws(AIProviderError) -> BudgetReservation {
+    guard !hasPersistenceFailure else {
+      throw .budgetExceeded
+    }
     let reserved = reservations.values.filter { $0.month == month }.reduce(Decimal(0)) {
       $0 + $1.amount
     }
@@ -81,7 +90,11 @@ public actor BudgetGuard {
       return nil
     }
     let recorded = RecordedEstimatedCost(cost: cost, month: reservation.month)
-    onRecord?(recorded)
+    do {
+      try onRecord?(recorded)
+    } catch {
+      hasPersistenceFailure = true
+    }
     return recorded
   }
 
