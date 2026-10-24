@@ -215,6 +215,26 @@ struct TemporaryAudioRecoveryTests {
     #expect(try recovery.store.list() == [record])
   }
 
+  @Test("AC-10: 認識のやり直し中にキャンセルされたら、値が返っても音声を残す")
+  func keepsAudioWhenCancelledDuringProcessing() async throws {
+    let recovery = try recovery(clock: .init(start.addingTimeInterval(60)))
+    let record = try place(Data([0x01]), for: SessionID(), secondsAfterStart: 0)
+    let candidate = try #require(try recovery.candidates().first)
+
+    let task = Task {
+      await recovery.recover(
+        candidate, decode: Self.decode,
+        process: { audio, _ in
+          // キャンセルに応じずに値を返す処理
+          withUnsafeCurrentTask { $0?.cancel() }
+          return audio
+        })
+    }
+
+    #expect(await task.value == .cancelled)
+    #expect(try recovery.store.list() == [record])
+  }
+
   @Test("AC-10: キャンセル済みなら音声を読まずに終え、音声を残す")
   func cancelledBeforeStart() async throws {
     let recovery = try recovery(clock: .init(start.addingTimeInterval(60)))
@@ -294,11 +314,11 @@ struct TemporaryAudioRecoveryTests {
     #expect(try recovery.store.list() == [record])
   }
 
-  @Test("AC-10: 読み込めない音声（端末のロック中など）があれば、戻せないと決めずに音声を残す")
+  @Test("AC-10: 読み込めない音声（端末のロック中など）があれば、古い音声で復旧せずに音声を残す")
   func keepsUnreadableAudio() async throws {
     let recovery = try recovery(clock: .init(start.addingTimeInterval(60)))
     let session = SessionID()
-    let older = try place(Data([Self.broken]), for: session, secondsAfterStart: 0)
+    let older = try place(Data([0x01]), for: session, secondsAfterStart: 0)
     let newer = try place(Data([0x02]), for: session, secondsAfterStart: 10)
     let candidate = try #require(try recovery.candidates().first)
     try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: newer.url.path)
@@ -307,10 +327,17 @@ struct TemporaryAudioRecoveryTests {
         [.posixPermissions: 0o600], ofItemAtPath: newer.url.path)
     }
 
+    let processed = Mutex(false)
+
     let result: TemporaryAudioRecoveryResult<Data> = await recovery.recover(
-      candidate, decode: Self.decode, process: { audio, _ in audio })
+      candidate, decode: Self.decode,
+      process: { audio, _ in
+        processed.withLock { $0 = true }
+        return audio
+      })
 
     #expect(result == .unreadable)
+    #expect(!processed.withLock { $0 })
     #expect(try recovery.store.list() == [older, newer])
   }
 

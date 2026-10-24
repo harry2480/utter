@@ -39,7 +39,8 @@ public struct TemporaryAudioRecovery: Sendable {
   /// `candidate` の音声を新しい順に戻し、最初に戻せたものを `process` へ渡す。
   ///
   /// - 読み込めない・`decode` が失敗するものは飛ばし、次に古いものを試す。保持期限を過ぎたものは試さない
-  /// - どれも戻せず、読み込めなかったもの（端末のロック中など）があれば、あとで試せるよう音声を残して `unreadable` を返す
+  /// - 読み込めないもの（端末のロック中など）があれば、それより古いものは試さず、あとで試せるよう音声を残して
+  ///   `unreadable` を返す。古い音声で復旧すると、新しい音声ごと削除してしまうため
   /// - `process` には `candidate.sessionID` をそのまま渡す。一時音声と状態機械が同じセッションを指すよう
   ///   `SessionID` は使い回す（認識の順序番号は 0 から始まり直す）
   /// - `process` が値を返したら、そのセッションの音声をまとめて削除する（期限切れのものを含む）。
@@ -56,7 +57,6 @@ public struct TemporaryAudioRecovery: Sendable {
     process: (Audio, SessionID) async throws -> Output
   ) async -> TemporaryAudioRecoveryResult<Output> {
     var restored: (audio: Audio, record: TemporaryAudioRecord)?
-    var unreadable = false
     for record in candidate.records {
       if Task.isCancelled { return .cancelled }
       // 期限切れのものは、復旧を終えたときにセッションごと削除する（キャンセル時に消さないよう、ここでは消さない）
@@ -66,10 +66,9 @@ public struct TemporaryAudioRecovery: Sendable {
         data = try store.load(record)
       } catch {
         // 端末のロック中（ファイル保護）など、あとで読めるかもしれないものは戻せないと決めない。
+        // 古い音声で復旧すると新しい音声ごと削除してしまうため、古いものも試さずに終える。
         // すでに無くなったものは、読めないのではなく試すものがないだけとして扱う
-        if FileManager.default.fileExists(atPath: record.url.path) {
-          unreadable = true
-        }
+        if FileManager.default.fileExists(atPath: record.url.path) { return .unreadable }
         continue
       }
       guard let audio = try? decode(data) else { continue }
@@ -77,7 +76,6 @@ public struct TemporaryAudioRecovery: Sendable {
       break
     }
     guard let restored else {
-      if unreadable { return .unreadable }
       return .unrecoverable(removed: removeAll(candidate.sessionID))
     }
     if Task.isCancelled { return .cancelled }
@@ -87,6 +85,8 @@ public struct TemporaryAudioRecovery: Sendable {
     } catch {
       return Task.isCancelled || error is CancellationError ? .cancelled : .processingFailed
     }
+    // キャンセルに応じずに値を返した場合も、呼び出し側は結果を使わないため、やり直せるよう音声を残す
+    if Task.isCancelled { return .cancelled }
     return .recovered(output, from: restored.record, removed: removeAll(candidate.sessionID))
   }
 
@@ -124,7 +124,7 @@ public enum TemporaryAudioRecoveryResult<Output> {
   case recovered(Output, from: TemporaryAudioRecord, removed: Bool)
   /// どの音声も戻せなかった。`removed` が `false` なら削除に失敗しており、保持期限で削除される
   case unrecoverable(removed: Bool)
-  /// 読み込めない音声があり（端末のロック中など）、ほかは戻せなかった。あとで試せるよう音声は残す
+  /// それより新しい音声を戻せないうちに、読み込めない音声（端末のロック中など）があった。あとで試せるよう音声は残す
   case unreadable
   /// 音声は戻せたが `process` が失敗した。音声は残す
   case processingFailed
