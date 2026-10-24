@@ -63,7 +63,8 @@ public struct CloudRefinementBudget: Sendable {
 ///   記録を終えたら消す。次の整形の前に予約が残っていれば、見込み費用で累計に加算してから判定する
 /// - 月次予算・単価表（通貨・更新日・モデルの単価）が未設定、通貨が一致しない、累計を読み書きできないときは送信しない
 /// - 前の整形の記録が終わる前に次の整形を始めたら、累計が古いため送信しない
-/// - 累計の保存に一度でも失敗したら、累計が実際より少ない可能性があるため、以降は送信しない（安全側）
+/// - 累計の保存に一度でも失敗したら、累計が実際より少ない可能性があるため、以降は送信しない（安全側）。
+///   予約のファイルが読めない場合は額がわからないため、ファイルを残し、起動し直しても送信しない
 /// - データベースは最初に使うときに開く。読み書きはメインスレッドの外で行う
 public actor UsageStoreBudgetSource: CloudRefinementBudgetSource {
   private let makeStore: @Sendable () throws -> MonthlyUsageStore
@@ -163,8 +164,8 @@ public actor UsageStoreBudgetSource: CloudRefinementBudgetSource {
       let pending = try? JSONDecoder().decode(PendingReservation.self, from: data),
       let month = try? UsageMonth(year: pending.year, month: pending.month)
     else {
-      // 読めない予約は額がわからないため、この起動中は送信しない。消さずに残すと二度と送れないため消す
-      try? FileManager.default.removeItem(at: pendingReservationURL)
+      // 読めない予約は額がわからず、課金されたかもしれない費用を数えられない。消すと次の起動で忘れるため、
+      // 残したまま送信しない（安全側。atomic に書くため通常は起きない）
       hasPersistenceFailure = true
       return false
     }

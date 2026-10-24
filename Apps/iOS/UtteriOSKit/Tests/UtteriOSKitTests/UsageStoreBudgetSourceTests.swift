@@ -227,7 +227,7 @@ struct UsageStoreBudgetSourceTests {
     #expect(await reason(source, settings: try configuredSettings()) == .usageUnavailable)
   }
 
-  @Test("AI-04: 読めない予約が残っていたら、この起動中は送信しない")
+  @Test("AI-04: 読めない予約が残っていたら、起動し直しても送信しない")
   func corruptedPendingReservationBlocksSending() async throws {
     let store = MonthlyUsageStore(database: try .inMemory())
     try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
@@ -238,5 +238,7 @@ struct UsageStoreBudgetSourceTests {
     #expect(await reason(source, settings: settings) == .usageUnavailable)
     #expect(await reason(source, settings: settings) == .usageUnavailable)
     #expect(await source.isDisabledByPersistenceFailure)
+    // 予約を消さないため、起動し直しても送信しない
+    #expect(await reason(self.source(store), settings: settings) == .usageUnavailable)
   }
 }
