@@ -64,6 +64,21 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != 
   echo "macOS アプリの Info.plist に LSUIElement = YES がありません。" >&2
   exit 1
 fi
+# XPC STT Worker がアプリに組み込まれ、アプリ側が接続する名前（アプリの Bundle ID + .stt-worker）になっていることを確かめる
+worker_info_plist="$derived_data/Build/Products/Debug/utter.app/Contents/XPCServices/UtterSTTWorker.xpc/Contents/Info.plist"
+if [[ ! -f "$worker_info_plist" ]]; then
+  echo "XPC STT Worker がアプリに組み込まれていません: $worker_info_plist" >&2
+  exit 1
+fi
+mac_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mac_info_plist")"
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$worker_info_plist")" != "$mac_bundle_id.stt-worker" ]]; then
+  echo "XPC STT Worker の Bundle ID が $mac_bundle_id.stt-worker ではありません。" >&2
+  exit 1
+fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :XPCService:ServiceType' "$worker_info_plist")" != "Application" ]]; then
+  echo "XPC STT Worker の Info.plist に XPCService.ServiceType = Application がありません。" >&2
+  exit 1
+fi
 
 echo "==> shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then

@@ -1,5 +1,5 @@
 /// STT モデルの保持モード（6章）。利用者が設定で選ぶ。
-public enum ModelRetentionMode: Hashable, Sendable, CaseIterable {
+public enum ModelRetentionMode: Hashable, Sendable, CaseIterable, Codable {
   /// 推論後に原則モデルを解放する
   case powerSaving
   /// 推論後に短時間保持し、メモリ圧迫・低バッテリーで解放する（標準）
@@ -9,7 +9,7 @@ public enum ModelRetentionMode: Hashable, Sendable, CaseIterable {
 }
 
 /// OS から通知されるメモリ圧迫の度合い。OS 固有の型はアプリ側でこの値に変換する
-public enum MemoryPressure: Hashable, Sendable, Comparable {
+public enum MemoryPressure: Hashable, Sendable, Comparable, Codable {
   case normal
   case warning
   case critical
@@ -22,7 +22,7 @@ public enum ModelWeight: Hashable, Sendable {
 }
 
 /// 判定に使う端末の状態
-public struct DeviceResourceState: Hashable, Sendable {
+public struct DeviceResourceState: Hashable, Sendable, Codable {
   public let memoryPressure: MemoryPressure
   /// バッテリー駆動で残量が少ない（低電力モードを含む）
   public let isBatteryLow: Bool
