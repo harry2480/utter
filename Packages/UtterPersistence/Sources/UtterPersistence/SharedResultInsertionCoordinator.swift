@@ -100,15 +100,18 @@ public actor SharedResultInsertionCoordinator {
   ///
   /// キーボードは本体アプリで録音したセッションを知らない（本体アプリへの移動・復帰は手動になりうる）ため、
   /// 保存されている結果のうち作成時刻が最も新しいものを待つ。挿入済みの結果と、壊れた・読めない結果は除く。
+  /// 作成時刻が現在より後の結果（端末の時刻が戻った後）は、後から作られた正しい結果を隠さないよう除く。
   /// 挿入先の確認は、プレビューと明示的な挿入操作で利用者が行う（iOS-06）。
   /// - Returns: 待つセッション。結果がなければ `nil`
   /// - Throws: 共有結果の一覧を読めない（共有コンテナに入れない）とき
   public func latestSessionID() async throws -> SessionID? {
     // 整理に失敗しても、残った結果は挿入時の判定で弾かれる。一覧を読めないことは下の一覧で投げる
-    _ = try? await store.cleanUp(at: now())
+    let now = now()
+    _ = try? await store.cleanUp(at: now)
     var latest: SharedResult?
     for sessionID in try await store.storedSessionIDs() {
-      guard let result = try? await store.load(sessionID: sessionID), result.consumedAt == nil
+      guard let result = try? await store.load(sessionID: sessionID), result.consumedAt == nil,
+        result.timeValidity(at: now) != .invalidTimestamp
       else {
         continue
       }

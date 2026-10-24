@@ -118,13 +118,8 @@ final class KeyboardViewController: UIInputViewController {
     return .ready(coordinator: coordinator, hostAppStatus: hostAppStatus)
   }
 
-  /// 入力欄の属性を OS 非依存の値にする。取れない属性は `unknown`（安全側, iOS-09）
   private func currentInputField() -> KeyboardInputField {
-    let proxy = textDocumentProxy
-    let secure: SensitiveSignal = proxy.isSecureTextEntry.map { $0 ? .on : .off } ?? .unknown
-    let phone: SensitiveSignal =
-      proxy.keyboardType.map { $0 == .phonePad || $0 == .namePhonePad ? .on : .off } ?? .unknown
-    return KeyboardInputField(secureTextEntry: secure, phoneNumber: phone)
+    KeyboardInputField(textDocumentProxy)
   }
 
   private func currentAvailability() -> KeyboardAvailability {
@@ -161,8 +156,10 @@ final class KeyboardViewController: UIInputViewController {
         snapshot = SharedSnapshot(container: .available(hostApp: nil), preview: .loading)
       }
       render()
+      let hasFullAccess = hasFullAccess
       Task {
-        let loaded = await Self.load(coordinator: coordinator, hostAppStatus: hostAppStatus)
+        let loaded = await Self.load(
+          coordinator: coordinator, hostAppStatus: hostAppStatus, hasFullAccess: hasFullAccess)
         guard generation == loadGeneration else { return }
         snapshot = loaded
         render()
@@ -171,13 +168,19 @@ final class KeyboardViewController: UIInputViewController {
   }
 
   private static func load(
-    coordinator: SharedResultInsertionCoordinator, hostAppStatus: HostAppStatusStore
+    coordinator: SharedResultInsertionCoordinator, hostAppStatus: HostAppStatusStore,
+    hasFullAccess: Bool
   ) async -> SharedSnapshot {
     let sessionID: SessionID?
     do {
       sessionID = try await coordinator.latestSessionID()
     } catch {
       // 共有コンテナの一覧を読めない（フルアクセスなし・署名の不備）
+      return SharedSnapshot(container: .unavailable, preview: .cleared)
+    }
+    // フルアクセスがないと、共有コンテナが権限エラーではなく空に見える場合がある（Phase i0 #56 で確認）。
+    // 「結果なし」と区別できないため、結果が見つからなければ読めないものとして扱い、フルアクセスを案内する
+    if sessionID == nil, !hasFullAccess {
       return SharedSnapshot(container: .unavailable, preview: .cleared)
     }
     // 本体アプリの状態は読めなければ使わない（案内を出さないだけで、共有結果の表示は続ける）
@@ -285,6 +288,11 @@ final class KeyboardViewController: UIInputViewController {
 
   private func render() {
     guard isViewLoaded else { return }
+    // 読み込んだときと入力欄の制限が変わっていれば（textDidChange が来ない場合も）、読み直してから表示する
+    guard currentInputField().restrictions == loadedRestrictions else {
+      reload()
+      return
+    }
     let availability = currentAvailability()
 
     let notices = availability.notices.map(KeyboardMessages.notice)
@@ -328,10 +336,11 @@ final class KeyboardViewController: UIInputViewController {
     statusLabel.isHidden = statusMessage == nil
 
     hostAppSection.isHidden = !availability.actions.contains(.openHostApp)
+    let guide =
+      showsSharedResult
+      ? KeyboardMessages.hostAppGuide : KeyboardMessages.hostAppGuideWithoutSharing
     hostAppLabel.text =
-      hostAppOpenFailed
-      ? KeyboardMessages.hostAppGuide + "\n" + KeyboardMessages.hostAppOpenFailed
-      : KeyboardMessages.hostAppGuide
+      hostAppOpenFailed ? guide + "\n" + KeyboardMessages.hostAppOpenFailed : guide
     openHostAppButton.isHidden = configuration.hostAppURL == nil
   }
 

@@ -130,6 +130,7 @@ else
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath "$ios_derived_data/App" \
     CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
+    UTTER_APP_GROUP_ENABLED=NO UTTER_HOST_APP_URL_SCHEME= \
     -quiet build
   ios_info_plist="$ios_derived_data/App/Build/Products/Debug-iphonesimulator/utter.app/Info.plist"
   if [[ ! -f "$ios_info_plist" ]]; then
@@ -159,6 +160,7 @@ else
     exit 1
   fi
   # App Group（#56 の判定待ち）は既定で無効。既定のビルドではフルアクセスを要求せず、App Group ID も持たない
+  # （上のビルドは Local.xcconfig で有効にした開発機でも既定値に固定している）
   if [[ "$(plist_value "$keyboard_info_plist" NSExtension:NSExtensionAttributes:RequestsOpenAccess)" != "false" ]]; then
     echo "既定のビルドでキーボード拡張の RequestsOpenAccess が false ではありません（App Group を有効にしたときだけ true）。" >&2
     exit 1
@@ -172,7 +174,8 @@ else
   for binary in "$keyboard_appex"/*; do
     [[ -f "$binary" && "$(file -b "$binary")" == *Mach-O* ]] || continue
     # grep -q が先に終わると nm が SIGPIPE になり pipefail で見逃すため、出力を受け取ってから調べる
-    if grep -qE '11UtterSpeech|7UtterAI' <<<"$(nm "$binary" 2>/dev/null || true)"; then
+    # モジュールの先頭として現れる形（$s11UtterSpeech / $s7UtterAI）だけを見る（UtterAIProviderID などに一致させない）
+    if grep -qE '[$]s(11UtterSpeech|7UtterAI)' <<<"$(nm "$binary" 2>/dev/null || true)"; then
       echo "キーボード拡張に UtterSpeech / UtterAI がリンクされています: $binary" >&2
       exit 1
     fi

@@ -259,6 +259,19 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(try await store.storedSessionIDs().count == 2)
   }
 
+  @Test("iOS-IPC-06: 作成時刻が現在より後の結果は、後から作られた結果を隠さない")
+  func latestSessionIDSkipsFutureResults() async throws {
+    let store = SharedResultStore(directory: directory.url)
+    let future = SharedResult(sessionID: SessionID(), text: "未来", createdAt: after(3600))
+    let current = SharedResult(sessionID: SessionID(), text: "現在", createdAt: createdAt)
+    for result in [future, current] {
+      try await store.save(result, expectedRevision: nil)
+    }
+
+    #expect(
+      try await coordinator(RecordingInserter(), at: 10).latestSessionID() == current.sessionID)
+  }
+
   @Test("iOS-IPC-05: 期限切れの結果は整理で削除し、待たない。結果がなければ待つセッションはない")
   func latestSessionIDSkipsExpired() async throws {
     #expect(try await coordinator(RecordingInserter()).latestSessionID() == nil)

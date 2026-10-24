@@ -87,6 +87,10 @@ enum KeyboardMessages {
     "音声入力は本体アプリ「utter」で録音します。画面下端を左右にスワイプするか App スイッチャーで utter に切り替え、"
     + "録音が終わったらこのアプリに戻って utter キーボードから挿入してください。"
 
+  /// 共有結果を表示できない状態での案内。キーボードから挿入できるとは書かない
+  static let hostAppGuideWithoutSharing =
+    "音声入力は本体アプリ「utter」で録音します。画面下端を左右にスワイプするか App スイッチャーで utter に切り替えてください。"
+
   static let hostAppOpenFailed = "本体アプリを開けませんでした。上の手順で手動で切り替えてください。"
 
   private static func notInsertable(_ reason: SharedResultInsertability) -> String {
