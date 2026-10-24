@@ -8,7 +8,8 @@ import UtterSpeech
 /// - 録音を始めるたびに使用許可を確かめ、未確認なら要求する。許可がなければ録音しない（PERM-01）
 /// - 入力機器の音声をモノラルにまとめ（`AudioDownmix`）、16kHz に変換して（`MonoResampler`）、
 ///   `AudioRecordingPipeline` で 100ms ごとのチャンクにして上限つきで流す（REC-05）
-/// - 次の通知で録音を止め、`AudioRecordingEnd.reason` の `.interrupted(_:)` で知らせる。自動で再開しない。
+/// - 次の通知で録音を止め（変換器に残った音声も流してから）、`AudioRecordingEnd.reason` の `.interrupted(_:)` で知らせる。
+///   自動で再開しない。
 ///   値の対応は docs/アーキテクチャ.md の「macOS の録音（AVAudioEngine）」を参照
 ///   - `AVAudioEngineConfigurationChange`（入力機器の切断・既定の入力機器の変更・形式の変更。エンジンは止まっている）
 ///   - `NSWorkspace.willSleepNotification`（スリープ）
@@ -106,13 +107,15 @@ actor AVAudioEngineRecorder: AudioRecorder {
     // 開始の直後に起きた変化を取りこぼさないよう、エンジンを始める前に購読する
     let configurationObserver = NotificationCenter.default.addObserver(
       forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
-    ) { [pipeline] _ in
-      pipeline.end(.interrupted(Self.configurationChangeInterruption))
+    ) { [weak self] _ in
+      Task {
+        await self?.tearDown(attempt, reason: .interrupted(Self.configurationChangeInterruption))
+      }
     }
     let sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.willSleepNotification, object: nil, queue: nil
-    ) { [pipeline] _ in
-      pipeline.end(.interrupted(Self.sleepInterruption))
+    ) { [weak self] _ in
+      Task { await self?.tearDown(attempt, reason: .interrupted(Self.sleepInterruption)) }
     }
     let active = ActiveRecording(
       attempt: attempt, engine: engine, resampler: resampler, pipeline: pipeline,
@@ -131,14 +134,16 @@ actor AVAudioEngineRecorder: AudioRecorder {
     return (active, recording)
   }
 
-  private func tearDown(_ attempt: UInt64) {
+  /// 録音を片付ける。通知（構成変更・スリープ）と `stop()` はここで終え、上限到達・受け手の破棄で
+  /// 終わった後の片付けもここで行う。
+  private func tearDown(_ attempt: UInt64, reason: AudioRecordingEndReason = .finished) {
     guard case .recording(let active) = phase, active.attempt == attempt else { return }
     phase = .idle
     // 先にタップを外してエンジンを止め、届いた音声をすべて受け取ってから終える
     Self.release(active)
-    // 通知から止まった場合はすでに終わっている（残りは受け入れない）。それ以外は変換器に残った音声も流して終える
+    // 変換器に残った音声も流して終える。上限到達・受け手の破棄ですでに終わっていれば受け入れない
     active.pipeline.append(active.resampler.flush())
-    active.pipeline.end(.finished)
+    active.pipeline.end(reason)
   }
 
   /// 通知の購読をやめ、タップを外してエンジンを止める

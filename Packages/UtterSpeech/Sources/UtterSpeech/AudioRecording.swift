@@ -73,11 +73,21 @@ public final class AudioRecordingPipeline: Sendable {
     chunkDuration: Duration = .milliseconds(100),
     onEnd: @escaping @Sendable (AudioRecordingEnd) -> Void = { _ in }
   ) -> (pipeline: AudioRecordingPipeline, recording: AudioRecording) {
-    let (stream, chunks) = BoundedAudioStream.make(buffer: buffer)
+    // 受け手が読むのをやめたら、次のチャンクを待たずに終える（マイクを開いたままにしない）。
+    // 参照の循環は、終えるときに `cancellationTarget` を空にして断つ
+    let cancellationTarget = Mutex<AudioRecordingPipeline?>(nil)
+    let (stream, chunks) = BoundedAudioStream.make(buffer: buffer) {
+      cancellationTarget.withLock { $0 }?.end(.cancelled)
+    }
     let (ends, endContinuation) = AsyncStream.makeStream(of: AudioRecordingEnd.self)
     let pipeline = AudioRecordingPipeline(
       stream: stream, sampleRate: sampleRate, chunkDuration: chunkDuration,
-      endContinuation: endContinuation, onEnd: onEnd)
+      endContinuation: endContinuation,
+      onEnd: { end in
+        cancellationTarget.withLock { $0 = nil }
+        onEnd(end)
+      })
+    cancellationTarget.withLock { $0 = pipeline }
     return (pipeline, AudioRecording(chunks: chunks, ends: ends))
   }
 

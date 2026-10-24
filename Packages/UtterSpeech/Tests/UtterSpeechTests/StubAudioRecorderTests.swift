@@ -109,11 +109,14 @@ struct StubAudioRecorderTests {
   @Test("REC-04: 割り込みで終わった直後に、新しい録音を始められる")
   func restartRightAfterInterruption() async throws {
     let recorder = StubAudioRecorder()
-    _ = try await recorder.start(buffer: AudioStreamBuffer())
+    let first = try await recorder.start(buffer: AudioStreamBuffer())
     recorder.interrupt(.audioInterruptionBegan)
 
-    _ = try await recorder.start(buffer: AudioStreamBuffer())
-    #expect(recorder.isRecording)
+    let second = try await recorder.start(buffer: AudioStreamBuffer())
+    // 受け手が音声のストリームを持っている間は録音が続く
+    withExtendedLifetime((first, second)) {
+      #expect(recorder.isRecording)
+    }
   }
 }
 

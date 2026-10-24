@@ -153,4 +153,19 @@ struct AudioRecordingPipelineTests {
     #expect(await collect(recording.chunks).map(\.samples.count) == [10, 5])
     #expect(await collect(recording.ends).map(\.reason) == [.interrupted(.audioInterruptionBegan)])
   }
+
+  @Test("REC-04: 受け手が読むのをやめたら、次のチャンクを待たずに録音を止めて知らせる")
+  func receiverCancellationEndsWithoutFurtherAudio() async {
+    let (pipeline, recording) = make()
+    // 区切りに満たない音声だけがある（次のチャンクはまだ流れない）
+    pipeline.append(Array(repeating: 0.5, count: 3))
+    let task = Task { [chunks = recording.chunks] in
+      for await _ in chunks {}
+    }
+    task.cancel()
+    await task.value
+
+    #expect(pipeline.isEnded)
+    #expect(await collect(recording.ends).map(\.reason) == [.cancelled])
+  }
 }
