@@ -45,23 +45,25 @@ public struct WhisperKitRecognizer<Transcriber: SegmentTranscriber>: SpeechRecog
         emit(.failed(.modelUnavailable))
         return
       }
-      // 推論の間も音声を読み続け、推論のたびにそれまでに届いた分をまとめて渡す。
-      // 推論が録音より遅くても、たまった音声を1回の推論で扱い、遅れが積み重ならないようにする
-      let inbox = AudioInbox()
-      let (arrivals, arrival) = AsyncStream.makeStream(
-        of: Void.self, bufferingPolicy: .bufferingNewest(1))
-      let reader = Task {
-        for await chunk in audio {
-          inbox.append(chunk)
-          arrival.yield()
-        }
-        inbox.finish()
-        arrival.finish()
-      }
-      // 終端イベントの後（失敗・キャンセルを含む）は音声を読まない
-      defer { reader.cancel() }
       do throws(SpeechRecognitionError) {
+        // 準備に失敗したら音声を読まずに終える（読んだ音声を失わないよう、準備の後に読み始める）
         try await transcriber.prepare()
+        if Task.isCancelled { return }
+        // 推論の間も音声を読み続け、推論のたびにそれまでに届いた分をまとめて渡す。
+        // 推論が録音より遅くても、たまった音声を1回の推論で扱い、遅れが積み重ならないようにする
+        let inbox = AudioInbox()
+        let (arrivals, arrival) = AsyncStream.makeStream(
+          of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let reader = Task {
+          for await chunk in audio {
+            inbox.append(chunk)
+            arrival.yield()
+          }
+          inbox.finish()
+          arrival.finish()
+        }
+        // 終端イベントの後（失敗・キャンセルを含む）は音声を読まない
+        defer { reader.cancel() }
         var assembler = WhisperTranscriptAssembler(configuration: configuration)
         for await _ in arrivals {
           if Task.isCancelled { return }

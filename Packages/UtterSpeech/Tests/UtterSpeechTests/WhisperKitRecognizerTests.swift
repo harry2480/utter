@@ -58,14 +58,21 @@ struct WhisperKitRecognizerTests {
     #expect(transcriber.transcribedSampleCounts.isEmpty)
   }
 
-  @Test("REC-06: モデルを準備できなければ、推論せずに失敗で終える")
+  @Test("REC-06: モデルを準備できなければ、音声を読まずに失敗で終える")
   func failsWhenPreparationFails() async throws {
     let transcriber = StubSegmentTranscriber(preparation: .failure(.modelUnavailable))
+    let audio = Self.audio([Self.chunk(seconds: 1)])
 
-    let events = try await collect(transcriber, audio: Self.audio([Self.chunk(seconds: 1)]))
+    let events = try await collect(transcriber, audio: audio)
 
     #expect(events.map(\.kind) == [.failed(.modelUnavailable)])
     #expect(transcriber.transcribedSampleCounts.isEmpty)
+    // 音声を読んでいないため、録音側が残りの音声を扱える
+    var remaining: [AudioChunk] = []
+    for await chunk in audio {
+      remaining.append(chunk)
+    }
+    #expect(remaining == [Self.chunk(seconds: 1)])
   }
 
   /// 推論が始まるたびに次の音声を流す（録音しながら認識する状況）。最後の音声の後に録音を終える
