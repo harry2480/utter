@@ -19,6 +19,10 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterText:
+    path: ../../Packages/UtterText
+  UtterAI:
+    path: ../../Packages/UtterAI
 targets:
   UtterMac:
     type: application
@@ -27,6 +31,8 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterText
+      - package: UtterAI
     settings:
       base:
         PRODUCT_NAME: utter
@@ -48,8 +54,11 @@ targets:
     sources:
       - path: Tests
       - path: Sources/Insertion
+      - path: Sources/EditMode
     dependencies:
       - package: UtterCore
+      - package: UtterText
+      - package: UtterAI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
