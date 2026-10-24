@@ -4,6 +4,8 @@ public enum PricingError: Error, Hashable, Sendable {
   case emptyModelName
   case negativePrice
   case negativeAmount
+  /// 金額が数値ではない（NaN）
+  case invalidAmount
   case duplicateModel(String)
   case invalidDate
   case invalidMonth
