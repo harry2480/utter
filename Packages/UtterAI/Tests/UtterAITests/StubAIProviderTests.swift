@@ -142,4 +142,26 @@ struct StubAIProviderTests {
     #expect(recorded.style == .polite)
     #expect(recorded.dictionaryTerms == ["Kubernetes"])
   }
+
+  @Test("iAC-10: 振る舞いの文字列表現とリフレクションに応答の本文を含めない")
+  func redactsBehavior() {
+    let behaviors: [StubAIProvider.Behavior] = [
+      .respond("秘密の整形結果", usage: TokenUsage(inputTokens: 3, outputTokens: 4)),
+      .respond("秘密の整形結果"), .fail(.timeout), .echo,
+    ]
+
+    for behavior in behaviors {
+      var dumped = ""
+      dump(behavior, to: &dumped)
+      let outputs = [
+        String(describing: behavior), String(reflecting: behavior),
+        String(describing: Mirror(reflecting: behavior).children.map(\.value)), dumped,
+      ]
+      for output in outputs {
+        #expect(!output.contains("秘密"))
+      }
+    }
+    #expect(String(describing: behaviors[1]) == "respond(length: 7, usage: nil)")
+    #expect(String(describing: behaviors[2]) == "fail(timeout)")
+  }
 }

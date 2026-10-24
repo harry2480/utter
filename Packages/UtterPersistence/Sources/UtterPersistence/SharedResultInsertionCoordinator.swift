@@ -38,8 +38,8 @@ public enum SharedResultInsertionOutcome: Hashable, Sendable {
   case notFound
 }
 
-// 本文をログに出さないよう、文字列表現には区分と文字数だけを出す。
-extension SharedResultPreview: CustomStringConvertible {
+// 本文をログに出さないよう、文字列表現とリフレクションには区分と文字数だけを出す。
+extension SharedResultPreview: CustomStringConvertible, CustomReflectable {
   public var description: String {
     switch self {
     case .notFound: "SharedResultPreview.notFound"
@@ -48,6 +48,10 @@ extension SharedResultPreview: CustomStringConvertible {
       "SharedResultPreview.needsConfirmation(length: \(text.count))"
     case .notInsertable(let reason): "SharedResultPreview.notInsertable(\(reason))"
     }
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["description": description])
   }
 }
 

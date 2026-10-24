@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 品質チェック: format lint → Swift Package の build/test → シェルスクリプト lint
+# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → シェルスクリプト lint
 # アプリターゲット（Apps/, Extensions/, Workers/）の xcodebuild は、ターゲット作成時にここへ追加する。
 set -euo pipefail
 
@@ -14,6 +14,9 @@ if [[ -z "$swift_sources" ]]; then
 else
   printf '%s\n' "$swift_sources" | xargs swift format lint --strict
 fi
+
+echo "==> ログ出力の検査（iAC-10）"
+scripts/check-logging.sh
 
 echo "==> Swift Package build / test"
 shopt -s nullglob
