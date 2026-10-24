@@ -35,9 +35,11 @@ struct CloudFallbackRouterTests {
     return { granted }
   }
 
+  /// 送信先の経路。Claude は予算が必須のため、指定がなければ余裕のある予算を付ける
   private func route(_ provider: StubAIProvider, budget: RefinementBudget? = nil) -> RefinementRoute
   {
-    RefinementRoute(provider: provider, budget: budget)
+    let budget = budget ?? (provider.destination == .claude ? self.budget(try! makeGuard()) : nil)
+    return try! RefinementRoute(provider: provider, budget: budget)
   }
 
   /// 1トークン 1 円の単価表と、上限 100 円の予算を持つ BudgetGuard
@@ -379,6 +381,14 @@ struct CloudFallbackRouterTests {
     await #expect(throws: CancellationError.self) {
       try await task.value
     }
+  }
+
+  @Test("AI-04: Claude への送信先は予算上限の設定なしでは作れない")
+  func requiresBudgetForClaude() throws {
+    #expect(throws: RefinementRouteError.budgetRequired) {
+      try RefinementRoute(provider: StubAIProvider(destination: .claude), budget: nil)
+    }
+    _ = try RefinementRoute(provider: StubAIProvider(destination: .chatGPT), budget: nil)
   }
 
   @Test("AC-16: 上限時間が正でなければ作れない")

@@ -105,12 +105,20 @@ public struct CloudFallbackRouter: Sendable {
 /// `CloudFallbackRouter` で試す送信先と、その送信先の予算上限の設定（AI-04, AI-05）。
 public struct RefinementRoute: Sendable {
   public let provider: any AIProvider
-  /// 送信先ごとの予算上限の設定。`RefinementRouter.refine` の `budget` と同じく、
-  /// 予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡し、`nil` はトークン課金ではない送信先に限る
+  /// 送信先ごとの予算上限の設定。`nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限る
   public let budget: RefinementBudget?
 
-  public init(provider: any AIProvider, budget: RefinementBudget?) {
+  /// - Throws: Claude への送信先で予算上限の設定がない場合（AI-04）。切り替え先も含め、Claude へは必ず予算を確認して送る
+  public init(provider: any AIProvider, budget: RefinementBudget?) throws(RefinementRouteError) {
+    if provider.destination == .claude, budget == nil {
+      throw .budgetRequired
+    }
     self.provider = provider
     self.budget = budget
   }
+}
+
+public enum RefinementRouteError: Error, Hashable, Sendable {
+  /// 予算上限を守る送信先（Claude）に予算上限の設定がない
+  case budgetRequired
 }
