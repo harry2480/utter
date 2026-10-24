@@ -7,4 +7,9 @@
 UTTER_BUNDLE_ID_PREFIX = invalid.utter
 DEVELOPMENT_TEAM =
 
+// iOS の App Group（#56 の判定待ち）。既定は未設定で、共有結果は iOS アプリの中にだけ保存し、キーボードとは共有しない。
+// 使うときは Local.xcconfig で両方を設定する（ID だけでは Entitlement が付かず、アプリ内保存に戻る）
+UTTER_APP_GROUP_ID =
+UTTER_IOS_CODE_SIGN_ENTITLEMENTS =
+
 #include? "Local.xcconfig"
