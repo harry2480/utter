@@ -84,6 +84,13 @@ final class ProbeModel {
 
   // MARK: 対応状況・アセット
 
+  /// 今の設定で実行できない理由。実行できるなら nil
+  private var unavailableReason: ProbeError? {
+    if availability?.deviceSupported == false { return .deviceUnsupported }
+    if availability?.supportedLocale == nil { return .localeUnsupported }
+    return nil
+  }
+
   func refreshAvailability() async {
     var base = configuration
     base.locale = Self.targetLocale
@@ -92,8 +99,8 @@ final class ProbeModel {
   }
 
   func downloadAssets() async {
-    guard availability?.supportedLocale != nil else {
-      message = ProbeError.localeUnsupported.localizedDescription
+    if let problem = unavailableReason {
+      message = problem.localizedDescription
       return
     }
     do {
@@ -126,8 +133,8 @@ final class ProbeModel {
 
   func startMicrophoneRun() async {
     guard !isBusy else { return }
-    guard availability?.supportedLocale != nil else {
-      message = ProbeError.localeUnsupported.localizedDescription
+    if let problem = unavailableReason {
+      message = problem.localizedDescription
       return
     }
     phase = .preparing
@@ -216,8 +223,8 @@ final class ProbeModel {
 
   func recognizeFiles(_ urls: [URL]) async {
     guard !isBusy, !urls.isEmpty else { return }
-    guard availability?.supportedLocale != nil else {
-      message = ProbeError.localeUnsupported.localizedDescription
+    if let problem = unavailableReason {
+      message = problem.localizedDescription
       return
     }
     message = nil

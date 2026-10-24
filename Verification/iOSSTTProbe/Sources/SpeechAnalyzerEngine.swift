@@ -269,6 +269,7 @@ enum ProbeError: LocalizedError {
   case microphoneUnavailable
   case audioFormatUnsupported
   case localeUnsupported
+  case deviceUnsupported
   case busy
 
   var errorDescription: String? {
@@ -277,6 +278,7 @@ enum ProbeError: LocalizedError {
     case .microphoneUnavailable: "マイク入力を取得できません"
     case .audioFormatUnsupported: "認識器が受け付ける音声形式を決められません"
     case .localeUnsupported: "この端末・エンジンは ja_JP に対応していません"
+    case .deviceUnsupported: "この端末は SpeechTranscriber に対応していません（DictationTranscriber を選ぶ）"
     case .busy: "実行中です"
     }
   }
