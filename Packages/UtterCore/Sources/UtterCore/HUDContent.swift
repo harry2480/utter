@@ -42,6 +42,10 @@ public enum HUDNotice: Hashable, Sendable {
   case audioBufferLimitReached
   /// 割り込み（電話着信・バックグラウンドへの移動など）で録音を止めた（iOS-PERF-03）
   case recordingInterrupted(RecordingInterruptionCause)
+  /// 失敗の理由: 音声認識のエンジンが選ばれていない（Phase 0 の判定待ちで既定のエンジンを持たない, 11章）
+  case speechRecognitionNotConfigured
+  /// 失敗の理由: マイクの使用が拒否・制限されている（REC-04, PERM-02）
+  case microphoneAccessDenied
 
   /// 録音の停止理由に対応する通知。利用者の停止操作では `nil`。
   public init?(stopReason: RecordingStopReason) {

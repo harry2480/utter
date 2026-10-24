@@ -154,6 +154,37 @@ struct HUDStateTests {
     #expect(hud.content(at: t0) == nil)
   }
 
+  @Test("REC-03: 失敗の理由を停止理由の通知より優先し、失敗の表示を終えるまで保つ")
+  func failureNoticeIsKeptWhileShowingError() throws {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    machine.stopRecordingAtBufferLimit()
+    _ = try machine.handle(event(machine, .failed))
+
+    hud.update(from: machine, failureNotice: .speechRecognitionNotConfigured, at: t0)
+    #expect(
+      hud.content(at: t0)
+        == HUDContent(status: .failed(.recognition), notice: .speechRecognitionNotConfigured))
+
+    // 同じ失敗の表示中に理由なしで反映しても消さない
+    hud.update(from: machine, at: t0 + .seconds(1))
+    #expect(hud.content(at: t0 + .seconds(1))?.notice == .speechRecognitionNotConfigured)
+
+    machine.dismissError()
+    hud.update(from: machine, at: t0 + .seconds(4))
+    #expect(hud.content(at: t0 + .seconds(4)) == nil)
+
+    // 次のセッションの失敗には持ち越さない
+    machine.start(at: t0 + .seconds(5))
+    hud.update(from: machine, failureNotice: .microphoneAccessDenied, at: t0 + .seconds(5))
+    #expect(hud.content(at: t0 + .seconds(5)) == HUDContent(status: .recording, notice: nil))
+    _ = try machine.handle(event(machine, .failed))
+    hud.update(from: machine, at: t0 + .seconds(6))
+    #expect(
+      hud.content(at: t0 + .seconds(6)) == HUDContent(status: .failed(.recording), notice: nil))
+  }
+
   @Test("REC-05: 新しいセッションを始めたら残していた通知を消す")
   func newSessionClearsLingeringNotice() throws {
     var hud = HUDState()

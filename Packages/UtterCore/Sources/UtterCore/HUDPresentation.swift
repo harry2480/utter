@@ -62,6 +62,8 @@ public struct HUDPresentation: Hashable, Sendable {
     case .maxRecordingDurationReached: "最大録音時間に達したため、録音を停止しました"
     case .audioBufferLimitReached: "録音できる音声の上限に達したため、録音を停止しました"
     case .recordingInterrupted(let cause): "\(reason(for: cause))ため、録音を停止しました"
+    case .speechRecognitionNotConfigured: "音声認識が設定されていません"
+    case .microphoneAccessDenied: "マイクの使用が許可されていません"
     }
   }
 

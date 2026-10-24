@@ -2,7 +2,7 @@ import UtterSpeech
 
 /// STT Worker を使う音声認識の組み立て（4章, 7章, AC-10）。
 ///
-/// 録音・セッションの結線（Phase 1）で `UtterApp` から使う。
+/// `AppComposition` が組み立てて `SessionCoordinator` に渡す。
 enum STTWorkerComposition {
   /// 使うエンジン。どれを既定にするかは Phase 0 の判定（11章）待ちのため、既定値を持たない（`nil`）。
   /// `nil` のままなら Worker を起動せず、認識は `failed(.modelUnavailable)` になる。判定後に設定値から渡す

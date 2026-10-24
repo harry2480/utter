@@ -5,36 +5,26 @@ import UtterCore
 /// macOS アプリの起動部（Composition Root）。
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
-/// 録音・挿入は Phase 0 の判定後に、`AppComposition` で本番実装と Stub を組み立てて結線する。
+/// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
 @main
 struct UtterApp: App {
   @State private var composition = AppComposition()
-  @State private var shortcuts = ShortcutCoordinator()
-  #if DEBUG
-    @State private var recordingCheck = RecordingCheck(recorder: AVAudioEngineRecorder())
-  #endif
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      Text(shortcuts.statusText)
-      if let command = shortcuts.lastCommand {
-        Text("最後の操作: \(Self.commandName(command))")
-      }
+      let session = composition.session
+      Text(composition.shortcuts.statusText)
       Divider()
-      #if DEBUG
-        Button("HUD のデモ（上限到達）") {
-          composition.hudDemo.runLimitReached()
-        }
-        Button("HUD のデモ（失敗）") {
-          composition.hudDemo.runFailure()
-        }
-        // 録音を結線するまでの確認用（Debug ビルドだけ）
-        Button(recordingCheck.isRecording ? "録音を止める（確認用）" : "録音を始める（確認用）") {
-          Task { await recordingCheck.toggle() }
-        }
-        Text(recordingCheck.status)
-        Divider()
-      #endif
+      Button(Self.toggleTitle(session.phase)) {
+        session.toggle()
+      }
+      .disabled(!Self.canToggle(session.phase))
+      // Esc の捕捉（#149）が入るまで、キャンセルはメニューから行う（REC-01）
+      Button("キャンセル") {
+        session.cancel()
+      }
+      .disabled(!session.canCancel)
+      Divider()
       Button("utter を終了") {
         NSApplication.shared.terminate(nil)
       }
@@ -42,11 +32,12 @@ struct UtterApp: App {
     }
   }
 
-  private static func commandName(_ command: ShortcutCommand) -> String {
-    switch command {
-    case .startRecording: "録音開始"
-    case .stopRecording: "録音停止"
-    case .cancelSession: "キャンセル"
-    }
+  private static func toggleTitle(_ phase: SessionPhase) -> String {
+    phase == .recording ? "録音を停止" : "録音を開始"
+  }
+
+  /// 処理中の開始操作は受け付けない（REC-06）
+  private static func canToggle(_ phase: SessionPhase) -> Bool {
+    phase == .idle || phase == .recording
   }
 }

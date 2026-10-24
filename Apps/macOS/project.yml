@@ -21,6 +21,8 @@ packages:
     path: ../../Packages/UtterCore
   UtterSpeech:
     path: ../../Packages/UtterSpeech
+  UtterAI:
+    path: ../../Packages/UtterAI
 targets:
   UtterMac:
     type: application
@@ -30,6 +32,7 @@ targets:
     dependencies:
       - package: UtterCore
       - package: UtterSpeech
+      - package: UtterAI
       # XPC STT Worker を utter.app/Contents/XPCServices に組み込む
       - target: UtterSTTWorker
     settings:
@@ -57,8 +60,13 @@ targets:
       - path: Tests
       - path: Sources/Shortcut
       - path: Sources/Insertion
+      - path: Sources/Session
+      # Session が使う型（TaskHUDRefreshScheduler）。パネルと画面は含めない
+      - path: Sources/HUD/TaskHUDRefreshScheduler.swift
     dependencies:
       - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterAI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests

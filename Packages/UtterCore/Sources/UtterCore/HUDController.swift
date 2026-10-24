@@ -49,13 +49,18 @@ public final class HUDController {
   }
 
   /// 状態機械の現在の状態を反映する。
-  public func update(from machine: SessionStateMachine) {
-    update(phase: machine.phase, activeSession: machine.activeSession)
+  /// - Parameter failureNotice: 失敗の表示に添える理由（`HUDState.update(phase:activeSession:failureNotice:at:)`）
+  public func update(from machine: SessionStateMachine, failureNotice: HUDNotice? = nil) {
+    update(
+      phase: machine.phase, activeSession: machine.activeSession, failureNotice: failureNotice)
   }
 
   /// セッションの状態を反映する。状態が変わるたびに呼ぶ（同じ状態で何度呼んでもよい）。
-  public func update(phase: SessionPhase, activeSession: ActiveSession?) {
-    state.update(phase: phase, activeSession: activeSession, at: now())
+  public func update(
+    phase: SessionPhase, activeSession: ActiveSession?, failureNotice: HUDNotice? = nil
+  ) {
+    state.update(
+      phase: phase, activeSession: activeSession, failureNotice: failureNotice, at: now())
     refresh()
   }
 
