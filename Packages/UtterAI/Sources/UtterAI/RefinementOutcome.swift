@@ -14,11 +14,18 @@ public struct RefinementOutcome: Hashable, Sendable {
   public let source: Source
   /// クラウドが応答した場合のトークン使用量（AI-05）。検証失敗で退避した場合も、課金されているため残す
   public let usage: TokenUsage?
+  /// 予算の台帳に記録した推定費用と計上した月（AI-05）。記録していなければ `nil`。
+  /// 表示・通知用。永続化は `BudgetGuard` の `onRecord` で行う（キャンセルで結果が返らない場合も記録額を失わないため）
+  public let recordedCost: RecordedEstimatedCost?
 
-  public init(text: String, source: Source, usage: TokenUsage? = nil) {
+  public init(
+    text: String, source: Source, usage: TokenUsage? = nil,
+    recordedCost: RecordedEstimatedCost? = nil
+  ) {
     self.text = text
     self.source = source
     self.usage = usage
+    self.recordedCost = recordedCost
   }
 
   /// 退避した理由。クラウド整形の結果なら `nil`
@@ -33,11 +40,16 @@ public struct RefinementOutcome: Hashable, Sendable {
 // 本文をログに出さないよう、文字列表現とリフレクションには出どころと文字数だけを出す。
 extension RefinementOutcome: CustomStringConvertible, CustomReflectable {
   public var description: String {
-    "RefinementOutcome(source: \(source), length: \(text.count), usage: \(usage.map(String.init(describing:)) ?? "nil"))"
+    "RefinementOutcome(source: \(source), length: \(text.count), usage: \(usage.map(String.init(describing:)) ?? "nil"), recordedCost: \(recordedCost.map(String.init(describing:)) ?? "nil"))"
   }
 
   public var customMirror: Mirror {
-    Mirror(self, children: ["source": source, "length": text.count, "usage": usage as Any])
+    Mirror(
+      self,
+      children: [
+        "source": source, "length": text.count, "usage": usage as Any,
+        "recordedCost": recordedCost as Any,
+      ])
   }
 }
 
