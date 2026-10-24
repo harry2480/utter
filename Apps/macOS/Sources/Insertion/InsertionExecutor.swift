@@ -45,7 +45,7 @@ struct InsertionTiming: Hashable, Sendable {
 
 /// 挿入の計画（`InsertionPlan`）を、AX / Pasteboard / CGEvent の経路で実行する（INS-01〜07, AC-08, AC-09）。
 ///
-/// - 経路を試す直前ごと、および Cmd+V・キー入力を送る直前に、フォーカス中の入力対象が録音開始時と同じで、
+/// - 経路を試す直前ごと、および AX の書き込み・Cmd+V・キー入力を送る直前に、フォーカス中の入力対象が録音開始時と同じで、
 ///   パスワード欄・セキュア入力・機密アプリでないことを確かめる。違えば送らずにプレビューへ退避する（INS-01, AC-09, 7章）
 /// - Accessibility が未許可なら入力対象を確かめられないため、どの経路も使わずに退避する。イベント送信が未許可なら
 ///   Pasteboard / CGEvent 経路を使わない（PERM-01, PERM-02）
@@ -200,8 +200,9 @@ final class InsertionExecutor {
       route: route, response: .rejectedBeforeSend, readBack: .unavailable)
     switch route {
     case .accessibility:
-      // 記録した要素へ直接書き込むため、フォーカスの移動の影響を受けない
       let before = field.snapshot(of: target)
+      // 記録した要素へ直接書き込むが、読み取り（AX の問い合わせ）の間に利用者が別の入力欄へ移っていたら書き込まない
+      guard isStillTargeting(target) else { return (rejected, nil) }
       let response = field.insertAtSelection(text, into: target)
       return (await classify(route, response, target: target, before: before, text: text), nil)
     case .keyEvents:

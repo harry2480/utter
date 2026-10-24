@@ -222,7 +222,10 @@ struct InsertionExecutorTests {
   @Test("INS-01: 経路を切り替える前にもう一度確かめ、入力欄が変わっていれば次の経路を試さない")
   func revalidatesBeforeFallback() async {
     field.axBehavior = .ignored
-    inspector.targets = [Self.target(Self.recorded), Self.target(Self.other)]
+    // 計画・AX の書き込みの直前までは同じ入力欄、次の経路の前に別の入力欄
+    inspector.targets = [
+      Self.target(Self.recorded), Self.target(Self.recorded), Self.target(Self.other),
+    ]
 
     let report = await insert()
 
@@ -230,6 +233,18 @@ struct InsertionExecutorTests {
     #expect(report.outcome == .preview(.plan(.targetChanged)))
     #expect(log.sentInsertions == [.axInsert("こんにちは")])
     #expect(pasteboard.changeCount == 0)
+  }
+
+  @Test("INS-01: AX の書き込みの直前にフォーカスが移っていたら、記録した要素へも書き込まない")
+  func accessibilityRevalidatesBeforeWrite() async {
+    inspector.targets = [Self.target(Self.recorded), Self.target(Self.other)]
+
+    let report = await insert()
+
+    #expect(report.attempts == [.failed(.accessibility)])
+    #expect(report.outcome == .preview(.plan(.targetChanged)))
+    #expect(log.sentInsertions.isEmpty)
+    #expect(field.value == "abc")
   }
 
   // MARK: 7章（セキュア入力）
@@ -274,7 +289,8 @@ struct InsertionExecutorTests {
   func revalidatesSecureFieldBeforeFallback() async {
     field.axBehavior = .ignored
     inspector.targets = [
-      Self.target(Self.recorded), Self.target(Self.recorded, secureField: .on),
+      Self.target(Self.recorded), Self.target(Self.recorded),
+      Self.target(Self.recorded, secureField: .on),
     ]
 
     let report = await insert()
