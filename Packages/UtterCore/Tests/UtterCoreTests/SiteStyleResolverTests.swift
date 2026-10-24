@@ -58,6 +58,8 @@ struct SiteHostTests {
       ("http://user:password@mail.example.com/", "mail.example.com"),
       ("https://example.com./", "example.com"),
       ("HTTPS://EXAMPLE.COM", "example.com"),
+      ("https://ＥＸＡＭＰＬＥ.com/", "example.com"),
+      ("https://exa%6Dple.com/", "example.com"),
     ])
   func extractsHostFromURL(_ urlString: String, _ expected: String) throws {
     let url = try #require(URL(string: urlString))
@@ -66,23 +68,51 @@ struct SiteHostTests {
     #expect(host.rawValue == expected)
   }
 
-  @Test("CTX-02: 国際化ドメイン名は Punycode の形で扱う")
+  @Test("CTX-02: 国際化ドメイン名は Punycode の形で扱い、見た目の似た文字を別のサイトとして扱う")
   func internationalizedDomainFromURL() throws {
     let url = try #require(URL(string: "https://日本語.jp/path"))
+    // キリル文字の а（U+0430）を使った apple.com
+    let homograph = try #require(URL(string: "https://\u{0430}pple.com/"))
 
     #expect(SiteHost(url: url)?.rawValue == "xn--wgv71a119e.jp")
+    #expect(SiteHost(url: homograph)?.rawValue == "xn--pple-43d.com")
+    #expect(SiteHost(url: homograph) != SiteHost(host: "apple.com"))
   }
 
   @Test(
-    "CTX-02: http / https 以外とホスト名のない URL からは作らない",
+    "CTX-02: http / https 以外・ホスト名のない URL・IPv6・戻すと不正な文字になるホスト名からは作らない",
     arguments: [
       "about:blank", "file:///tmp/a.html", "chrome://settings", "ftp://example.com/",
-      "https://[::1]:8080/", "data:text/plain,hello",
+      "data:text/plain,hello", "https://[::1]:8080/", "https://a.b%2Fc.com/",
+      "https://ex%20ample.com/", "https://my_host.example.com/",
     ])
   func rejectsNonWebURL(_ urlString: String) throws {
     let url = try #require(URL(string: urlString))
 
     #expect(SiteHost(url: url) == nil)
+  }
+
+  @Test(
+    "CTX-02: 設定画面の入力はホスト名でも URL でもよく、ブラウザから得た値と同じ形にする",
+    arguments: [
+      ("example.com", "example.com"),
+      ("  WWW.Example.com  ", "example.com"),
+      ("https://docs.example.com/d/abc?usp=sharing", "docs.example.com"),
+      ("example.com:8080/path", "example.com"),
+      ("日本語.jp", "xn--wgv71a119e.jp"),
+      ("ＥＸＡＭＰＬＥ.com", "example.com"),
+    ])
+  func normalizesUserInput(_ input: String, _ expected: String) {
+    #expect(SiteHost(userInput: input)?.rawValue == expected)
+  }
+
+  @Test(
+    "CTX-02: 設定画面の入力でも、利用者情報や Web 以外の URL からは作らない",
+    arguments: [
+      "", "   ", "user@example.com", "https://user:pw@example.com/", "file:///tmp/a", "a..b",
+    ])
+  func rejectsInvalidUserInput(_ input: String) {
+    #expect(SiteHost(userInput: input) == nil)
   }
 
   @Test("CTX-03: 文字列表現とリフレクションにホスト名を含めない")
