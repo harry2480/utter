@@ -10,6 +10,9 @@ import UtterCore
 struct UtterApp: App {
   @State private var composition = AppComposition()
   @State private var shortcuts = ShortcutCoordinator()
+  #if DEBUG
+    @State private var recordingCheck = RecordingCheck(recorder: AVAudioEngineRecorder())
+  #endif
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
@@ -25,6 +28,11 @@ struct UtterApp: App {
         Button("HUD のデモ（失敗）") {
           composition.hudDemo.runFailure()
         }
+        // 録音を結線するまでの確認用（Debug ビルドだけ）
+        Button(recordingCheck.isRecording ? "録音を止める（確認用）" : "録音を始める（確認用）") {
+          Task { await recordingCheck.toggle() }
+        }
+        Text(recordingCheck.status)
         Divider()
       #endif
       Button("utter を終了") {
