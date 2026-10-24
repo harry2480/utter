@@ -84,7 +84,7 @@ public struct RefinementRouter: Sendable {
 
     let result = await requestWithTimeout(request)
     if let budget, let reservation {
-      await Self.resolve(reservation, with: result, in: budget.guard)
+      await budget.guard.resolve(reservation, with: result.map(\.usage))
     }
     if Task.isCancelled {
       throw CancellationError()
@@ -100,27 +100,6 @@ public struct RefinementRouter: Sendable {
         text: Self.trimmingWhitespace(response.text), source: .cloud, usage: response.usage)
     case .failure(let error):
       return fallback(request, reason: .providerFailed(error))
-    }
-  }
-
-  /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
-  ///
-  /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
-  /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
-  /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
-  private static func resolve(
-    _ reservation: BudgetReservation,
-    with result: Result<RefinementResponse, AIProviderError>,
-    in guard: BudgetGuard
-  ) async {
-    switch result {
-    case .success(let response):
-      await `guard`.settle(reservation, actualUsage: response.usage)
-    case .failure(.authenticationExpired), .failure(.quotaExceeded), .failure(.budgetExceeded):
-      await `guard`.cancel(reservation)
-    case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled),
-      .failure(.networkUnavailable):
-      await `guard`.settle(reservation, actualUsage: nil)
     }
   }
 
@@ -144,7 +123,7 @@ public struct RefinementRouter: Sendable {
   private func requestWithTimeout(
     _ request: RefinementRequest
   ) async -> Result<RefinementResponse, AIProviderError> {
-    let race = Race()
+    let race = Race<RefinementResponse>()
     let provider = provider
     let timeout = timeout
     return await withTaskCancellationHandler {
@@ -172,8 +151,9 @@ public struct RefinementRouter: Sendable {
 }
 
 /// 最初に届いた結果で1回だけ continuation を再開し、残りの Task をキャンセルする。
-final class Race: Sendable {
-  typealias Outcome = Result<RefinementResponse, AIProviderError>
+/// 整形（`RefinementRouter`）とクラウド STT（`OpenAISpeechRecognizer`）の上限時間で使う。
+final class Race<Success: Sendable>: Sendable {
+  typealias Outcome = Result<Success, AIProviderError>
 
   private struct State {
     var continuation: CheckedContinuation<Outcome, Never>?
