@@ -1,0 +1,58 @@
+# Phase i0 検証用（#56, #53）の iOS アプリ + カスタムキーボード拡張。本番コードではない。
+# 生成: xcodegen generate --spec Verification/iOSKeyboardProbe/project.yml
+# 生成した UtterKeyboardProbe.xcodeproj はコミットしない（.gitignore）。
+name: UtterKeyboardProbe
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Probe.xcconfig
+  Release: Config/Probe.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+targets:
+  UtterKeyboardProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: UtterKeyboardProbe
+        PRODUCT_BUNDLE_IDENTIFIER: $(PROBE_BUNDLE_ID_PREFIX).keyboardprobe
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+    dependencies:
+      - target: UtterKeyboardProbeKeyboard
+        embed: true
+  UtterKeyboardProbeKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Keyboard
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: UtterKeyboardProbeKeyboard
+        PRODUCT_BUNDLE_IDENTIFIER: $(PROBE_BUNDLE_ID_PREFIX).keyboardprobe.keyboard
+        INFOPLIST_FILE: Keyboard/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Keyboard/Keyboard.entitlements
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+schemes:
+  UtterKeyboardProbe:
+    build:
+      targets:
+        UtterKeyboardProbe: all
+        UtterKeyboardProbeKeyboard: all
+    run:
+      config: Debug
