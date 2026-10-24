@@ -4,17 +4,22 @@ import UtterCore
 
 /// コントローラーと Stub、受け取ったセッション操作をまとめたテスト用の組み立て。
 @MainActor
-private final class Harness {
+final class Harness {
   let registrar = StubHotKeyRegistrar()
+  let taps = StubKeyEventTapFactory()
+  let permissions = StubEventTapPermissions()
   var systemShortcuts: [ShortcutBinding] = []
   var phase: SessionPhase = .idle
   private(set) var commands: [ShortcutCommand] = []
   private(set) var systemShortcutLoads = 0
   private(set) var controller: GlobalShortcutController!
 
-  init() {
+  init(capabilities: ShortcutCapabilities = .keyCombinationsOnly) {
     controller = GlobalShortcutController(
       registrar: registrar,
+      tapFactory: taps,
+      permissions: permissions,
+      capabilities: capabilities,
       systemShortcuts: { [unowned self] in
         systemShortcutLoads += 1
         return systemShortcuts
@@ -33,7 +38,7 @@ private final class Harness {
   }
 }
 
-private func setting(_ text: String, _ mode: ShortcutTriggerMode = .toggle) throws
+func setting(_ text: String, _ mode: ShortcutTriggerMode = .toggle) throws
   -> GlobalShortcutSetting
 {
   GlobalShortcutSetting(combination: try #require(ShortcutNotation.parse(text)), mode: mode)
@@ -47,6 +52,18 @@ struct GlobalShortcutControllerTests {
     #expect(harness.controller.apply(nil) == .unassigned)
     #expect(harness.registrar.registered.isEmpty)
     #expect(harness.systemShortcutLoads == 0)
+  }
+
+  @Test("PERM-01: 既定（修飾キー単独・Esc 捕捉とも無効）ではイベントタップを作らず、権限も確かめない")
+  func keyCombinationsOnlyCreatesNoTap() throws {
+    let harness = Harness()
+    harness.controller.apply(try setting("ctrl+option+k", .pushToTalk))
+    harness.registrar.send(.pressed)
+    harness.controller.refreshPermissions()
+    #expect(!harness.controller.usesEventTaps)
+    #expect(harness.taps.created.isEmpty)
+    #expect(harness.permissions.checked.isEmpty)
+    #expect(harness.controller.escapeStatus == .off)
   }
 
   @Test("REC-01: 通常のキー組み合わせを登録する")
