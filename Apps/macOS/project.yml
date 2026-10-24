@@ -38,7 +38,22 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: utter
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
-        # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+        # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）。
+        # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
+  # アプリの純粋なロジック（Sources/Shortcut）のユニットテスト。
+  # アプリを起動しないよう、テスト対象のソースをテストバンドルに直接含める（TEST_HOST なし）
+  UtterMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources/Shortcut
+      - path: Tests
+    dependencies:
+      - package: UtterCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
+        GENERATE_INFOPLIST_FILE: "YES"
 schemes:
   UtterMac:
     build:
@@ -46,3 +61,7 @@ schemes:
         UtterMac: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - UtterMacTests
