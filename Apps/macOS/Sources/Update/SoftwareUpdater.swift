@@ -45,18 +45,25 @@ final class SoftwareUpdater {
     controller.updater.sendsSystemProfile = false
     self.controller = controller
 
+    // KVO の通知はどのスレッドからでも受けられるよう、値は通知の中で読まず、メインアクターで読み直す
+    // （SDK によって通知のクロージャが @Sendable になり、メインアクターの値を読めないため）
     let updater = controller.updater
     observations = [
-      updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
-        let value = updater.canCheckForUpdates
-        Task { @MainActor in self?.canCheckForUpdates = value }
+      updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, _ in
+        Task { @MainActor in self?.refreshFromUpdater() }
       },
       updater.observe(\.automaticallyChecksForUpdates, options: [.initial, .new]) {
-        [weak self] updater, _ in
-        let value = updater.automaticallyChecksForUpdates
-        Task { @MainActor in self?.automaticallyChecksForUpdates = value }
+        [weak self] _, _ in
+        Task { @MainActor in self?.refreshFromUpdater() }
       },
     ]
+  }
+
+  /// Sparkle の現在の値をメニュー用の値に写す。
+  private func refreshFromUpdater() {
+    guard let updater = controller?.updater else { return }
+    canCheckForUpdates = updater.canCheckForUpdates
+    automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
   }
 
   /// 自動確認の有無を切り替える。Sparkle が defaults に保存し、KVO でこの型の値も更新される。
