@@ -6,6 +6,9 @@ import UtteriOSKit
 /// 録音の開始・停止・状態と、結果の確認・コピー（iOS-04, iOS-07）。進行の判断は `RecordingSessionModel` が持つ。
 struct RecordingView: View {
   let model: RecordingSessionModel
+  let speechEngine: SpeechEngineSelection
+  /// 取得できるモデルがあるエンジンのときだけ
+  let speechModel: SpeechModelSettingsModel?
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
@@ -16,6 +19,13 @@ struct RecordingView: View {
       }
       .navigationTitle("utter")
       .refreshable { await model.refreshResults() }
+      .toolbar {
+        NavigationLink {
+          SpeechSettingsView(engine: speechEngine, model: speechModel)
+        } label: {
+          Label("音声認識の設定", systemImage: "gearshape")
+        }
+      }
     }
     .task { await model.prepareResults() }
     .onChange(of: scenePhase) { _, phase in

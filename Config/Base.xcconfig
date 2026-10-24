@@ -12,4 +12,8 @@ DEVELOPMENT_TEAM =
 UTTER_APP_GROUP_ID =
 UTTER_IOS_CODE_SIGN_ENTITLEMENTS =
 
+// iOS の STT エンジン（#54 の判定待ち）。既定は未設定で、録音はするが文字にはしない。
+// SpeechAnalyzer を試すときだけ Local.xcconfig で speechAnalyzer にする
+UTTER_IOS_STT_ENGINE =
+
 #include? "Local.xcconfig"

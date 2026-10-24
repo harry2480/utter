@@ -29,7 +29,7 @@ public enum RecordingFailure: Hashable, Sendable {
   case recordingUnavailable
   /// 割り込みで止めたが、処理できる音声がなかった
   case interruptedWithoutAudio(RecordingInterruptionCause)
-  /// 音声認識が未設定（STT エンジンの判定待ち）、またはモデルを使えない
+  /// 音声認識が未設定（STT エンジンの判定待ち）、またはモデルを取得していない・使えない
   case recognizerUnavailable
   /// 音声認識に失敗した
   case recognitionFailed
@@ -44,7 +44,8 @@ public enum RecordingFailure: Hashable, Sendable {
       "マイクの利用が許可されていません。設定アプリで utter のマイクを許可してください。"
     case .recordingUnavailable: "録音を開始できませんでした。"
     case .interruptedWithoutAudio(let cause): "\(cause.message)ため、録音を中止しました。音声はありません。"
-    case .recognizerUnavailable: "音声認識が設定されていないため、文字にしていません。音声は保存していません。"
+    case .recognizerUnavailable:
+      "音声認識が設定されていないか、モデルを取得していないため、文字にしていません。音声は保存していません。"
     case .recognitionFailed: "音声認識に失敗しました。"
     case .noSpeech: "音声を文字にできませんでした。"
     case .saveFailed: "結果を保存できませんでした。下の本文をコピーできます。"

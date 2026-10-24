@@ -12,3 +12,7 @@ UTTER_BUNDLE_ID_PREFIX = com.example.yourname.utter
 // 設定しなければ、共有結果は iOS アプリの中にだけ保存し、キーボードとは共有しない
 // UTTER_APP_GROUP_ID = group.com.example.yourname.utter
 // UTTER_IOS_CODE_SIGN_ENTITLEMENTS = UtteriOS-AppGroup.entitlements
+
+// iOS で SpeechAnalyzer による音声認識を試す場合だけ、次の行のコメントを外す（#54 の判定待ち。既定は未設定で文字にしない）。
+// モデルはアプリの「音声認識の設定」の「モデルを取得」で取得する
+// UTTER_IOS_STT_ENGINE = speechAnalyzer
