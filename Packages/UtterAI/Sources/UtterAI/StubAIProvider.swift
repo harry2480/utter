@@ -1,3 +1,5 @@
+import UtterCore
+
 /// テスト用の `AIProvider`（AI-06）。ネットワークに出ない。
 ///
 /// 固定応答・空応答・各エラーと、応答までの遅延を注入できる。
@@ -13,6 +15,7 @@ public actor StubAIProvider: AIProvider {
     case echo
   }
 
+  public nonisolated let destination: CloudAIProviderKind
   public private(set) var behavior: Behavior
   /// 振る舞いを返すまでの遅延
   public private(set) var delay: Duration
@@ -21,7 +24,11 @@ public actor StubAIProvider: AIProvider {
 
   public var callCount: Int { receivedRequests.count }
 
-  public init(behavior: Behavior = .respond(""), delay: Duration = .zero) {
+  public init(
+    behavior: Behavior = .respond(""), delay: Duration = .zero,
+    destination: CloudAIProviderKind = .claude
+  ) {
+    self.destination = destination
     self.behavior = behavior
     self.delay = delay
   }
