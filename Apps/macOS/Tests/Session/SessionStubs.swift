@@ -84,6 +84,16 @@ final class StubSessionInserter: SessionTextInserting {
     pending?.resume()
     pending = nil
   }
+
+  /// 今の入力先の状態。既定は機密入力でない入力欄
+  var sensitiveContext = SensitiveInputContext(
+    secureField: .off, secureEventInput: .off, app: "com.example.editor")
+  private(set) var sensitiveContextRequests = 0
+
+  func sensitiveInputContext(for target: RecordedInsertionTarget) -> SensitiveInputContext {
+    sensitiveContextRequests += 1
+    return sensitiveContext
+  }
 }
 
 /// 一時音声の差し込み口の呼び出しを記録する。

@@ -1,19 +1,24 @@
 import Foundation
 import UtterAI
 import UtterCore
+import UtterPersistence
 import UtterSpeech
 
 /// アプリ全体で1つずつ持つ部品の組み立て（Composition Root）。
 ///
-/// 録音（`AVAudioEngineRecorder`）→ STT Worker → ローカル整形 → 挿入（`InsertionExecutor`）→ HUD を
-/// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// 録音（`AVAudioEngineRecorder`）→ STT Worker → 整形（`SessionRefinementPipeline`）→ 挿入（`InsertionExecutor`）→ HUD と
+/// 入力履歴を `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
 @MainActor
 final class AppComposition {
   let hud: HUDController
   let session: SessionCoordinator
   let shortcuts: ShortcutCoordinator
 
-  init() {
+  /// - Parameters:
+  ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
+  ///   - database: 辞書・推定費用の累計・入力履歴のデータベース（入力履歴の画面と同じもの）
+  init(claudeAPIKeyStore: any APIKeyStore, database: AppDatabaseProvider) {
     let hud = HUDController(
       presenter: HUDPanelPresenter(),
       scheduler: TaskHUDRefreshScheduler()
@@ -22,11 +27,17 @@ final class AppComposition {
     let engine = Self.selectedEngine()
     // エンジンが選ばれていなければ STT Worker を作らない（SessionCoordinator が「音声認識が設定されていません」を表示する）
     let recognizer = engine.flatMap { STTWorkerComposition.makeRecognizer(engine: $0) }
+    let settingsStore = AppSettingsStore(defaults: .standard)
+    let openDatabase: @MainActor @Sendable () async throws -> UtterDatabase = {
+      try await database.database()
+    }
     let session = SessionCoordinator(
       recorder: AVAudioEngineRecorder(),
       recognizer: recognizer,
-      refinementMode: Self.refinementMode(),
+      refiner: SessionRefinementPipeline(
+        settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase),
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
+      history: InputHistoryRecorder.standard(database: openDatabase),
       hud: hud,
       deadlineScheduler: TaskHUDRefreshScheduler())
     self.hud = hud
@@ -47,20 +58,6 @@ final class AppComposition {
       }
     #endif
     return STTWorkerComposition.selectedEngine
-  }
-
-  /// 整形モード（TXT-01）。設定（版2設定）が入るまでは、STT の結果を変えない Raw を使う。
-  ///
-  /// Debug ビルドに限り起動引数で選べる: `-UtterDebugRefinementMode natural`（`raw` / `natural` / `structured`）
-  private static func refinementMode() -> RefinementMode {
-    #if DEBUG
-      switch debugArgument("UtterDebugRefinementMode") {
-      case "natural": return .natural
-      case "structured": return .structured
-      default: break
-      }
-    #endif
-    return .raw
   }
 
   #if DEBUG

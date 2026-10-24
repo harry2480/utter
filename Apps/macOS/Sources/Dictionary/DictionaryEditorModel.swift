@@ -140,7 +140,8 @@ final class DictionaryEditorModel {
     return true
   }
 
-  nonisolated private static func dictionary(
+  /// 保存した辞書語とルールから辞書を組み立てる。セッションの整形（`SessionRefinementPipeline`）も使う
+  nonisolated static func dictionary(
     from contents: (terms: [String], rules: [StoredReplacementRule])
   ) throws -> UserDictionary {
     try UserDictionary(

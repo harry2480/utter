@@ -8,13 +8,14 @@ import UtterPersistence
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
-/// 整形の予算判定を結線するときは、`CloudCostBridge.makeBudgetGuard` に同じデータベースの `MonthlyUsageStore` を渡す（AI-05）。
-/// Claude 整形を結線するときは、同じ `claudeAPIKeyStore` を `ClaudeProvider(apiKeyStore:)` に渡す（AC-12）。
+/// 整形（`SessionRefinementPipeline`）は API キーの画面と同じ `claudeAPIKeyStore`、入力履歴の画面と同じ `database` を使う（AC-12）。
 @main
 struct UtterApp: App {
   private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
+  private static let database = AppDatabaseProvider()
 
-  @State private var composition = AppComposition()
+  @State private var composition = AppComposition(
+    claudeAPIKeyStore: Self.claudeAPIKeyStore, database: Self.database)
   @State private var claudeAPIKeySettings = APIKeySettingsModel(store: Self.claudeAPIKeyStore)
   @State private var consentSettings = ConsentSettingsModel(
     controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
@@ -22,7 +23,7 @@ struct UtterApp: App {
     DictionaryStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
   }
   @State private var historyModels = InputHistoryModelProvider(
-    database: AppDatabaseProvider(),
+    database: Self.database,
     // 設定の保存先。履歴への記録も同じ保存先を読む（無効化は設定を先に書いてから削除するため）
     settingsStore: AppSettingsStore(defaults: .standard))
   @State private var settings = SettingsModel(

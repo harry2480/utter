@@ -1,3 +1,4 @@
+import UtterAI
 import UtterCore
 import UtterSpeech
 
@@ -19,6 +20,49 @@ protocol SessionTextInserting: AnyObject {
   func recordTarget() -> RecordedInsertionTarget
   /// 文字列を挿入する。自動挿入できなければコピー可能なプレビューへ退避する
   func insert(_ text: String, into target: RecordedInsertionTarget) async -> InsertionReport
+  /// 今の入力先の機密入力の判定に使う状態（7章, AC-12）。クラウド送信・履歴保存の直前に呼ぶ。
+  ///
+  /// フォーカス中の入力対象が録音開始時と違う・取れない場合は、入力欄の属性とアプリを判定できない（`unknown` / `nil`）として返す
+  func sensitiveInputContext(for target: RecordedInsertionTarget) -> SensitiveInputContext
+}
+
+/// 認識したテキストの整形（TXT-01, TXT-03, AI-01, AI-03, AC-06, AC-12, CTX-01〜03）。
+///
+/// 本番は設定に従ってローカル整形とクラウド整形を選ぶ `SessionRefinementPipeline`。
+@MainActor
+protocol SessionRefining: AnyObject {
+  /// 整形する。発話を失わないよう失敗しない（クラウド整形できなければローカル整形の結果を返す）。
+  ///
+  /// - Parameters:
+  ///   - transcript: 認識したテキスト
+  ///   - frontmostApp: 録音開始時の前面アプリの bundle ID。スタイル区分の判定にだけ使い、送信しない（CTX-03）
+  ///   - sensitivity: 今の入力先の状態。クラウドへ送る直前に呼ぶ
+  /// - Throws: 呼び出し元の Task がキャンセルされた場合
+  func refine(
+    _ transcript: String,
+    frontmostApp: String?,
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+  ) async throws(CancellationError) -> SessionRefinementResult
+}
+
+/// 整形の経路を知らせる差し込み口（4.1節, AC-16）。
+///
+/// ローカル整形への退避を HUD で知らせる作業（#133）の結線まで、本番では渡さない（`nil`）。
+@MainActor
+protocol SessionRefinementReporting: AnyObject {
+  /// セッションの整形が終わった。挿入の前に、整形したセッションごとに1回呼ぶ。本文は渡さない
+  func refinementFinished(_ route: SessionRefinementRoute, session: SessionID)
+}
+
+/// 挿入した本文の入力履歴への保存（7章, AC-12）。
+@MainActor
+protocol SessionHistoryRecording: AnyObject {
+  /// 挿入を終えた本文を保存する。履歴が無効・機密入力なら保存しない。失敗してもセッションには影響させない
+  ///
+  /// - Parameter sensitivity: 保存の直前の入力先の状態
+  func record(
+    _ text: String, session: SessionID,
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext) async
 }
 
 /// 最大録音時間（REC-05）に録音を止めるための予約。本番はタイマー、テストは Stub で時刻を進める。
