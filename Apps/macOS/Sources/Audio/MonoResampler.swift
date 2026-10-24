@@ -89,21 +89,21 @@ final class MonoResampler: Sendable {
 
 /// 変換器に入力を1回だけ渡す。2回目以降は `afterwards` で答える。録音中は「今はない」（`.noDataNow`）と答え、
 /// 変換器の状態（前後のサンプル）を次の呼び出しに残す。録音の終わりは `.endOfStream` で残りを出させる。
-private final class InputOnce {
-  private var buffer: AVAudioPCMBuffer?
+/// 変換器の入力ブロックは SDK によって `@Sendable` なので、渡す前の入力は `Mutex` に持つ
+private final class InputOnce: Sendable {
+  private let buffer: Mutex<AVAudioPCMBuffer?>
   private let afterwards: AVAudioConverterInputStatus
 
-  init(_ buffer: AVAudioPCMBuffer?, then afterwards: AVAudioConverterInputStatus) {
-    self.buffer = buffer
+  init(_ buffer: sending AVAudioPCMBuffer?, then afterwards: AVAudioConverterInputStatus) {
+    self.buffer = Mutex(buffer)
     self.afterwards = afterwards
   }
 
   func next(_ status: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
-    guard let buffer else {
+    guard let buffer = self.buffer.withLock({ $0.take() }) else {
       status.pointee = afterwards
       return nil
     }
-    self.buffer = nil
     status.pointee = .haveData
     return buffer
   }
