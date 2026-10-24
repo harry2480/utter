@@ -16,7 +16,7 @@ struct HUDPresentationTests {
 
     #expect(presentation.indicator == indicator)
     #expect(presentation.title == title)
-    #expect(presentation.message == nil)
+    #expect(presentation.messages.isEmpty)
     #expect(presentation.accessibilityLabel == title)
   }
 
@@ -52,7 +52,7 @@ struct HUDPresentationTests {
       HUDPresentation(HUDContent(status: .failed(failure), notice: notice)))
     #expect(presentation.indicator == .failure)
     #expect(presentation.title == title)
-    #expect(presentation.message == text)
+    #expect(presentation.messages == [text])
     #expect(presentation.announcement == "\(title)。\(text)")
   }
 
@@ -67,19 +67,22 @@ struct HUDPresentationTests {
       (.recordingInterrupted(.movedToBackground), "アプリがバックグラウンドに移ったため、録音を停止しました"),
       (.recordingInterrupted(.thermalState), "端末の温度が上がったため、録音を停止しました"),
       (.recordingInterrupted(.lowPowerMode), "低電力モードになったため、録音を停止しました"),
+      (.recordingInterrupted(.inputDeviceChanged), "入力機器が切り替わったため、録音を停止しました"),
+      (.recordingInterrupted(.systemSleep), "Mac がスリープしたため、録音を停止しました"),
+      (.recordingInterrupted(.microphoneAccessRevoked), "マイクの使用許可が取り消されたため、録音を停止しました"),
     ])
   func noticeText(notice: HUDNotice, text: String) throws {
     let processing = try #require(
       HUDPresentation(HUDContent(status: .recognizing, notice: notice)))
     #expect(processing.indicator == .processing)
     #expect(processing.title == "認識中")
-    #expect(processing.message == text)
+    #expect(processing.messages == [text])
 
     // セッション終了後に通知だけを残しているときは、通知を1行目に出す
     let lingering = try #require(HUDPresentation(HUDContent(status: nil, notice: notice)))
     #expect(lingering.indicator == .notice)
     #expect(lingering.title == text)
-    #expect(lingering.message == nil)
+    #expect(lingering.messages.isEmpty)
   }
 
   @Test("REC-03: 状態も通知もなければ表示しない")
@@ -113,5 +116,121 @@ struct HUDPresentationTests {
       HUDPresentation(HUDContent(status: .refining, notice: .maxRecordingDurationReached)))
 
     #expect(presentation.accessibilityLabel == "整形中。最大録音時間に達したため、録音を停止しました")
+  }
+
+  @Test(
+    "AC-16, AI-06: 退避の通知を種類ごとの文言にする",
+    arguments: [
+      (RefinementFallbackNotice.consentNotGranted, "クラウドへの送信に同意していないため、ローカルで整形しました"),
+      (.sensitiveInput, "入力先が機密入力のため、ローカルで整形しました"),
+      (.timeout, "クラウド整形の応答が時間内に届かなかったため、ローカルで整形しました"),
+      (.authenticationExpired, "クラウド整形の API キーが無効になっているため、ローカルで整形しました"),
+      (.quotaExceeded, "クラウド整形の利用枠が不足しているため、ローカルで整形しました"),
+      (.budgetExceeded, "月次予算の上限を超えるため、ローカルで整形しました"),
+      (.networkUnavailable, "ネットワークに接続できないため、ローカルで整形しました"),
+      (.invalidResponse, "クラウド整形の応答を解釈できなかったため、ローカルで整形しました"),
+      (.providerCancelled, "クラウド整形が中断されたため、ローカルで整形しました"),
+      (.validationFailed, "クラウド整形の結果が検証を通らなかったため、ローカルで整形しました"),
+    ])
+  func fallbackText(fallback: RefinementFallbackNotice, text: String) throws {
+    let presentation = try #require(
+      HUDPresentation(HUDContent(status: .inserting, notice: .refinementFellBack(fallback))))
+    #expect(presentation.title == "挿入中")
+    #expect(presentation.messages == [text])
+    // 処理中でも通知があれば読み上げる
+    #expect(presentation.announcement == "挿入中。\(text)")
+  }
+
+  @Test("AC-16, AI-06: 退避の種類ごとに文言が異なる")
+  func fallbackTextsAreDistinct() {
+    let texts = Set(
+      RefinementFallbackNotice.allCases.map { HUDPresentation.text(for: .refinementFellBack($0)) })
+    #expect(texts.count == RefinementFallbackNotice.allCases.count)
+  }
+
+  @Test("REC-05, AC-16: 通知が重なったら、状態の下に通知を順に並べて続けて読む")
+  func multipleNoticesWithStatus() throws {
+    let presentation = try #require(
+      HUDPresentation(
+        HUDContent(
+          status: .refining,
+          notices: [.maxRecordingDurationReached, .refinementFellBack(.networkUnavailable)])))
+
+    #expect(presentation.indicator == .processing)
+    #expect(presentation.title == "整形中")
+    #expect(
+      presentation.messages == [
+        "最大録音時間に達したため、録音を停止しました", "ネットワークに接続できないため、ローカルで整形しました",
+      ])
+    #expect(presentation.message == "最大録音時間に達したため、録音を停止しました")
+    #expect(
+      presentation.accessibilityLabel
+        == "整形中。最大録音時間に達したため、録音を停止しました。ネットワークに接続できないため、ローカルで整形しました")
+    #expect(presentation.announcement == presentation.accessibilityLabel)
+  }
+
+  @Test("REC-05, AC-16: 通知だけを残しているときは、先頭の通知を1行目、残りを2行目以降に出す")
+  func multipleLingeringNotices() throws {
+    let presentation = try #require(
+      HUDPresentation(
+        HUDContent(
+          status: nil, notices: [.audioBufferLimitReached, .refinementFellBack(.timeout)])))
+
+    #expect(presentation.indicator == .notice)
+    #expect(presentation.title == "録音できる音声の上限に達したため、録音を停止しました")
+    #expect(presentation.messages == ["クラウド整形の応答が時間内に届かなかったため、ローカルで整形しました"])
+    #expect(
+      presentation.announcement
+        == "録音できる音声の上限に達したため、録音を停止しました。クラウド整形の応答が時間内に届かなかったため、ローカルで整形しました")
+  }
+
+  @Test("REC-04, AC-16: 失敗の理由と退避の通知が重なったら、失敗の理由を先に出す")
+  func failureReasonPrecedesFallback() throws {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    let t0 = ContinuousClock.now
+    machine.start(at: t0)
+    machine.stopRecording(at: t0)
+    _ = try machine.handle(
+      SessionEvent(token: try #require(machine.currentToken), kind: .recognitionCompleted))
+    hud.update(from: machine, at: t0)
+    hud.recordRefinementFallback(.timeout, for: try #require(machine.activeSession).id)
+    _ = try machine.handle(
+      SessionEvent(token: try #require(machine.currentToken), kind: .refinementCompleted))
+    _ = try machine.handle(
+      SessionEvent(token: try #require(machine.currentToken), kind: .failed))
+    hud.update(from: machine, failureNotice: .microphoneAccessDenied, at: t0)
+
+    #expect(
+      hud.content(at: t0)?.notices == [.microphoneAccessDenied, .refinementFellBack(.timeout)])
+  }
+
+  @Test("REC-03, AC-16: 段階が変わっても同じ通知は読み直さず、新しい通知が加わったときと失敗は読み上げる")
+  func announcementAfterPrevious() throws {
+    func presentation(_ status: HUDStatus?, _ notices: [HUDNotice]) throws -> HUDPresentation {
+      try #require(HUDPresentation(HUDContent(status: status, notices: notices)))
+    }
+    let limit = HUDNotice.audioBufferLimitReached
+    let fallback = HUDNotice.refinementFellBack(.timeout)
+    let recognizing = try presentation(.recognizing, [limit])
+    let refining = try presentation(.refining, [limit])
+    let refiningWithFallback = try presentation(.refining, [limit, fallback])
+    let inserting = try presentation(.inserting, [limit, fallback])
+    let lingering = try presentation(nil, [limit, fallback])
+
+    // 隠していた後は読み上げる
+    #expect(recognizing.announcement(after: nil) == recognizing.announcement)
+    // 段階だけが変わったときは読み直さない
+    #expect(refining.announcement(after: recognizing) == nil)
+    #expect(inserting.announcement(after: refiningWithFallback) == nil)
+    #expect(lingering.announcement(after: inserting) == nil)
+    // 退避の通知が加わったら読み上げる
+    #expect(refiningWithFallback.announcement(after: refining) == refiningWithFallback.announcement)
+    // 通知のない段階は読み上げない
+    #expect(try presentation(.refining, []).announcement(after: nil) == nil)
+    // 失敗は直前の通知に含まれていても読み上げる
+    let failure = try presentation(.failed(.insertion), [fallback])
+    #expect(
+      failure.announcement(after: inserting) == "挿入に失敗しました。クラウド整形の応答が時間内に届かなかったため、ローカルで整形しました")
   }
 }

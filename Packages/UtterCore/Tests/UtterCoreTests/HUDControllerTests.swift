@@ -237,6 +237,50 @@ struct HUDControllerTests {
     #expect(scheduler.deadline == nil)
   }
 
+  @Test("AC-16: 整形中に退避を反映したらすぐ表示を更新し、挿入完了後も通知を残す")
+  func refinementFallbackUpdatesPresentation() throws {
+    let configuration = try HUDConfiguration(
+      errorDisplayDuration: .seconds(5), limitNoticeDisplayDuration: .seconds(2))
+    let controller = makeController(configuration: configuration)
+    var machine = SessionStateMachine()
+    let t0 = clock.now
+
+    machine.start(at: t0)
+    machine.stopRecordingAtBufferLimit()
+    _ = try machine.handle(event(machine, .recognitionCompleted))
+    controller.update(from: machine)
+    let session = try #require(machine.activeSession).id
+
+    controller.recordRefinementFallback(.timeout, for: session)
+    let both: [HUDNotice] = [.audioBufferLimitReached, .refinementFellBack(.timeout)]
+    #expect(
+      presenter.calls.last
+        == .show(
+          try #require(
+            HUDPresentation(
+              HUDContent(status: .refining, notices: both)))))
+
+    _ = try machine.handle(event(machine, .refinementCompleted))
+    controller.update(from: machine)
+    _ = try machine.handle(event(machine, .insertionCompleted))
+    controller.update(from: machine)
+    #expect(controller.presentation == HUDPresentation(HUDContent(status: nil, notices: both)))
+    #expect(scheduler.deadline == t0 + .seconds(2))
+  }
+
+  @Test("AC-16: 整形中でないセッションの退避では表示を変えない")
+  func refinementFallbackIgnoredOutsideRefining() throws {
+    let controller = makeController()
+    var machine = SessionStateMachine()
+    machine.start(at: clock.now)
+    controller.update(from: machine)
+    let calls = presenter.calls
+
+    controller.recordRefinementFallback(.timeout, for: try #require(machine.activeSession).id)
+
+    #expect(presenter.calls == calls)
+  }
+
   private func makeController(configuration: HUDConfiguration = HUDConfiguration())
     -> HUDController
   {

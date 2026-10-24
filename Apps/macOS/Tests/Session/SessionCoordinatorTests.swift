@@ -423,6 +423,31 @@ struct SessionCoordinatorTests {
     #expect(insertedTexts == ["途中まで"])
   }
 
+  @Test(
+    "REC-04: macOS の割り込み（構成変更・スリープ）で録音を止めたら、それまでの音声を処理して macOS の理由を通知する",
+    arguments: [
+      (MacRecordingInterruptions.configurationChange, "入力機器が切り替わったため、録音を停止しました"),
+      (MacRecordingInterruptions.willSleep, "Mac がスリープしたため、録音を停止しました"),
+    ])
+  func macOSInterruptionStopsAndProcesses(interruption: RecordingInterruption, message: String)
+    async
+  {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let session = coordinator(recorder: recorder, recognizer: recognizer)
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 3_200))
+    recorder.interrupt(interruption)
+
+    #expect(await eventually { session.phase == .recognizing })
+    #expect(presenter.current?.messages == [message])
+    recognizer.send(.completed("途中まで"), to: 0)
+    #expect(await eventually { session.phase == .idle })
+    #expect(insertedTexts == ["途中まで"])
+  }
+
   @Test("iOS-PERF-03: 処理できる音声がないまま割り込まれたら、録音の失敗を表示して認識を止める")
   func interruptionWithoutAudioAborts() async {
     let recorder = StubAudioRecorder()

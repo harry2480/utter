@@ -4,7 +4,7 @@
 public struct HUDContent: Hashable, Sendable {
   /// セッションの状態。セッション終了後に通知だけを残している間は `nil`。
   public let status: HUDStatus?
-  /// 表示する通知。録音停止の通知、整形の退避の通知の順に並べる。
+  /// 表示する通知。録音停止の通知（失敗の表示中に失敗の理由があればそれに置き換える）、整形の退避の通知の順に並べる。
   /// 上限到達で止めたセッションがローカル整形へ退避したときのように、同時に複数出る場合がある。
   public let notices: [HUDNotice]
 

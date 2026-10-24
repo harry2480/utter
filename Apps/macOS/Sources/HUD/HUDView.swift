@@ -1,7 +1,7 @@
 import SwiftUI
 import UtterCore
 
-/// HUD の中身（REC-03, REC-05）。文言は `HUDPresentation` のものをそのまま出す。
+/// HUD の中身（REC-03, REC-05, AC-16）。文言は `HUDPresentation` のものをそのまま出す。
 struct HUDView: View {
   let presentation: HUDPresentation
 
@@ -13,7 +13,8 @@ struct HUDView: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(presentation.title)
           .font(.headline)
-        if let message = presentation.message {
+        // 録音停止（または失敗の理由）と整形の退避の通知が重なると複数行になる（REC-05, AC-16）
+        ForEach(Array(presentation.messages.enumerated()), id: \.offset) { _, message in
           Text(message)
             .font(.subheadline)
             .foregroundStyle(.secondary)

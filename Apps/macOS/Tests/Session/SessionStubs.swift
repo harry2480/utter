@@ -30,6 +30,12 @@ final class StubHUDPresenter: HUDPresenting {
   func hide() {
     isVisible = false
   }
+
+  /// 記録を消す（1つのテストで複数のセッションを確かめるとき）
+  func reset() {
+    shown = []
+    isVisible = false
+  }
 }
 
 /// 予約を覚えておき、テストから呼ぶ。HUD の更新と最大録音時間の予約の両方に使う。

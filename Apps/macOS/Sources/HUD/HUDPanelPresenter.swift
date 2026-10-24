@@ -5,11 +5,13 @@ import UtterCore
 /// `HUDPanel` に `HUDView` を載せて表示する（REC-03）。
 ///
 /// パネルはキーウィンドウにならず VoiceOver のフォーカスも移らないため、失敗と通知は読み上げで知らせる。
-/// 読み上げる文言は `HUDPresentation.announcement` だけで、本文を含まない。
+/// 読み上げる文言は `HUDPresentation.announcement(after:)` だけで、本文を含まない。段階が変わるだけでは同じ通知を読み直さない。
 @MainActor
 final class HUDPanelPresenter: HUDPresenting {
   private let panel = HUDPanel()
   private var hostingView: NSHostingView<HUDView>?
+  /// 表示中の内容。隠したら `nil`（次に表示したときは通知を読み上げ直す）
+  private var shown: HUDPresentation?
 
   func show(_ presentation: HUDPresentation) {
     let view = HUDView(presentation: presentation)
@@ -23,7 +25,9 @@ final class HUDPanelPresenter: HUDPresenting {
       self.hostingView = hostingView
     }
     panel.present()
-    if let announcement = presentation.announcement {
+    let previous = shown
+    shown = presentation
+    if let announcement = presentation.announcement(after: previous) {
       NSAccessibility.post(
         element: NSApplication.shared,
         notification: .announcementRequested,
@@ -35,6 +39,7 @@ final class HUDPanelPresenter: HUDPresenting {
   }
 
   func hide() {
+    shown = nil
     panel.orderOut(nil)
   }
 }

@@ -16,7 +16,8 @@ public protocol HUDRefreshScheduling: AnyObject {
 
 /// `HUDState` を保持し、状態の変化と表示時間の経過に合わせて HUD を更新する（REC-03, REC-05）。
 ///
-/// セッションを進める側は状態機械を変えるたびに `update(from:)` を呼ぶ。表示する内容が変わったときだけ
+/// セッションを進める側は状態機械を変えるたびに `update(from:)` を呼び、ローカル整形へ退避したら
+/// `recordRefinementFallback(_:for:)` を呼ぶ。表示する内容が変わったときだけ
 /// `HUDPresenting` に表示・非表示を依頼し、通知を消す時刻と失敗の表示を終える時刻に `HUDRefreshScheduling` で更新を予約する。
 /// 失敗の表示時間が過ぎたら `onErrorDisplayExpired` を1回呼ぶ。受け取った側は
 /// `SessionStateMachine.dismissError()` を呼んで `update(from:)` で反映する（反映するまで失敗を表示し続ける）。
@@ -61,6 +62,15 @@ public final class HUDController {
   ) {
     state.update(
       phase: phase, activeSession: activeSession, failureNotice: failureNotice, at: now())
+    refresh()
+  }
+
+  /// 進行中のセッションがローカル整形へ退避したことを反映する（4.1節, AC-16）。
+  ///
+  /// 整形の結果を受け取ったら、状態機械へ整形完了を知らせる前（整形中を `update(from:)` で反映した状態）に呼ぶ。
+  /// 条件は `HUDState.recordRefinementFallback(_:for:)` を参照
+  public func recordRefinementFallback(_ notice: RefinementFallbackNotice, for session: SessionID) {
+    state.recordRefinementFallback(notice, for: session)
     refresh()
   }
 
