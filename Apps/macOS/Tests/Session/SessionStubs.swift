@@ -152,6 +152,12 @@ final class ScriptedSpeechRecognizer: SpeechRecognizer {
     return stream
   }
 
+  /// `run` 番目の認識のストリームに、任意のセッション・順序番号のイベントを流す（契約に反する遅延イベントの再現）
+  func sendRaw(_ event: RecognitionEvent, to run: Int) {
+    let continuation = runs.withLock { $0.indices.contains(run) ? $0[run].continuation : nil }
+    continuation?.yield(event)
+  }
+
   /// `run` 番目の認識にイベントを流す
   func send(_ kind: RecognitionEvent.Kind, to run: Int) {
     let target = runs.withLock { runs -> (Run, UInt64)? in

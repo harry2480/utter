@@ -204,8 +204,12 @@ final class SessionCoordinator {
     let forwarding = forward(recording.chunks, session: session)
     var text: String?
     var completed = false
+    // 別のセッション・順序の古いイベントは捨てる（認識の契約の SessionID と順序番号で確かめる）
+    var filter = RecognitionEventFilter()
+    filter.begin(session)
     for await event in recognizer.recognize(forwarding.audio, session: session) {
       guard isActive(session) else { return }
+      guard filter.accept(event) == nil else { continue }
       switch event.kind {
       case .partial, .confirmed:
         // Realtime Preview（2.2節, AC-03）は別の作業で HUD に結線する

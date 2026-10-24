@@ -242,6 +242,30 @@ struct SessionCoordinatorTests {
     #expect(insertedTexts.isEmpty)
   }
 
+  @Test("4章: 別のセッション・順序の古い認識イベントは捨て、今のセッションの完了だけを使う")
+  func ignoresMismatchedRecognitionEvents() async throws {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let session = coordinator(recorder: recorder, recognizer: recognizer)
+
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    session.toggle()
+    let current = try #require(recognizer.session(of: 0))
+
+    recognizer.sendRaw(
+      RecognitionEvent(sessionID: SessionID(), sequence: 0, kind: .completed("別のセッション")), to: 0)
+    recognizer.sendRaw(
+      RecognitionEvent(sessionID: current, sequence: 5, kind: .partial("途中")), to: 0)
+    recognizer.sendRaw(
+      RecognitionEvent(sessionID: current, sequence: 3, kind: .completed("順序が古い")), to: 0)
+    recognizer.sendRaw(
+      RecognitionEvent(sessionID: current, sequence: 6, kind: .completed("今の結果")), to: 0)
+
+    #expect(await eventually { session.phase == .idle })
+    #expect(insertedTexts == ["今の結果"])
+  }
+
   @Test("REC-01: 挿入が始まったらキャンセルを受け付けない")
   func cancelIgnoredWhileInserting() async {
     inserter.holdsInsertion = true
