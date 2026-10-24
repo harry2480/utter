@@ -30,6 +30,8 @@ targets:
     dependencies:
       - package: UtterCore
       - package: UtterSpeech
+      # XPC STT Worker を utter.app/Contents/XPCServices に組み込む
+      - target: UtterSTTWorker
     settings:
       base:
         PRODUCT_NAME: utter
@@ -61,6 +63,26 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
         GENERATE_INFOPLIST_FILE: "YES"
+  # XPC STT Worker（モデルのロード・推論・解放, 4章 / AC-10）。アプリに組み込み、アプリからだけ接続する
+  UtterSTTWorker:
+    type: xpc-service
+    platform: macOS
+    sources:
+      - path: ../../Workers/macOSSTT/Sources
+    dependencies:
+      - package: UtterSpeech
+    settings:
+      base:
+        PRODUCT_NAME: UtterSTTWorker
+        # アプリの Bundle ID に .stt-worker を付けたもの。アプリ側の XPCSTTWorkerConnector がこの名前で接続する
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.stt-worker
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: ../../Workers/macOSSTT/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        SKIP_INSTALL: "YES"
+        # Entitlement はマイク・ネットワークなどを使わないため付けない（PERM-01）
 schemes:
   UtterMac:
     build:
