@@ -27,6 +27,6 @@ public enum RecordingStopReason: Hashable, Sendable {
   case maxDurationReached
   /// 音声バッファの上限に到達した自動停止（REC-05）
   case bufferLimitReached
-  /// 画面ロック・電話着信などの割り込みによる停止（iOS-PERF-03）
+  /// 画面ロック・電話着信・スリープ・入力機器の変更などの割り込みによる停止（REC-04, iOS-PERF-03）
   case interrupted(RecordingInterruptionCause)
 }
