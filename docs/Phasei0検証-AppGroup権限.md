@@ -30,6 +30,8 @@ iOS キーボード拡張と本体アプリ間の IPC（プロセス間通信）
 - Certificate（個人開発者用）
 - Provisioning Profile（ad hoc, development）
 
+> 注: この「実装可否」の3行（Mac App Store・pkg・Sparkle）は macOS 版の配布の話で、iOS には当てはまらない。iOS は Xcode から本人端末へ実機インストールする（docs/ビルド・配布規約.md の「配布」）。iOS の署名で App Group が使えるかは下の「検証用アプリでの確認手順と記録」で確かめる。
+
 実装可否:
 ⚠️ Mac App Store 配布は不可（企業アプリ原則）
 ✅ GitHub Releases での直配布可（署名・公証済 pkg）
@@ -60,6 +62,8 @@ iOS キーボード拡張と本体アプリ間の IPC（プロセス間通信）
 
 ### 4. 配布方式の選択肢
 
+> 注: この表は macOS 版の配布方式の比較で、iOS には当てはまらない（iOS で pkg・GitHub 直配布はできない。iOS の配布は Xcode からの実機インストールで、TestFlight・App Store は MVP 対象外＝iOS-01）。
+
 | 方式 | App Group | 個人署名 | フルアクセス | 配布形式 |
 |------|----------|--------|----------|--------|
 | **Mac App Store** | ✅ | ❌ | N/A | Store 経由 |
@@ -82,3 +86,65 @@ iOS キーボード拡張と本体アプリ間の IPC（プロセス間通信）
 
 - Xcode プロジェクト設定（Phase i1 実装）
 - TestFlight vs GitHub 直配布の最終決定（Phase 2）
+
+## 検証用アプリでの確認手順と記録
+
+上の「確認項目」「配布方式の選択肢」の記述は検証前の想定で、未確認のものを含む。結論は以下の実機の記録で確定する。
+
+検証用アプリ: [Verification/iOSKeyboardProbe/README.md](../Verification/iOSKeyboardProbe/README.md)（ビルド・インストール・画面の見方・片付け）
+
+### 前提
+
+- iPhone に**パスコードを設定済み**であること。パスコード未設定だとファイル保護クラスが効かず、ロック中でも全クラスが読み書きできてしまう（記録 D が無意味になる）
+- キーボード拡張は `IsASCIICapable = false`、`PrimaryLanguage = ja-JP`、`RequestsOpenAccess = true`（Keyboard/Info.plist）。メモ等の通常の入力欄で試す
+
+### 手順
+
+1. README の「実機へのインストール」に従い、まず**無料 Personal Team** でインストールする。署名・プロビジョニングのエラーが出たら、その文面を記録 A に残す（不可なら有料 Developer Program で同じ手順を繰り返し、両方を記録する）
+2. 本体アプリで「全保護クラスで書き込む」→ 各クラスの「実際の保護属性」を記録 B に残す
+3. キーボードを追加し、**フルアクセス無効**のまま、メモ等の通常の入力欄で utter Probe キーボードに切り替えて「読む」「書く」「挿入」を押し、記録 C に残す
+4. 設定でフルアクセスを**有効**にして、3 を繰り返す
+5. **Xcode の Stop でデバッガを外し、ホーム画面のアイコンから本体アプリを起動し直す**（デバッガが付いたままだとバックグラウンド実行の打ち切りが本番と違う）。その後、本体アプリで「ロック中の読み書き」を待ち時間 20 秒で開始 → すぐにロック → 30 秒ほど待って解除 →「記録をコピー」の内容から記録 D を埋める
+6. 本体アプリで「プローブのファイルをすべて削除」
+
+### 記録 A: 署名と App Group の Entitlement
+
+| 署名 | 日付 | Xcode | iPhone / iOS | インストール可否 | App Group のコンテナ URL | エラー文（あれば） |
+|---|---|---|---|---|---|---|
+| 無料 Personal Team | | | | | | |
+| 有料 Developer Program（必要時） | | | | | | |
+
+### 記録 B: 書き込み時に付いた保護属性
+
+| 保護クラス | 書き込み | 実際の保護属性 |
+|---|---|---|
+| complete | | |
+| completeUnlessOpen | | |
+| completeUntilFirstUserAuthentication | | |
+| none | | |
+
+### 記録 C: キーボード拡張からの読み書き（ロック解除中）
+
+| フルアクセス | hasFullAccess 表示 | コンテナ URL | 読む（クラスごとの成否・エラー） | 書く | 挿入（共有結果 / 固定ダミー） |
+|---|---|---|---|---|---|
+| 無効 | | | | | |
+| 有効 | | | | | |
+
+### 記録 D: ロック中の本体アプリの読み書き（iOS-IPC-05）
+
+パスコード設定: （あり / なし） ／ デバッガ: （外した / 付いたまま） ／ 待ち時間: 秒
+
+| 保護クラス | 読み込み（成否・エラー） | 新規書き込み（成否・エラー） |
+|---|---|---|
+| complete | | |
+| completeUnlessOpen | | |
+| completeUntilFirstUserAuthentication | | |
+| none | | |
+
+実行時の `isProtectedDataAvailable`: ／ 残りのバックグラウンド実行時間: ／ 打ち切られたか:
+
+### 結論（14章の判定）
+
+- App Group と個人署名: （無料で可 / 有料が必要 / 不可 → iOS MVP 保留）
+- キーボードのフルアクセス: （不要 / 必要。必要なら理由）
+- 共有結果の保存方式（iOS-IPC-01, 04）と保護クラス: 

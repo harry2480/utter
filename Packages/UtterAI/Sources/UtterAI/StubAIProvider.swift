@@ -1,3 +1,5 @@
+import UtterCore
+
 /// テスト用の `AIProvider`（AI-06）。ネットワークに出ない。
 ///
 /// 固定応答・空応答・各エラーと、応答までの遅延を注入できる。
@@ -13,6 +15,7 @@ public actor StubAIProvider: AIProvider {
     case echo
   }
 
+  public nonisolated let destination: CloudAIProviderKind
   public private(set) var behavior: Behavior
   /// 振る舞いを返すまでの遅延
   public private(set) var delay: Duration
@@ -21,7 +24,11 @@ public actor StubAIProvider: AIProvider {
 
   public var callCount: Int { receivedRequests.count }
 
-  public init(behavior: Behavior = .respond(""), delay: Duration = .zero) {
+  public init(
+    behavior: Behavior = .respond(""), delay: Duration = .zero,
+    destination: CloudAIProviderKind = .claude
+  ) {
+    self.destination = destination
     self.behavior = behavior
     self.delay = delay
   }
@@ -59,5 +66,21 @@ public actor StubAIProvider: AIProvider {
     case .echo:
       return RefinementResponse(text: request.text)
     }
+  }
+}
+
+// テストの失敗表示やログに応答の本文を出さないよう、文字列表現とリフレクションには種類と文字数だけを出す。
+extension StubAIProvider.Behavior: CustomStringConvertible, CustomReflectable {
+  public var description: String {
+    switch self {
+    case .respond(let text, let usage):
+      "respond(length: \(text.count), usage: \(usage.map { "\($0)" } ?? "nil"))"
+    case .fail(let error): "fail(\(error))"
+    case .echo: "echo"
+    }
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["description": description])
   }
 }

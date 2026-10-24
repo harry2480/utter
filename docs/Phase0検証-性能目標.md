@@ -66,6 +66,24 @@ utter の Phase 0 成功判定基準となる非機能要件を確定：
 例: 100% → 92% = 8% × 4時間 = 2%/時間 ✅
 ```
 
+### 計測ツールと Signpost 区間名
+
+区間計測（`xctrace` の記録と p50/p95 の集計）、メモリ・CPU のサンプリング、8時間待機のバッテリー記録の道具と使い方は [Verification/PerfProbe/README.md](../Verification/PerfProbe/README.md)。集計は要件定義6章の目標値と並べて出す。
+
+Signpost はサブシステム `utter.perf`、カテゴリ Points of Interest で発行する。区間名は `Verification/PerfProbe/Sources/PerfProbe/PerfInterval.swift` と一致させる。
+
+| 区間名 | 開始 → 終了 |
+|---|---|
+| `RecordingStart` | 録音開始の操作 → 最初の音声バッファ受信（録音開始遅延） |
+| `RealtimeFirstText` | 録音開始の操作 → Realtime Preview の初回文字表示 |
+| `STTFinalize` | 録音停止 → STT の確定結果 |
+| `LLMFirstToken` | LLM への要求送信 → 初回トークン |
+| `LLMComplete` | LLM への要求送信 → 応答完了 |
+| `Insert` | 挿入開始 → 挿入完了 |
+| `StopToInsertLocal` | 録音停止 → 挿入完了（ローカル高速入力） |
+| `StopToInsertAI` | 録音停止 → 挿入完了（AI整形あり） |
+| `ModelLoad` | STT モデルのロード開始 → 完了（コールドスタートの内訳） |
+
 ## Phase 0 Go/No-Go 判定
 
 | 項目 | 目標 | 実測 | 判定 |

@@ -217,10 +217,22 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(try await stored() == nil)
   }
 
-  @Test("iOS-05: プレビューの文字列表現に本文を出さない")
-  func previewDescriptionHidesText() {
-    let preview = SharedResultPreview.insertable(text: "秘密の本文")
+  @Test(
+    "iOS-05, iAC-10: プレビューの文字列表現とリフレクションに本文を出さない",
+    arguments: [
+      SharedResultPreview.insertable(text: "秘密の本文"), .needsConfirmation(text: "秘密の本文"),
+    ])
+  func previewDescriptionHidesText(_ preview: SharedResultPreview) {
+    var dumped = ""
+    dump(preview, to: &dumped)
+    let outputs = [
+      String(describing: preview), String(reflecting: preview),
+      String(describing: Mirror(reflecting: preview).children.map(\.value)), dumped,
+    ]
 
-    #expect(!String(describing: preview).contains("秘密"))
+    for output in outputs {
+      #expect(!output.contains("秘密"))
+    }
+    #expect(String(describing: preview).contains("length: 5"))
   }
 }
