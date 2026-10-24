@@ -55,7 +55,7 @@ public enum RecordingFailure: Hashable, Sendable {
 
 /// クラウド整形を使えず、ローカル整形の結果を保存したことの通知（4.1節, AI-06）。
 ///
-/// 同意していない・結線していない・Raw モードのときは送信しないのが正しい動作のため通知しない。
+/// Local Basic を選んでいる・同意していない・結線していない・Raw モードのときは送信しないのが正しい動作のため通知しない。
 /// 本文・API キー・エラーの詳細は持たない。
 public enum RefinementNotice: Hashable, Sendable {
   /// クラウド整形の設定（モデル名など）を使えない
@@ -83,7 +83,7 @@ public enum RefinementNotice: Hashable, Sendable {
   init?(route: SessionRefinementRoute) {
     switch route {
     case .cloud, .localOnly(.cloudNotConfigured), .localOnly(.rawMode),
-      .localOnly(.consentNotGranted):
+      .localOnly(.localEngineSelected), .localOnly(.consentNotGranted):
       return nil
     case .localOnly(.cloudUnavailable): self = .configurationUnavailable
     case .localOnly(.apiKeyNotSet): self = .apiKeyNotSet

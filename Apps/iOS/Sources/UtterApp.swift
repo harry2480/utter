@@ -9,7 +9,7 @@ import UtteriOSKit
 ///
 /// 録音（AVAudioSession / AVAudioEngine）・音声認識・ローカル整形・共有結果の保存を組み立てる。
 /// - 音声認識は iOS の STT エンジンの判定（#54）まで `UnconfiguredSpeechRecognizer`（録音のみ・認識しない）
-/// - 整形は Local Basic。Claude への送信に同意し、API キー（本体アプリの Keychain）と月次予算・単価表がそろったときだけ
+/// - 整形は Local Basic。処理系にクラウド AI を選び、Claude への送信に同意し、API キー（本体アプリの Keychain）と月次予算・単価表がそろったときだけ
 ///   Claude で整形する（iOS-10）。同意・設定は `UserDefaults.standard`（App Group ではない）に保存する
 /// - 共有結果は App Group ID（Config/Local.xcconfig）を設定したときだけ App Group に保存する（#56）
 @main

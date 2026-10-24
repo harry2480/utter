@@ -22,6 +22,8 @@ struct RecordingSessionCloudRefinementTests {
   init() throws {
     temporaryDefaults = try TemporaryDefaults()
     settingsStore = AppSettingsStore(defaults: temporaryDefaults.defaults)
+    // 既定は Local Basic。各テストは処理系にクラウド AI を選んだ状態から始める
+    try settingsStore.save(AppSettings(refinementEngine: .cloudAI))
   }
 
   private var store: SharedResultStore { SharedResultStore(directory: directory.url) }

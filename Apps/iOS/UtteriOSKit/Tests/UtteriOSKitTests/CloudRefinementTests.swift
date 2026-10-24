@@ -19,6 +19,8 @@ struct CloudRefinementTests {
   init() throws {
     temporaryDefaults = try TemporaryDefaults()
     settingsStore = AppSettingsStore(defaults: temporaryDefaults.defaults)
+    // 既定は Local Basic。各テストは処理系にクラウド AI を選んだ状態から始める
+    try settingsStore.save(AppSettings(refinementEngine: .cloudAI))
   }
 
   private var request: RefinementRequest { RefinementRequest(text: spoken, mode: .natural) }
@@ -57,6 +59,45 @@ struct CloudRefinementTests {
     #expect(await provider.callCount == 0)
     #expect(await budget.beginCount == 0)
     #expect(keyStore.calls == [.save])
+  }
+
+  @Test("AI-03, iOS-10: 処理系に Local Basic を選んでいれば、同意・API キー・予算があっても送信しない")
+  func localEngineStaysLocal() async throws {
+    try settingsStore.save(AppSettings(refinementEngine: .localBasic))
+    try setConsent(true)
+    try saveKey()
+    let budget = StubBudgetSource(budget: try CloudFixtures.generousBudget(month: month()))
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(
+      result == SessionRefinementResult(text: localText, route: .localOnly(.localEngineSelected)))
+    #expect(await provider.callCount == 0)
+    #expect(await budget.beginCount == 0)
+  }
+
+  @Test("AI-03: 予算の確認を待つ間に処理系を Local Basic に戻したら、送信せずに予算の記録を終える")
+  func switchToLocalWhileCheckingBudgetStopsSending() async throws {
+    try setConsent(true)
+    try saveKey()
+    let suiteName = temporaryDefaults.suiteName
+    let budget = StubBudgetSource(budget: try CloudFixtures.generousBudget(month: month())) {
+      await MainActor.run {
+        guard let defaults = UserDefaults(suiteName: suiteName) else { return }
+        let store = AppSettingsStore(defaults: defaults)
+        var settings = store.load()
+        settings.refinementEngine = .localBasic
+        try? store.save(settings)
+      }
+    }
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(result.route == .localOnly(.localEngineSelected))
+    #expect(await provider.callCount == 0)
+    #expect(await budget.finishCount == 1)
   }
 
   @Test("iOS-10, AC-12: 同意していても API キーが未設定なら、予算を予約せず送信もしない")

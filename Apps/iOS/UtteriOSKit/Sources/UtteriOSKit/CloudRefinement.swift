@@ -6,12 +6,13 @@ import UtterPersistence
 /// iOS 本体アプリのクラウド整形の結線（iOS-10, AC-06, AC-12, AI-04）。
 ///
 /// 整形のたびに次の順で確かめ、どれかが欠ければ送信せずにローカル整形（Local Basic）だけを使う。
-/// 1. 保存済みの最新の設定で、Claude への整形の送信に同意している（AC-06）
-/// 2. API キーが保存されていて読み出せる（AC-12）
-/// 3. 予算上限を確かめられる（月次予算・単価表・使用量の累計, AI-04）
+/// 1. 保存済みの最新の設定で、整形の処理系にクラウド AI を選んでいる（AI-03。既定は Local Basic）
+/// 2. Claude への整形の送信に同意している（AC-06）
+/// 3. API キーが保存されていて読み出せる（AC-12）
+/// 4. 予算上限を確かめられる（月次予算・単価表・使用量の累計, AI-04）
 ///
 /// すべてそろえば `RefinementRouter` 経由で Claude へ1回だけ送信し、失敗・検証失敗・上限時間の超過は
-/// ローカル整形の結果に退避する（4.1節）。同意は送信の直前にもう一度読み、撤回をすぐに反映する。
+/// ローカル整形の結果に退避する（4.1節）。処理系の選択と同意は送信の直前にもう一度読み、変更をすぐに反映する。
 /// `AppSettingsStore` が `Sendable` でないため、`@MainActor` から使う。
 @MainActor
 public struct CloudRefinement {
@@ -64,6 +65,7 @@ public struct CloudRefinement {
     guard request.mode != .raw else { return local(.rawMode) }
 
     let settings = settingsStore.load()
+    guard settings.refinementEngine == .cloudAI else { return local(.localEngineSelected) }
     guard let configuration = try? ClaudeProvider.Configuration(model: settings.refinementModel)
     else {
       return local(.cloudUnavailable)
@@ -98,11 +100,16 @@ public struct CloudRefinement {
       if Task.isCancelled { throw CancellationError() }
       return local(.budgetUnavailable(reason))
     }
+    // 予算の確認を待つ間の変更も反映するよう、送信の直前に最新の設定を読み直す
+    let latest = settingsStore.load()
+    guard latest.refinementEngine == .cloudAI else {
+      await budget.finish()
+      return local(.localEngineSelected)
+    }
     let outcome: RefinementOutcome
     do throws(CancellationError) {
-      // 予算の確認を待つ間の撤回も反映するよう、送信の直前に最新の同意状態を読み直す
       outcome = try await router.refine(
-        request, consent: settingsStore.load().consentState, budget: budget.budget)
+        request, consent: latest.consentState, budget: budget.budget)
     } catch {
       // 送信後にキャンセルされても課金されている可能性があるため、推定費用は記録する
       await budget.finish()
@@ -161,6 +168,8 @@ public enum SessionRefinementRoute: Hashable, Sendable {
     case cloudNotConfigured
     /// Raw モード
     case rawMode
+    /// 整形の処理系に Local Basic を選んでいる（既定）
+    case localEngineSelected
     /// クラウド整形の設定（モデル名など）を使えない
     case cloudUnavailable
     /// Claude への整形の送信に同意していない
