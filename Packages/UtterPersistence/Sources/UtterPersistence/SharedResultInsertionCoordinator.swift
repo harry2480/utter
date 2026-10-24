@@ -142,16 +142,29 @@ public actor SharedResultInsertionCoordinator {
     return await record(confirmation, for: claimed)
   }
 
-  /// 挿入の結果を記録する。競合したら読み直し、挿入済みの記録を失わないようにする。
-  ///
-  /// 挿入はすでに済んでいるため、記録に失敗しても投げずに、挿入の確認結果に応じた値を返す。
+  /// 挿入の結果を記録する。挿入はすでに済んでいるため、記録に失敗しても投げずに、挿入の確認結果に応じた値を返す。
   private func record(
     _ confirmation: SharedResultInsertionConfirmation, for claimed: SharedResult
   ) async -> SharedResultInsertionOutcome {
-    let outcome: SharedResultInsertionOutcome =
-      confirmation == .confirmed ? .inserted : .insertionUnknown
+    await store.recordCompletion(
+      of: claimed, confirmation: confirmation, maxAttempts: Self.maxRecordAttempts, now: now)
+    return confirmation == .confirmed ? .inserted : .insertionUnknown
+  }
+}
+
+extension SharedResultStore {
+  /// `inserting` で確保した結果に、挿入（またはコピー）の結果を記録する（iOS-IPC-03, iOS-IPC-05, iOS-07）。
+  ///
+  /// 競合したら読み直し、挿入済みの記録を失わないようにする。挿入済みを記録した結果は削除し、共有テキストを残さない。
+  /// 挿入・コピーはすでに済んでいるため、記録に失敗しても投げない（残った結果は整理で復旧する）。
+  func recordCompletion(
+    of claimed: SharedResult,
+    confirmation: SharedResultInsertionConfirmation,
+    maxAttempts: Int,
+    now: @Sendable () -> Date
+  ) {
     var base = claimed
-    for _ in 0..<Self.maxRecordAttempts {
+    for _ in 0..<maxAttempts {
       var updated = base
       do {
         switch confirmation {
@@ -162,27 +175,26 @@ public actor SharedResultInsertionCoordinator {
         }
       } catch {
         // 読み直した結果が、記録できない状態（挿入済みに対する結果不明など）になっている
-        return outcome
+        return
       }
       do {
         if updated.revision != base.revision {
-          try await store.save(updated, expectedRevision: base.revision)
+          try save(updated, expectedRevision: base.revision)
         }
         if case .consumed = updated.status {
-          // 挿入済みの共有テキストを残さない（iOS-IPC-05）。失敗しても本体アプリの整理で消える
-          try? await store.delete(sessionID: claimed.sessionID)
+          // 失敗しても本体アプリの整理で消える
+          try? delete(sessionID: claimed.sessionID)
         }
-        return outcome
+        return
       } catch SharedResultStoreError.revisionConflict {
-        guard let current = try? await store.load(sessionID: claimed.sessionID) else {
+        guard let current = try? load(sessionID: claimed.sessionID) else {
           // 期限切れなどで削除された、または読めない。挿入は済んでいる
-          return outcome
+          return
         }
         base = current
       } catch {
-        return outcome
+        return
       }
     }
-    return outcome
   }
 }

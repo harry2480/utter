@@ -1,4 +1,5 @@
 import Foundation
+import UtterCore
 
 #if canImport(FoundationNetworking)
   import FoundationNetworking
@@ -25,7 +26,8 @@ public struct ClaudeProvider: AIProvider {
     /// HTTP の待ち時間の上限。整形全体の上限は `RefinementRouter.timeout` で別に設ける
     public var requestTimeout: Duration
 
-    /// - Throws: モデル名が空、最大トークン数・待ち時間が 0 以下、エンドポイントが https でない場合
+    /// - Throws: モデル名が空、最大トークン数・待ち時間が 0 以下、エンドポイントが https でないか
+    ///   Claude API のホストでない場合
     public init(
       model: String,
       maxTokens: Int = 4096,
@@ -38,6 +40,10 @@ public struct ClaudeProvider: AIProvider {
       guard requestTimeout > .zero else { throw .nonPositiveRequestTimeout }
       // API キーを平文で送らない
       guard endpoint.scheme?.lowercased() == "https" else { throw .insecureEndpoint }
+      // 同意は送信先（`destination`）ごとに確認するため、Claude 以外のホストへ発話と API キーを送らない（AC-06）
+      guard endpoint.host?.lowercased() == ClaudeProvider.defaultEndpoint.host else {
+        throw .unexpectedHost
+      }
       self.model = model
       self.maxTokens = maxTokens
       self.effort = effort
@@ -46,6 +52,7 @@ public struct ClaudeProvider: AIProvider {
     }
   }
 
+  public var destination: CloudAIProviderKind { .claude }
   public let configuration: Configuration
   private let apiKey: String
   private let transport: any HTTPTransport
@@ -188,6 +195,8 @@ public enum ClaudeProviderConfigurationError: Error, Hashable, Sendable {
   case nonPositiveRequestTimeout
   /// https 以外のエンドポイント
   case insecureEndpoint
+  /// Claude API 以外のホストのエンドポイント
+  case unexpectedHost
 }
 
 // API キーをログに出さないよう、文字列表現とリフレクションにはモデル名だけを出す。

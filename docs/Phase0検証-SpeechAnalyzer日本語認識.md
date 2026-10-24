@@ -9,9 +9,16 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 
 ## テスト環境
 
-- OS: macOS 14.0 以上（Sonoma 推奨）
+- OS: macOS 26 以上（SpeechAnalyzer は macOS 26 で追加）
 - ローカライゼーション: 日本語
 - 権限: Microphone access 有効
+
+## 検証用コード
+
+計測には [Verification/SpeechAnalyzerProbe](../Verification/SpeechAnalyzerProbe/README.md) を使う（使い捨てのコマンドラインツール）。
+対応可否・アセットの状態（`status`）、暫定・確定結果と遅延（`file` / `mic`）、キャンセル応答（`--cancel-after`）、
+精度評価用の結果 JSON（`batch` → `utter-eval`、[精度評価.md](精度評価.md)）、物理メモリの記録を行える。
+結果は `docs/計測/` に記録する。
 
 ## テスト手順
 
@@ -48,8 +55,8 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 
 ```
 手順:
-1. 認識開始後 1 秒で stop() 呼び出し
-2. 結果受け取りまでの時間を計測
+1. 認識開始後 1 秒で cancelAndFinishNow() を呼ぶ（検証用 CLI では `--cancel-after 1`。`--pace realtime` か `mic` のときだけ指定できる）
+2. cancelAndFinishNow() が戻るまでの時間と、結果のストリームが終わるまでの時間を計測する（呼び出し後に届いた結果の数も記録する）
 
 期待結果:
 - 応答時間 < 100ms

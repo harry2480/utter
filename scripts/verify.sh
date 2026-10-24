@@ -34,7 +34,9 @@ fi
 
 echo "==> shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck scripts/*.sh
+  # Verification/ の計測スクリプトも対象にする（Swift のビルドは verify に含めない。各 README を参照）
+  shell_scripts=(scripts/*.sh Verification/*/scripts/*.sh)
+  shellcheck "${shell_scripts[@]}"
 else
   echo "shellcheck が見つからないためスキップします（brew install shellcheck）。"
 fi
