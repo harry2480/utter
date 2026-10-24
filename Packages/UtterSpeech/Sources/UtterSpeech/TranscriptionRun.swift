@@ -9,7 +9,7 @@ import UtterCore
 /// - 音声の入力と結果の読み取りを並行して進め、どちらが先に終わったかで終え方を決める
 /// - 音声が終わったら `finalize()` で残りを確定させ、確定テキスト全体を `completed` で流す
 /// - 失敗したら `failed` を流してから音声の読み取りを止める（録音側が終端イベントで録音の止め方を決められるように）
-/// - 受け手がストリームを破棄したら `cancel()` で止め、終端イベントは流さない。モデルのロードや確定の待ちの最中でも止める
+/// - 受け手がストリームを破棄したら `cancel()` で止め、終端イベントは流さない。モデルのロード・解析の開始・確定の待ちの最中でも止める
 enum TranscriptionRun {
   static func events<Session: TranscriptionSession>(
     audio: AsyncStream<AudioChunk>, session id: SessionID,
@@ -64,7 +64,7 @@ enum TranscriptionRun {
     }
     let (inputs, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
     do {
-      try await session.start(inputs)
+      try await cancellingOnTaskCancel(session) { try await session.start(inputs) }
     } catch {
       inputContinuation.finish()
       finish(.failed(classify(error)))
