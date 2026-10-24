@@ -13,6 +13,14 @@ struct UtterApp: App {
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
       Text(shortcuts.statusText)
+      if let escapeText = shortcuts.escapeStatusText {
+        Text(escapeText)
+      }
+      ForEach(shortcuts.missingPermissions, id: \.self) { permission in
+        Button(GlobalShortcutStatusText.requestTitle(for: permission)) {
+          shortcuts.requestPermission(permission)
+        }
+      }
       if let command = shortcuts.lastCommand {
         Text("最後の操作: \(Self.commandName(command))")
       }
