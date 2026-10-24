@@ -67,16 +67,30 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != 
 fi
 
 echo "==> iOS の最低バージョンの一致（Package.swift と Apps/iOS/project.yml）"
-# 仮置きの値（#54 で確定）を変えるときに、片方だけ直して食い違わないようにする
-ios_app_target="$(sed -nE 's/^[[:space:]]*iOS:[[:space:]]*"?([0-9]+)(\.0)?"?[[:space:]]*$/\1/p' Apps/iOS/project.yml)"
-if [[ -z "$ios_app_target" ]]; then
-  echo "Apps/iOS/project.yml から iOS の deploymentTarget を読み取れません。" >&2
+# 仮置きの値（#54 で確定）を変えるときに、片方だけ直して食い違わないようにする。
+# 版数は「メジャー.マイナー」にそろえて比べる（project.yml の "26.0" / "18.4"、Package.swift の .v26 / .v18_4 / "18.4"）
+normalize_version() {
+  local major="${1%%.*}" minor="0"
+  [[ "$1" == *.* ]] && minor="${1#*.}"
+  echo "${major}.${minor%%.*}"
+}
+ios_app_lines="$(sed -nE 's/^[[:space:]]*iOS:[[:space:]]*"?([0-9]+(\.[0-9]+)*)"?[[:space:]]*$/\1/p' Apps/iOS/project.yml)"
+if [[ -z "$ios_app_lines" || "$ios_app_lines" == *$'\n'* ]]; then
+  echo "Apps/iOS/project.yml から iOS の deploymentTarget を1つに読み取れません（options.deploymentTarget だけに書き、ターゲット側で上書きしない）。" >&2
   exit 1
 fi
+ios_app_target="$(normalize_version "$ios_app_lines")"
 ios_packages=()
-for manifest in "${packages[@]}"; do
-  package_ios="$(sed -nE 's/.*\.iOS\(\.v([0-9]+)\).*/\1/p' "$manifest")"
-  [[ -z "$package_ios" ]] && continue
+for manifest in ${packages[@]+"${packages[@]}"}; do
+  # コメント行を除いて、iOS を宣言しているかと版数を読み取れたかを分けて判定する（読めない形は黙って外さない）
+  manifest_code="$(grep -vE '^[[:space:]]*//' "$manifest")"
+  grep -q '\.iOS(' <<<"$manifest_code" || continue
+  package_ios_values="$(sed -nE -e 's/.*\.iOS\(\.v([0-9]+(_[0-9]+)*)\).*/\1/p' -e 's/.*\.iOS\("([0-9]+(\.[0-9]+)*)"\).*/\1/p' <<<"$manifest_code" | tr '_' '.' | sort -u)"
+  if [[ -z "$package_ios_values" || "$package_ios_values" == *$'\n'* ]]; then
+    echo "${manifest} の iOS 最低バージョンを1つに読み取れません（.iOS(.vNN) / .iOS(.vNN_M) / .iOS(\"NN.M\") の形で1か所に書く）。" >&2
+    exit 1
+  fi
+  package_ios="$(normalize_version "$package_ios_values")"
   ios_packages+=("$(dirname -- "$manifest")")
   if [[ "$package_ios" != "$ios_app_target" ]]; then
     echo "${manifest} の iOS 最低バージョン（${package_ios}）が Apps/iOS/project.yml（${ios_app_target}）と一致しません。" >&2
@@ -86,7 +100,8 @@ done
 echo "iOS ${ios_app_target}（Apps/iOS と ${#ios_packages[@]} Package）"
 
 echo "==> iOS Simulator 向けの署名なしビルド（Package と Apps/iOS）"
-if ! xcodebuild -showsdks 2>/dev/null | grep -q -- '-sdk iphonesimulator'; then
+available_sdks="$(xcodebuild -showsdks 2>/dev/null || true)"
+if ! grep -q -- '-sdk iphonesimulator' <<<"$available_sdks"; then
   # CI（macos-26 ランナー）には iOS Simulator SDK があるため、CI で無いのは異常として落とす
   if [[ "${CI:-}" == "true" ]]; then
     echo "iOS Simulator SDK が見つかりません（CI では必須）。" >&2
@@ -94,14 +109,15 @@ if ! xcodebuild -showsdks 2>/dev/null | grep -q -- '-sdk iphonesimulator'; then
   fi
   echo "iOS Simulator SDK が見つからないためスキップします（Xcode > Settings > Components で iOS を導入してください）。"
 else
-  ios_derived_data="build/DerivedData-iOS"
+  # Package 用と App 用で DerivedData を分ける（Package ごとに作られるワークスペースと App のプロジェクトで、ビルド設定のキャッシュを混ぜない）
+  ios_derived_data="$repo_root/build/DerivedData-iOS"
   for package_dir in ${ios_packages[@]+"${ios_packages[@]}"}; do
     echo "--> ${package_dir}（iOS Simulator）"
     # Package のディレクトリで実行すると、Package 名のスキームが自動で作られる
     (cd "$package_dir" && xcodebuild \
       -scheme "$(basename -- "$package_dir")" \
       -destination 'generic/platform=iOS Simulator' \
-      -derivedDataPath "$repo_root/$ios_derived_data/Packages" \
+      -derivedDataPath "$ios_derived_data/Packages" \
       CODE_SIGNING_ALLOWED=NO \
       -quiet build)
   done
@@ -118,6 +134,12 @@ else
   ios_info_plist="$ios_derived_data/App/Build/Products/Debug-iphonesimulator/utter.app/Info.plist"
   if [[ ! -f "$ios_info_plist" ]]; then
     echo "iOS アプリのビルド成果物が見つかりません: $ios_info_plist" >&2
+    exit 1
+  fi
+  # ビルド結果の最低バージョンも、上で確かめた値と同じであること（ターゲット側の上書きを検出する）
+  ios_built_minimum="$(normalize_version "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$ios_info_plist")")"
+  if [[ "$ios_built_minimum" != "$ios_app_target" ]]; then
+    echo "iOS アプリの MinimumOSVersion（${ios_built_minimum}）が ${ios_app_target} と一致しません。" >&2
     exit 1
   fi
 fi

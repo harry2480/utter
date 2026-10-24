@@ -5,7 +5,7 @@
 name: Utter
 options:
   # 最低バージョンは Phase i0（#54）で確定するまでの仮の値。Packages/*/Package.swift の .iOS(...) とそろえる
-  # （scripts/verify.sh が一致を確かめる）
+  # （scripts/verify.sh が一致を確かめる）。ターゲット側で deploymentTarget を上書きしない
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
