@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
+import UtterCore
 
 @testable import UtterAI
 
@@ -227,7 +228,7 @@ struct ClaudeProviderTests {
     let router = try RefinementRouter(
       provider: provider(StubTransport(.response(status: 200, body: body))))
 
-    let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
     #expect(outcome.source == .localFallback(.validationFailed(.empty)))
     #expect(outcome.usage == TokenUsage(inputTokens: 3, outputTokens: 5))
@@ -270,6 +271,7 @@ struct ClaudeProviderTests {
       ("m", 0, 1, "https://api.anthropic.com/v1/messages", .nonPositiveMaxTokens),
       ("m", 1, 0, "https://api.anthropic.com/v1/messages", .nonPositiveRequestTimeout),
       ("m", 1, 1, "http://api.anthropic.com/v1/messages", .insecureEndpoint),
+      ("m", 1, 1, "https://example.com/v1/messages", .unexpectedHost),
     ])
   func rejectsInvalidConfiguration(
     _ model: String, _ maxTokens: Int, _ timeout: Int, _ endpoint: String,
@@ -395,9 +397,14 @@ struct ClaudeProviderTests {
     let router = try RefinementRouter(
       provider: provider(StubTransport(.failure(.notConnectedToInternet))))
 
-    let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
     #expect(outcome.source == .localFallback(.providerFailed(.networkUnavailable)))
+  }
+
+  @Test("AC-06: 送信先は Claude と申告する（同意の確認に使う）")
+  func declaresClaudeDestination() {
+    #expect(provider(StubTransport(.failure(.notConnectedToInternet))).destination == .claude)
   }
 
   @Test("AC-06: 同意がなければ RefinementRouter は送信しない")
@@ -405,7 +412,7 @@ struct ClaudeProviderTests {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))
     let router = try RefinementRouter(provider: provider(transport))
 
-    _ = try await router.refine(request, cloudConsentGranted: false, budget: nil)
+    _ = try await router.refine(request, consent: ConsentState(), budget: nil)
 
     #expect(transport.requests.withLock { $0.isEmpty })
   }

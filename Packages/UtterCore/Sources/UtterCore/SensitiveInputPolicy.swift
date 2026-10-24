@@ -1,7 +1,9 @@
 /// 機密入力の判定に使う信号の状態（7章）。
 ///
-/// 取得に失敗したら `unknown` にする。プラットフォームに概念がない信号（iOS のセキュア入力状態など。
-/// iOS ではセキュア入力欄で OS が標準キーボードへ切り替える, iOS-09）は `off` にする。
+/// 取得に失敗したら `unknown` にする。プラットフォームに概念がない信号（macOS の `secureEventInput` に当たる
+/// システムのセキュア入力状態は iOS にない）は `off` にする。入力欄がセキュア属性かどうかは iOS でも `off` に固定せず、
+/// 観測した値を使う。iOS キーボード拡張の入力欄の属性は `KeyboardInputField` で表し、該当すれば `on`、
+/// 取れなければ `unknown` にする（iOS-09）。
 public enum SensitiveSignal: Hashable, Sendable, CaseIterable {
   /// 該当する（セキュア属性の入力欄、セキュア入力が有効）
   case on
