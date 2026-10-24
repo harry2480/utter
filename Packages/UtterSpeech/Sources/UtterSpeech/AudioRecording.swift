@@ -130,8 +130,12 @@ public final class AudioRecordingPipeline: Sendable {
     let ended = state.withLock { state -> AudioRecordingEndReason? in
       guard !state.isEnded else { return nil }
       state.isEnded = true
-      // 残りを流した結果で上限に達しても、終わった理由は呼び出し側の理由のままにする
-      if let rest = state.chunker.flush() { _ = yield(rest) }
+      guard let rest = state.chunker.flush() else { return reason }
+      // 残りが上限に収まらず一部を流せなかったら、上限到達として知らせる（HUD で通知し、黙って捨てない）。
+      // 収まったら、終わった理由は呼び出し側の理由のままにする
+      if case .limitReached(let kept) = stream.yield(rest), kept < rest.samples.count {
+        return .limitReached
+      }
       return reason
     }
     guard let ended else { return false }

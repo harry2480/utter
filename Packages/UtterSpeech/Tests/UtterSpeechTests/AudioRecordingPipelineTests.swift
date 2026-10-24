@@ -129,4 +129,28 @@ struct AudioRecordingPipelineTests {
     #expect(pipeline.isEnded)
     #expect(await collect(ends).map(\.reason) == [.cancelled])
   }
+
+  @Test("REC-05: 終えるときの残りが上限に収まらなければ、収まる分を流して上限到達として知らせる")
+  func flushBeyondLimitReportsLimit() async {
+    // 10サンプル（PCM16 で 21 バイト。端数の1バイトには収まらない）まで
+    let (pipeline, recording) = make(maxBytes: 21)
+    pipeline.append(Array(repeating: 0.5, count: 8))
+
+    pipeline.append(Array(repeating: 0.5, count: 4))
+    pipeline.end(.finished)
+
+    #expect(await collect(recording.chunks).map(\.samples.count) == [10])
+    #expect(await collect(recording.ends).map(\.reason) == [.limitReached])
+  }
+
+  @Test("REC-05: 終えるときの残りがちょうど上限に収まれば、呼び出し側の理由で終える")
+  func flushExactlyAtLimitKeepsReason() async {
+    let (pipeline, recording) = make(maxBytes: 30)
+    pipeline.append(Array(repeating: 0.5, count: 15))
+
+    pipeline.end(.interrupted(.audioInterruptionBegan))
+
+    #expect(await collect(recording.chunks).map(\.samples.count) == [10, 5])
+    #expect(await collect(recording.ends).map(\.reason) == [.interrupted(.audioInterruptionBegan)])
+  }
 }
