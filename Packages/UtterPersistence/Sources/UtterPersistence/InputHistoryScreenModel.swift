@@ -141,7 +141,14 @@ public final class InputHistoryScreenModel {
   private func reloadEntries(
     generation: Int, failure: InputHistoryScreenFailure
   ) async throws(InputHistoryScreenFailure) {
-    let entries = try await Self.run(historyStore, failure: failure) { try $0.entries() }
+    let entries: [InputHistoryEntry]
+    do {
+      entries = try await Self.run(historyStore, failure: failure) { try $0.entries() }
+    } catch {
+      // 削除した本文を古い一覧のまま表示・コピーさせない
+      if generation == self.generation { self.entries = [] }
+      throw error
+    }
     guard generation == self.generation else { return }
     phase = .enabled
     self.entries = entries

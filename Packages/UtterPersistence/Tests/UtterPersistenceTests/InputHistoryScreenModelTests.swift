@@ -200,6 +200,20 @@ struct InputHistoryScreenModelTests {
     #expect(!model.isBusy)
   }
 
+  @Test("7章: 削除後の読み込みに失敗したら、古い一覧を残さない")
+  func reloadFailureClearsEntries() async throws {
+    await model.enable()
+    try record("一件目")
+    await model.load()
+    #expect(model.entries.count == 1)
+    try breakHistoryTable()
+
+    await model.load()
+
+    #expect(model.failure == .historyNotLoaded)
+    #expect(model.entries.isEmpty)
+  }
+
   @Test("7章, AC-12: 無効にした後に削除で失敗しても、設定は無効のままで失敗を示す")
   func disableKeepsDisabledWhenRemovalFails() async throws {
     await model.enable()

@@ -151,7 +151,7 @@ private struct InputHistoryRow: View {
           .foregroundStyle(.secondary)
         Text(entry.text)
           .lineLimit(4)
-          .textSelection(.enabled)
+        // 選択して ⌘C でコピーすると機密の印が付かないため、選択はさせず「コピー」ボタンだけにする
       }
       Spacer()
       Button("コピー") { HistoryPasteboard.copy(entry.text) }
