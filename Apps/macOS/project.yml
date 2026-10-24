@@ -50,6 +50,8 @@ targets:
         # マイク: 録音（REC-04）。初めて録音するときに OS がこの文言を添えて尋ねる
         INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。
         # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
+        # 修飾キー単独（入力監視）と Esc 捕捉（アクセシビリティ）は #51 の判定待ちで既定で無効。
+        # どちらも Info.plist の用途説明キーはなく、メニューの文言で用途を示し、利用者の操作でだけ要求する
         # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
         # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
   # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする（TEST_HOST なし）

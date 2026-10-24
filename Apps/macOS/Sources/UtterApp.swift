@@ -13,13 +13,22 @@ struct UtterApp: App {
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
       let session = composition.session
-      Text(composition.shortcuts.statusText)
+      let shortcuts = composition.shortcuts
+      Text(shortcuts.statusText)
+      if let escapeText = shortcuts.escapeStatusText {
+        Text(escapeText)
+      }
+      ForEach(shortcuts.missingPermissions, id: \.self) { permission in
+        Button(GlobalShortcutStatusText.requestTitle(for: permission)) {
+          shortcuts.requestPermission(permission)
+        }
+      }
       Divider()
       Button(Self.toggleTitle(session.phase)) {
         session.toggle()
       }
       .disabled(!Self.canToggle(session.phase))
-      // Esc の捕捉（#149）が入るまで、キャンセルはメニューから行う（REC-01）
+      // Esc の捕捉（#51 の判定待ち）は既定で無効のため、キャンセルはメニューからも行える（REC-01）
       Button("キャンセル") {
         session.cancel()
       }
