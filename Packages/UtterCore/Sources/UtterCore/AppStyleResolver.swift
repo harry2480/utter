@@ -38,9 +38,9 @@ public struct AppStyleResolver: Hashable, Sendable {
     bundleID.lowercased()
   }
 
-  /// 大文字・小文字だけが異なるキーが重なった場合は、Unicode スカラー順で先のキー（大文字を含む方）の値を採る。
-  /// 空文字のキーは除く。
-  private static func normalizedKeys(
+  /// キーを小文字に正規化する。大文字・小文字だけが異なるキーが重なった場合は、Unicode スカラー順で先のキー
+  /// （大文字を含む方）の値を採る。空文字のキーは除く。設定の保存（UtterPersistence）でも同じ規則を使う。
+  public static func normalizedKeys(
     _ styles: [String: RefinementStyle]
   ) -> [String: RefinementStyle] {
     var result: [String: RefinementStyle] = [:]
