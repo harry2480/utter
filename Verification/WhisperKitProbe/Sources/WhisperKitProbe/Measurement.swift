@@ -215,7 +215,7 @@ enum ProbeError: Error, CustomStringConvertible {
     case .tokenizerUnknown(let path):
       "モデル \(path) のトークナイザーを判定できません。ロード中に通信するおそれがあるため計測しません"
     case .tokenizerCorrupted(let path):
-      "トークナイザーのファイルが壊れています: \(path)。削除して fetch をやり直してください（オフラインで計測するため）"
+      "トークナイザーを手元のファイルから読み込めません: \(path)。削除して fetch をやり直してください（オフラインで計測するため）"
     case .audioNotFound(let path): "音声ファイルがありません: \(path)"
     case .emptyAudio: "音声が空です"
     }

@@ -100,7 +100,7 @@ struct Bench: AsyncParsableCommand {
   }
 
   func run() async throws {
-    try requireLocalModel(model)
+    try await requireLocalModel(model)
     let session = try Session(command: "bench", model: model, output: output)
     defer { session.finish() }
 
@@ -198,7 +198,7 @@ struct Eval: AsyncParsableCommand {
   static let audioExtensions = ["wav", "m4a", "caf", "aiff", "aif", "mp3", "flac"]
 
   func run() async throws {
-    try requireLocalModel(model)
+    try await requireLocalModel(model)
     let input = try JSONDecoder().decode(
       [EvaluationSample].self, from: Data(contentsOf: URL(fileURLWithPath: evalSet)))
     try EvaluationSample.validate(input)
@@ -288,7 +288,7 @@ func canonicalPath(_ url: URL) -> String {
 }
 
 /// 計測を通信なしで行うため、モデルとトークナイザーが手元にあることを確かめる。
-func requireLocalModel(_ options: ModelOptions) throws {
+func requireLocalModel(_ options: ModelOptions) async throws {
   let folder = options.modelFolder
   guard FileManager.default.fileExists(atPath: folder.appending(path: "config.json").path) else {
     throw ProbeError.modelNotFound(folder.path)
@@ -296,19 +296,22 @@ func requireLocalModel(_ options: ModelOptions) throws {
   guard let repository = tokenizerRepository(modelFolder: folder) else {
     throw ProbeError.tokenizerUnknown(folder.path)
   }
-  let tokenizerFolder = HubApiWrapper(downloadBase: options.modelsDirURL)
-    .localRepoLocation(HubApiWrapper.Repo(id: repository))
+  let hubApi = HubApiWrapper(downloadBase: options.modelsDirURL)
+  let tokenizerFolder = hubApi.localRepoLocation(HubApiWrapper.Repo(id: repository))
   // WhisperKit はローカルのトークナイザーを読めないと Hugging Face から取得し直すため、
-  // 欠けた・壊れた・途中までのファイルはロード前に止めて、計測中に通信しないようにする。
+  // 欠けた・壊れた・中身の合わないファイルはロード前に止めて、計測中に通信しないようにする。
   // tokenizer_config.json が無くてもローカル読み込みは失敗する
   for name in ["tokenizer.json", "tokenizer_config.json"] {
     let file = tokenizerFolder.appending(path: name)
     guard FileManager.default.fileExists(atPath: file.path) else {
       throw ProbeError.tokenizerNotFound(file.path)
     }
-    guard let data = FileManager.default.contents(atPath: file.path),
-      (try? JSONSerialization.jsonObject(with: data)) != nil
-    else { throw ProbeError.tokenizerCorrupted(file.path) }
+  }
+  // WhisperKit のローカル読み込みと同じ経路で一度読み、読めなければ止める（通信しない）
+  do {
+    _ = try await AutoTokenizerWrapper.from(modelFolder: tokenizerFolder, hubApi: hubApi)
+  } catch {
+    throw ProbeError.tokenizerCorrupted(tokenizerFolder.path)
   }
 }
 
