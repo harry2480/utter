@@ -1,0 +1,5 @@
+# xcodegen の生成物（project.yml が正）
+*.xcodeproj/
+
+# 実機で書き出した出力（発話本文を含む）をリポジトリに置かない
+ProbeOutput/
