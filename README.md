@@ -21,7 +21,7 @@
 ## 動作環境（暫定）
 
 - macOS 26 以降 / Apple Silicon
-- iOS 版は本人所有の iPhone への Xcode 実機インストールのみ（App Store 非公開）。最低対応バージョンは Phase i0 で確定
+- iOS 版は本人所有の iPhone への Xcode 実機インストールのみ（App Store 非公開）。最低対応バージョンは Phase i0 で確定（現在のビルド設定は仮置きの iOS 26）
 
 ## 開発
 
@@ -34,7 +34,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → shellcheck） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS / iOS Simulator）→ shellcheck） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
 | `scripts/merge-pr.sh [PR]` | PR を squash マージしてブランチ削除 |
@@ -42,7 +42,7 @@
 
 ### ビルド
 
-macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）は xcodegen でプロジェクトを生成してビルドします。
+macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）と iOS アプリ（現在は起動画面だけのスケルトン）は、xcodegen でプロジェクトを生成してビルドします。
 手順と開発用署名（`Config/Local.xcconfig`）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
 
 ## プロジェクト構成
@@ -55,7 +55,7 @@ utter/
 ├── scripts/              # verify / format / Loop
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
 ├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
-├── Apps/                 # macOS / iOS アプリ（現在は macOS のスケルトンのみ）
+├── Apps/                 # macOS / iOS アプリ（現在はどちらもスケルトン）
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
 ```

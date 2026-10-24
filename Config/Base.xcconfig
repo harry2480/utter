@@ -3,7 +3,7 @@
 // （docs/ビルド・配布規約.md「署名と識別子」）。雛形は Local.xcconfig.example。
 // 既定値は署名なしビルド（scripts/verify.sh・CI）用のダミーで、このままでも署名なしならビルドできる。
 
-// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac になる
+// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios になる
 UTTER_BUNDLE_ID_PREFIX = invalid.utter
 DEVELOPMENT_TEAM =
 
