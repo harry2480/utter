@@ -201,11 +201,10 @@ final class SessionCoordinator {
     }
     defer { ends.cancel() }
 
+    let forwarding = forward(recording.chunks, session: session)
     var text: String?
     var completed = false
-    for await event in recognizer.recognize(
-      forward(recording.chunks, session: session), session: session)
-    {
+    for await event in recognizer.recognize(forwarding.audio, session: session) {
       guard isActive(session) else { return }
       switch event.kind {
       case .partial, .confirmed:
@@ -248,6 +247,8 @@ final class SessionCoordinator {
     // 挿入は始まったら取り消さないため、退避した場合も完了として待機へ戻る
     _ = await inserter.insert(refined, into: target)
     guard apply(.insertionCompleted, session: session) else { return }
+    // 録音のチャンクをすべて差し込み口に渡し終えてから終わりを伝える
+    await forwarding.task.value
     endRetention(session, completed: true)
     runTask = nil
   }
@@ -256,7 +257,7 @@ final class SessionCoordinator {
   /// 音声認識がストリームを手放したら読むのをやめる（録音側は受け手の破棄として録音を止める）
   private func forward(
     _ chunks: AsyncStream<AudioChunk>, session: SessionID
-  ) -> AsyncStream<AudioChunk> {
+  ) -> (audio: AsyncStream<AudioChunk>, task: Task<Void, Never>) {
     let retention = audioRetention
     let (stream, continuation) = AsyncStream.makeStream(of: AudioChunk.self)
     let task = Task {
@@ -267,7 +268,7 @@ final class SessionCoordinator {
       continuation.finish()
     }
     continuation.onTermination = { _ in task.cancel() }
-    return stream
+    return (stream, task)
   }
 
   /// 録音が止まった理由を状態機械へ反映する（REC-04, REC-05）
@@ -397,9 +398,11 @@ final class SessionCoordinator {
   /// 音声バッファの上限（REC-05）。最大録音時間ちょうどだと、タイマーより先にバッファの上限で止まり
   /// 通知が「音声の上限」になるため、1秒の余裕を持たせて最大録音時間のタイマーで止める
   private var recordingBuffer: AudioStreamBuffer {
-    let seconds = machine.configuration.maxRecordingDuration.components.seconds + 1
-    let bytesPerSecond = Int64(AudioRecordingPipeline.defaultSampleRate * 2)
-    let (bytes, overflow) = seconds.multipliedReportingOverflow(by: bytesPerSecond)
-    return AudioStreamBuffer(maxBytes: overflow || bytes > Int64(Int.max) ? Int.max : Int(bytes))
+    // 1秒未満の端数も含めて換算する（切り捨てるとタイマーより先にバッファの上限で止まる）
+    let duration = machine.configuration.maxRecordingDuration + .seconds(1)
+    let seconds =
+      Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+    let bytes = (seconds * Double(AudioRecordingPipeline.defaultSampleRate * 2)).rounded(.up)
+    return AudioStreamBuffer(maxBytes: bytes >= Double(Int.max) ? Int.max : Int(bytes))
   }
 }

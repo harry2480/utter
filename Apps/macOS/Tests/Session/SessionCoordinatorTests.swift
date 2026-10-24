@@ -352,6 +352,22 @@ struct SessionCoordinatorTests {
     #expect(await eventually { retention.appendedSampleCount == 16_000 * 2 })
   }
 
+  @Test("REC-05: 最大録音時間の端数も音声バッファの上限に含める（端数を切り捨てて早く止めない）")
+  func bufferIncludesFractionalDuration() async throws {
+    // バッファは 1.5 + 1 = 2.5 秒分。2.2 秒分（100ms のチャンク 22 個）を入れても上限に達しない
+    let configuration = try SessionConfiguration(maxRecordingDuration: .milliseconds(1_500))
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder, configuration: configuration)
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 35_200))
+    #expect(await eventually { retention.appendedSampleCount == 35_200 })
+    #expect(session.phase == .recording)
+    #expect(recorder.isRecording)
+    session.cancel()
+  }
+
   @Test("REC-04: 入力機器が使えなくなったら録音を止め、それまでの音声を処理して通知する")
   func interruptionStopsAndProcesses() async {
     let recorder = StubAudioRecorder()
