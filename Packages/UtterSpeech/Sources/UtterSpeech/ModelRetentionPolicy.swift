@@ -24,7 +24,7 @@ public enum ModelWeight: Hashable, Sendable {
 /// 判定に使う端末の状態
 public struct DeviceResourceState: Hashable, Sendable, Codable {
   public let memoryPressure: MemoryPressure
-  /// バッテリー駆動で残量が少ない（低電力モードを含む）
+  /// バッテリー駆動で残量が少ない、または低電力モード（外部電源につないでいても含む）
   public let isBatteryLow: Bool
 
   public init(memoryPressure: MemoryPressure = .normal, isBatteryLow: Bool = false) {
