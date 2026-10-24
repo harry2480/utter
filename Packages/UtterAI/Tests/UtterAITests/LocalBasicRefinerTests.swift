@@ -79,7 +79,7 @@ struct LocalBasicRefinerTests {
       provider: StubAIProvider(behavior: .fail(.timeout)), localRefiner: refiner)
     let request = RefinementRequest(text: "えーと了解です", mode: .natural)
 
-    let outcome = try await router.refine(request, cloudConsentGranted: true, budget: nil)
+    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
 
     #expect(outcome.text == "了解です。")
     #expect(outcome.source == .localFallback(.providerFailed(.timeout)))
