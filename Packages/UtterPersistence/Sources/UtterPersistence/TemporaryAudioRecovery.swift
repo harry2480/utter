@@ -76,6 +76,8 @@ public struct TemporaryAudioRecovery: Sendable {
       break
     }
     guard let restored else {
+      // 最後の音声を戻している間にキャンセルされた場合も、削除せずに終える
+      if Task.isCancelled { return .cancelled }
       return .unrecoverable(removed: removeAll(candidate.sessionID))
     }
     if Task.isCancelled { return .cancelled }

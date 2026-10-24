@@ -235,6 +235,26 @@ struct TemporaryAudioRecoveryTests {
     #expect(try recovery.store.list() == [record])
   }
 
+  @Test("AC-10: 最後の音声を戻している間にキャンセルされたら、戻せなくても音声を残す")
+  func keepsAudioWhenCancelledDuringDecode() async throws {
+    let recovery = try recovery(clock: .init(start.addingTimeInterval(60)))
+    let record = try place(Data([Self.broken]), for: SessionID(), secondsAfterStart: 0)
+    let candidate = try #require(try recovery.candidates().first)
+
+    let task = Task {
+      await recovery.recover(
+        candidate,
+        decode: { data in
+          withUnsafeCurrentTask { $0?.cancel() }
+          return try Self.decode(data)
+        },
+        process: { audio, _ in audio })
+    }
+
+    #expect(await task.value == .cancelled)
+    #expect(try recovery.store.list() == [record])
+  }
+
   @Test("AC-10: キャンセル済みなら音声を読まずに終え、音声を残す")
   func cancelledBeforeStart() async throws {
     let recovery = try recovery(clock: .init(start.addingTimeInterval(60)))
