@@ -11,6 +11,8 @@ import UtterPersistence
 /// 3. API キーが保存されていて読み出せる（AC-12）
 /// 4. 予算上限を確かめられる（月次予算・単価表・使用量の累計, AI-04）
 ///
+/// 送信の直前には `RefinementRouter` が機密入力の判定（`sensitivity`）を確かめ、送信できなければローカル整形に退避する（7章, AC-12）。
+///
 /// すべてそろえば `RefinementRouter` 経由で Claude へ1回だけ送信し、失敗・検証失敗・上限時間の超過は
 /// ローカル整形の結果に退避する（4.1節）。処理系の選択と同意は送信の直前にもう一度読み、変更をすぐに反映する。
 /// `AppSettingsStore` が `Sendable` でないため、`@MainActor` から使う。
@@ -26,6 +28,7 @@ public struct CloudRefinement {
   private let makeProvider: MakeProvider
   private let timeout: Duration
   private let date: @Sendable () -> Date
+  private let sensitivity: @Sendable () -> SensitiveInputDecision
 
   /// - Parameters:
   ///   - settingsStore: 同意状態・モデル名・予算の設定の保存先。同意の画面と同じものを渡す
@@ -34,6 +37,8 @@ public struct CloudRefinement {
   ///   - makeProvider: 送信先のプロバイダー
   ///   - timeout: クラウド整形の応答待ちの上限時間。0 以下なら既定値を使う
   ///   - date: 実時刻（費用を計上する月の判定）
+  ///   - sensitivity: 送信前に確かめる機密入力の判定（7章, AC-12）。本番は `ownAppSensitivity()`（自アプリの画面で録音・整形するため、
+  ///     入力欄・セキュア入力は `off`、アプリは自アプリの bundle ID で判定する）
   public init(
     settingsStore: AppSettingsStore,
     apiKeyStore: any APIKeyStore,
@@ -42,7 +47,10 @@ public struct CloudRefinement {
       ClaudeProvider(apiKeyStore: store, configuration: configuration)
     },
     timeout: Duration = RefinementRouter.defaultTimeout,
-    date: @escaping @Sendable () -> Date = { Date() }
+    date: @escaping @Sendable () -> Date = { Date() },
+    sensitivity: @escaping @Sendable () -> SensitiveInputDecision =
+      CloudRefinement
+      .ownAppSensitivity()
   ) {
     self.settingsStore = settingsStore
     self.apiKeyStore = apiKeyStore
@@ -50,6 +58,21 @@ public struct CloudRefinement {
     self.makeProvider = makeProvider
     self.timeout = timeout > .zero ? timeout : RefinementRouter.defaultTimeout
     self.date = date
+    self.sensitivity = sensitivity
+  }
+
+  /// iOS 本体アプリの機密入力の判定（7章, AC-12）。
+  ///
+  /// 本体アプリは自分の画面で録音・整形するため、入力欄のセキュア属性とシステムのセキュア入力は `off`、
+  /// アプリは自アプリの bundle ID で判定する。bundle ID を取得できなければ `SensitiveInputPolicy` が判定不能として抑止する（安全側）。
+  /// 判定は起動中に変わらないため一度だけ作り、送信前の確認ではその結果を返す。
+  /// - Parameter bundleIdentifier: 自アプリの bundle ID。既定は `Bundle.main.bundleIdentifier`
+  public nonisolated static func ownAppSensitivity(
+    bundleIdentifier: String? = Bundle.main.bundleIdentifier
+  ) -> @Sendable () -> SensitiveInputDecision {
+    let decision = SensitiveInputPolicy().decide(
+      SensitiveInputContext(secureField: .off, secureEventInput: .off, app: bundleIdentifier))
+    return { decision }
   }
 
   /// 発話を整形する。
@@ -109,7 +132,7 @@ public struct CloudRefinement {
     let outcome: RefinementOutcome
     do throws(CancellationError) {
       outcome = try await router.refine(
-        request, consent: latest.consentState, budget: budget.budget)
+        request, consent: latest.consentState, budget: budget.budget, sensitivity: sensitivity)
     } catch {
       // 送信後にキャンセルされても課金されている可能性があるため、推定費用は記録する
       await budget.finish()
