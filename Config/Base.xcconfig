@@ -1,0 +1,10 @@
+// アプリターゲット（Apps/ 以下）の署名と識別子の既定値。
+// 個人の Team ID・Bundle ID はここに書かず、同じディレクトリの Local.xcconfig（gitignore 済み）で上書きする
+// （docs/ビルド・配布規約.md「署名と識別子」）。雛形は Local.xcconfig.example。
+// 既定値は署名なしビルド（scripts/verify.sh・CI）用のダミーで、このままでも署名なしならビルドできる。
+
+// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac になる
+UTTER_BUNDLE_ID_PREFIX = invalid.utter
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"
