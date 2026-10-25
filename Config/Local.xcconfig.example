@@ -1,0 +1,9 @@
+// Local.xcconfig の雛形。同じディレクトリに Local.xcconfig としてコピーし、自分の値に書き換える。
+// Local.xcconfig は gitignore 済み。Team ID・Bundle ID をコミットしない。
+
+// Xcode > Settings > Accounts で確認できる Team ID
+DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// 他人と重ならない逆ドメイン。macOS アプリは <接頭辞>.mac になる
+// PRODUCT_BUNDLE_IDENTIFIER は project.yml のターゲット設定が優先されるため、ここには書かず接頭辞を変える
+UTTER_BUNDLE_ID_PREFIX = com.example.yourname.utter

@@ -9,6 +9,8 @@ build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+# xcodegen の生成物（project.yml が正。Apps/macOS/project.yml など）
+*.xcodeproj/
 
 # Swift Package Manager
 .build/

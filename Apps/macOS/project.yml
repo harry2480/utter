@@ -1,0 +1,48 @@
+# macOS アプリ（メニューバー常駐）の Xcode プロジェクト定義。
+# 生成: xcodegen generate --spec Apps/macOS/project.yml
+# 生成した Utter.xcodeproj はコミットしない（.gitignore。project.yml が正）。
+# Team ID・Bundle ID は Config/Local.xcconfig（gitignore 済み）で上書きする（docs/ビルド・配布規約.md）。
+name: Utter
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: ../../Config/Base.xcconfig
+  Release: ../../Config/Base.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+packages:
+  UtterCore:
+    path: ../../Packages/UtterCore
+targets:
+  UtterMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: UtterCore
+    settings:
+      base:
+        PRODUCT_NAME: utter
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: utter
+        # メニューバー常駐で Dock に出さない
+        INFOPLIST_KEY_LSUIElement: "YES"
+        # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+schemes:
+  UtterMac:
+    build:
+      targets:
+        UtterMac: all
+    run:
+      config: Debug
