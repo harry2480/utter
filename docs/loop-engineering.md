@@ -25,7 +25,7 @@ GitHub の Issue labels に次のラベルを作成します。
 
 Loopを有効にするリポジトリでは、default branchを `main` に設定し、`main` のRulesetまたはbranch protectionで `.github/workflows/ci.yml` の集約jobをrequiredにします。このテンプレートではGitHub上のcheck名が `CI ステータス確認`、job IDが `ci-status` です。通常PRにも同じゲートを適用してください。直接pushとforce pushは禁止し、必要な場合のみ管理者bypassを限定します。
 
-GitHubの **Allow auto-merge** を有効化し、Squash mergeを許可してください。テンプレートはGitHub側の設定を変更しません。CI成功、CodeRabbit完了、未解決レビューなし、競合なし、human/blocked状態でないことをLoopが確認してから `gh pr merge --auto --squash` を要求します。required checksと保護ルールはGitHub側で維持します。
+GitHubの **Allow auto-merge** を有効化し、マージコミットによるマージ（Allow merge commits）を許可してください。PR はマージコミットでマージし、squash は使いません（積み上げた PR が競合するため。AGENTS.md の「PRのマージ方式」）。テンプレートはGitHub側の設定を変更しません。CI成功、CodeRabbit完了、未解決レビューなし、競合なし、human/blocked状態でないことをLoopが確認してから `gh pr merge --auto --merge` を要求します。required checksと保護ルールはGitHub側で維持します。
 
 Dependabotの更新PRは自動マージしません。Loopの対象外として人がレビューしてマージします。
 
@@ -94,8 +94,8 @@ Loopに向くのは、`Packages/` 内で完結し、Stubを使ったUnitテス�
 
 ## 動作確認
 
-GitHub Actions上で専用のテスト用リポジトリを使い、信頼できる作成者のready IssueからPR作成、CI失敗修正、CodeRabbit指摘修正、品質ゲート通過、squash自動マージまでを確認します。外部ユーザーのIssueにreadyを付けた場合は自動処理されずhumanへ移ること、CIや外部サービスが失敗した場合にLoopが停止すること、通常PRと手動レビューが維持されることも確認してください。
+GitHub Actions上で専用のテスト用リポジトリを使い、信頼できる作成者のready IssueからPR作成、CI失敗修正、CodeRabbit指摘修正、品質ゲート通過、マージコミットでの自動マージまでを確認します。外部ユーザーのIssueにreadyを付けた場合は自動処理されずhumanへ移ること、CIや外部サービスが失敗した場合にLoopが停止すること、通常PRと手動レビューが維持されることも確認してください。
 
-CIでは `macos-26` ランナーで `scripts/verify.sh`（swift format lint、Swift Packageのbuild/test、shellcheck）を実行します。アプリターゲット作成後は、署名なしの `xcodebuild` によるビルドとテストを同じ集約checkに追加します。
+CIでは `macos-26` ランナーで `scripts/verify.sh`（swift format lint、Swift Packageのbuild/test、アプリの署名なし `xcodebuild` ビルド、shellcheck）を実行します。アプリのテスト・ターゲットを作成したら、署名なしの `xcodebuild test` も同じ集約checkに追加します。
 
 ローカルではshell構文、workflow構文（actionlint）、CodeRabbit YAML、Issue templateを検証し、`scripts/verify.sh` を実行します。実際のCodeRabbitレビュー、GitHubのbranch protection、自動マージ、Issue作成からマージまでの一連の動作は外部設定に依存し、ローカル検証だけでは証明できません。

@@ -6,17 +6,17 @@ macOS ネイティブの音声入力アプリ（OSS）と、共通基盤を使�
 ## 使い方（利用者向け）
 
 - `scripts/verify.sh` で品質チェック（変更後に実行）
-- アプリ本体は Xcode で開いてビルドする（ターゲット作成後に手順を追記）
+- macOS アプリ本体は `xcodegen generate --spec Apps/macOS/project.yml` で `Apps/macOS/Utter.xcodeproj` を生成し、Xcode で開いてビルドする（署名の設定は `Config/Local.xcconfig.example` を `Config/Local.xcconfig` にコピーして書き換える。手順は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md)）
 - 機能を追加したいときは Claude Code に「REC-01 を実装して」「〇〇な機能を作って」と指示する
 - エラーが出たらエラーメッセージを貼り付けて「直して」と指示
 
 ### コマンド一覧
 
 ```sh
-scripts/verify.sh        # swift format lint → Swift Package build/test → shellcheck
+scripts/verify.sh        # swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → shellcheck
 scripts/format.sh        # swift format で自動整形
 scripts/coverage.sh      # カバレッジ計測（coverage/*.lcov、CI で Codecov へ送信）
-scripts/merge-pr.sh [PR] # PR を squash マージしてブランチ削除
+scripts/merge-pr.sh [PR] # PR をマージコミットでマージしてブランチ削除（squash 禁止）
 scripts/loop-once.sh     # Loopを1回だけ実行
 scripts/loop.sh          # 最大5回までLoopを反復（LOOP_MAX_ITERATIONSで調整）
 ```
@@ -35,7 +35,7 @@ Loopを使う場合は [docs/loop-engineering.md](docs/loop-engineering.md) の�
 
 ### 現在のフェーズ
 
-Phase 0 / i0（技術検証）。アプリターゲットと Swift Package はまだ存在しない。
+Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐するだけの macOS アプリターゲット（`Apps/macOS`）のスケルトンがある。録音・ホットキー・HUD・挿入などの機能は未結線で、iOS アプリ・キーボード拡張・STT Worker のターゲットはまだ存在しない。
 検証結果で要件定義11章・14章の判定基準に従って方針が変わるため、検証前の前提でコードを広げない。
 
 ### アーキテクチャ
