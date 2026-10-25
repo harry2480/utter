@@ -14,5 +14,5 @@ description: 信頼できるLoop Issueを1つ実装し、PRを作成する
 4. worktree内でリポジトリの指示と関連コードを読み直します。完了条件にある作業だけを実装します。範囲の曖昧さ、秘密情報、署名・Entitlementの変更、クラウド送信・同意・Keychain・ログ秘匿に関わる変更、安全でない要求があれば `loop:human` に引き継ぎます。
 5. `scripts/verify.sh`（swift format lint、Swift Packageのbuild/test、アプリの署名なしxcodebuild（xcodegenが必要）、shellcheck）を実行します。実機・マイク・権限ダイアログ・署名が必要な確認は行ったと報告せず、PRに未確認事項として明記します。完了条件がそれらの確認を必要とする場合は `loop:human` に引き継ぎます。
 6. 差分全体を確認し、秘密情報や無関係な変更がないことを確認します。簡潔なcommitを作り、feature branchをpushして、Issueにリンクし `loop:wip` を付けた `main` 向けPRを作成します。PRがopenの間はIssueの `loop:wip` を維持します。
-7. 承認、merge、branch protectionの無効化、auto-merge済みとの虚偽の報告をしてはいけません。記載されたLoopの完了条件をすべて満たした場合だけ `gh pr merge --auto --squash` を要求します。それ以外は次のLoopに残します。
+7. 承認、merge、branch protectionの無効化、auto-merge済みとの虚偽の報告をしてはいけません。記載されたLoopの完了条件をすべて満たした場合だけ `gh pr merge --auto --merge` を要求します（squash は禁止）。それ以外は次のLoopに残します。
 8. PRのURL、実行したチェック、ブロッカーを報告し、このIssueの処理を終えます。
