@@ -67,6 +67,8 @@ public enum RefinementNotice: Hashable, Sendable {
   case apiKeyUnavailable
   /// 予算上限を確かめられない
   case budgetUnavailable(CloudBudgetUnavailableReason)
+  /// 機密入力と判定した（判定できない場合を含む）ため送信しなかった（7章, AC-12）
+  case sensitiveInput
   /// 予算の上限に達する
   case budgetExceeded
   /// 認証に失敗した（API キーの誤り・失効）
@@ -91,6 +93,7 @@ public enum RefinementNotice: Hashable, Sendable {
     case .localOnly(.apiKeyUnavailable): self = .apiKeyUnavailable
     case .localOnly(.budgetUnavailable(let reason)): self = .budgetUnavailable(reason)
     case .cloudFallback(.consentNotGranted): return nil
+    case .cloudFallback(.sensitiveInputSuppressed): self = .sensitiveInput
     case .cloudFallback(.validationFailed): self = .unusableResponse
     case .cloudFallback(.providerFailed(let error)):
       switch error {
@@ -115,6 +118,7 @@ public enum RefinementNotice: Hashable, Sendable {
       case .budgetUnavailable(.modelNotPriced): "整形に使うモデルの単価が単価表にない"
       case .budgetUnavailable(.usageUnavailable): "推定費用の累計を読み書きできなかった"
       case .budgetUnavailable(.previousRefinementInProgress): "前の整形の推定費用をまだ記録している"
+      case .sensitiveInput: "機密入力と判定した（判定できない場合を含む）"
       case .budgetExceeded: "今月の予算の上限に達する"
       case .authenticationFailed: "Claude API キーが正しくないか、使えなくなっている"
       case .quotaExceeded: "Claude API の利用枠が不足している"
@@ -148,10 +152,13 @@ extension RecordingInterruptionCause {
     switch self {
     case .audioInterruption: "電話の着信などでマイクが使えなくなった"
     case .inputDeviceLost: "マイクの接続が切れた"
+    case .inputDeviceChanged: "マイクが別の機器に切り替わった"
     case .mediaServicesReset: "録音機能がリセットされた"
     case .movedToBackground: "画面のロックやアプリの切り替えがあった"
     case .thermalState: "端末の温度が高くなった"
     case .lowPowerMode: "低電力モードになった"
+    case .systemSleep: "端末がスリープした"
+    case .microphoneAccessRevoked: "マイクの利用の許可が取り消された"
     }
   }
 }

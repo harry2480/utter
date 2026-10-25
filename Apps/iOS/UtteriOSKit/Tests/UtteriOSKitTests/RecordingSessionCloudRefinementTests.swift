@@ -42,7 +42,8 @@ struct RecordingSessionCloudRefinementTests {
       recognizer: recognizer ?? StubSpeechRecognizer(steps: [.confirmed(spoken)]),
       cloudRefinement: CloudRefinement(
         settingsStore: settingsStore, apiKeyStore: keyStore, budgetSource: budget,
-        makeProvider: { _, _ in provider }, date: { createdAt }),
+        makeProvider: { _, _ in provider }, date: { createdAt },
+        sensitivity: { .allowedInput }),
       storage: SharedResultStorage(store: store, sharing: .appGroup),
       copier: RecordingCopier(),
       sleep: { _ in try await Task.sleep(for: .seconds(3600)) },

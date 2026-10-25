@@ -29,12 +29,15 @@ struct CloudRefinementTests {
 
   private func month() throws -> YearMonth { try YearMonth(year: 2027, month: 1) }
 
-  private func cloud(budgetSource: any CloudRefinementBudgetSource) -> CloudRefinement {
+  private func cloud(
+    budgetSource: any CloudRefinementBudgetSource,
+    sensitivity: @escaping @Sendable () -> SensitiveInputDecision = { .allowedInput }
+  ) -> CloudRefinement {
     let provider = provider
     let date = date
     return CloudRefinement(
       settingsStore: settingsStore, apiKeyStore: keyStore, budgetSource: budgetSource,
-      makeProvider: { _, _ in provider }, date: { date })
+      makeProvider: { _, _ in provider }, date: { date }, sensitivity: sensitivity)
   }
 
   private func setConsent(_ granted: Bool) throws {
@@ -157,6 +160,33 @@ struct CloudRefinementTests {
     #expect(result == SessionRefinementResult(text: "明日の会議は10時からです。", route: .cloud))
     #expect(await provider.receivedRequests == [request])
     #expect(await budget.finishCount == 1)
+  }
+
+  @Test("7章, AC-12: 機密入力と判定されたら、同意・API キー・予算がそろっていても送信せず Local Basic に退避する")
+  func sensitiveInputStaysLocal() async throws {
+    try setConsent(true)
+    try saveKey()
+    let budget = StubBudgetSource(budget: try CloudFixtures.generousBudget(month: month()))
+
+    let result = try await cloud(budgetSource: budget, sensitivity: { .secureFieldInput }).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(
+      result
+        == SessionRefinementResult(
+          text: localText, route: .cloudFallback(.sensitiveInputSuppressed)))
+    #expect(RefinementNotice(route: result.route) == .sensitiveInput)
+    #expect(await provider.callCount == 0)
+    #expect(await budget.finishCount == 1)
+  }
+
+  @Test("7章, AC-12: 本体アプリの判定は自アプリの bundle ID で許可し、bundle ID が取れなければ送信しない")
+  func ownAppSensitivity() {
+    let own = CloudRefinement.ownAppSensitivity(bundleIdentifier: "com.example.utter")()
+    #expect(own.allowsCloudTransmission)
+    let unknown = CloudRefinement.ownAppSensitivity(bundleIdentifier: nil)()
+    #expect(!unknown.allowsCloudTransmission)
+    #expect(unknown.reasons == [.undetermined])
   }
 
   @Test("4.1節, AI-06: クラウド整形に失敗したら Local Basic の結果に退避し、理由を残す")
