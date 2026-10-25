@@ -73,6 +73,39 @@ public struct RecordedAudio: Hashable, Sendable {
     return data
   }
 
+  /// WAV（RIFF、リニア PCM 16bit、モノラル）のバイト列。クラウド STT へ送る音声に使う（#60）。
+  ///
+  /// 一時保存の形式（`encoded()`）とは別で、`init(decoding:)` では読めない。
+  /// WAV のヘッダで長さ（4 GiB 未満）や1秒あたりのバイト数を表せない場合は `nil`。
+  public func wavEncoded() -> Data? {
+    let dataSize = samples.count.multipliedReportingOverflow(by: 2)
+    guard !dataSize.overflow, dataSize.partialValue <= Int(UInt32.max) - 36,
+      sampleRate <= Int(UInt32.max / 2)
+    else { return nil }
+    var data = Data(capacity: 44 + dataSize.partialValue)
+    func append<T: FixedWidthInteger>(_ value: T) {
+      withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+    }
+    data.append(contentsOf: Array("RIFF".utf8))
+    append(UInt32(36 + dataSize.partialValue))
+    data.append(contentsOf: Array("WAVEfmt ".utf8))
+    append(UInt32(16))  // fmt チャンクの長さ
+    append(UInt16(1))  // リニア PCM
+    append(UInt16(1))  // モノラル
+    append(UInt32(sampleRate))
+    append(UInt32(sampleRate * 2))  // 1秒あたりのバイト数
+    append(UInt16(2))  // 1サンプルのバイト数
+    append(UInt16(16))  // ビット数
+    data.append(contentsOf: Array("data".utf8))
+    append(UInt32(dataSize.partialValue))
+    #if _endian(little)
+      samples.withUnsafeBytes { data.append(contentsOf: $0) }
+    #else
+      samples.map(\.littleEndian).withUnsafeBytes { data.append(contentsOf: $0) }
+    #endif
+    return data
+  }
+
   /// 音声認識へ流し直すチャンク。`chunkDuration` ごとに区切り、最後のチャンクは短くなる。
   /// `chunkDuration` が1サンプルに満たなければ1サンプルずつ区切る。
   public func chunks(chunkDuration: Duration = .milliseconds(100)) -> [AudioChunk] {
