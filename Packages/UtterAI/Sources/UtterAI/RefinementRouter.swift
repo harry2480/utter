@@ -3,7 +3,7 @@ import UtterCore
 
 /// 選択されたクラウドプロバイダーへ1回だけ送信し、応答を検証して返す（4.1節, AC-16）。
 ///
-/// 同意がない・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
+/// 同意がない・機密入力・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
 /// 失敗しても再送や別のクラウドプロバイダーへの切り替えはしない（AI-04）。
 public struct RefinementRouter: Sendable {
   /// クラウド整形の応答待ちの上限時間の既定値（暫定）
@@ -43,11 +43,16 @@ public struct RefinementRouter: Sendable {
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
   ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す
+  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。`allowsCloudTransmission` でなければ
+  ///     プロバイダーを呼ばずに `.sensitiveInputSuppressed` で退避する。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
+  ///     予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。確認を省略できないよう既定値は持たせない。
+  ///     同期的に呼ぶため、メインスレッドを待たずに返す（入力先の最新の判定を保持しておき、それを返すなど）
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない
   public func refine(
     _ request: RefinementRequest,
     consent: ConsentState,
-    budget: RefinementBudget?
+    budget: RefinementBudget?,
+    sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> RefinementOutcome {
     if Task.isCancelled {
       throw CancellationError()
@@ -57,6 +62,10 @@ public struct RefinementRouter: Sendable {
     }
     guard consent.allows(.textRefinement(provider.destination)) else {
       return fallback(request, reason: .consentNotGranted)
+    }
+    // 機密入力なら予約もしない
+    guard sensitivity().allowsCloudTransmission else {
+      return fallback(request, reason: .sensitiveInputSuppressed)
     }
 
     var reservation: BudgetReservation?
@@ -78,6 +87,11 @@ public struct RefinementRouter: Sendable {
         await budget.guard.cancel(reservation)
       }
       throw CancellationError()
+    }
+    // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
+    if let budget, let reservation, !sensitivity().allowsCloudTransmission {
+      await budget.guard.cancel(reservation)
+      return fallback(request, reason: .sensitiveInputSuppressed)
     }
 
     let result = await requestWithTimeout(request)
