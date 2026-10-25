@@ -48,7 +48,7 @@ struct ConsentTransmissionTests {
         .response(status: 200, body: ClaudeProviderTests.successBody))
 
       let outcome = try await router(transport).refine(
-        request(mode), consent: consent, budget: nil, sensitivity: { .allowedInput })
+        request(mode), consent: { consent }, budget: nil, sensitivity: { .allowedInput })
 
       let sent = transport.requests.withLock { $0.map(\.url?.host) }
       // 期待値は判定の対象（ConsentState.allows）を使わず、同意の状態から直接求める
@@ -72,7 +72,7 @@ struct ConsentTransmissionTests {
         .response(status: 200, body: ClaudeProviderTests.successBody))
 
       let outcome = try await router(transport).refine(
-        request(.raw), consent: consent, budget: nil, sensitivity: { .allowedInput })
+        request(.raw), consent: { consent }, budget: nil, sensitivity: { .allowedInput })
 
       #expect(transport.requests.withLock { $0.isEmpty })
       #expect(outcome.source == .raw)
@@ -85,7 +85,7 @@ struct ConsentTransmissionTests {
     let router = try RefinementRouter(provider: chatGPT)
 
     let outcome = try await router.refine(
-      request(.natural), consent: .refinementGranted(.chatGPT), budget: nil,
+      request(.natural), consent: { .refinementGranted(.chatGPT) }, budget: nil,
       sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 1)
@@ -105,7 +105,7 @@ struct ConsentTransmissionTests {
     consent.grant(scope)
 
     let outcome = try await router.refine(
-      request(.natural), consent: consent, budget: nil, sensitivity: { .allowedInput })
+      request(.natural), consent: { consent }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 0)
     #expect(outcome.source == .localFallback(.consentNotGranted))
@@ -117,7 +117,7 @@ struct ConsentTransmissionTests {
     let router = try RefinementRouter(provider: chatGPT)
 
     let outcome = try await router.refine(
-      request(.natural), consent: .refinementGranted(.claude), budget: nil,
+      request(.natural), consent: { .refinementGranted(.claude) }, budget: nil,
       sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 0)

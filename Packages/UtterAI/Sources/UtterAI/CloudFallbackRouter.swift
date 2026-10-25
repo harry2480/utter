@@ -35,6 +35,7 @@ public struct CloudFallbackRouter: Sendable {
   /// - Parameters:
   ///   - consent: 最新の同意状態を返す（AC-06, AI-04）。送信先ごとに、送信を判断する直前に呼ぶ。
   ///     最初の送信先の応答を待つ間に同意が撤回されたら、切り替え先へ送らない。
+  ///     各送信先の `RefinementRouter.refine` にも渡し、予算の予約を待った後にも確認する。
   ///     同期的に呼ぶため、メインスレッドを待たずに返す（最新の同意状態を保持しておき、それを返すなど）
   ///   - primary: 最初に送信する、利用者が選んだ送信先
   ///   - fallbacks: 切り替えを許可されている場合に、順に試す送信先。送信済みの送信先と同じ送信先は飛ばし、再送しない
@@ -49,7 +50,7 @@ public struct CloudFallbackRouter: Sendable {
     sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> RefinementOutcome {
     var outcome = try await router(for: primary).refine(
-      request, consent: consent(), budget: primary.budget, sensitivity: sensitivity)
+      request, consent: consent, budget: primary.budget, sensitivity: sensitivity)
     var source = primary.provider.destination
     var attempted: Set<CloudAIProviderKind> = [source]
     for route in fallbacks {
@@ -67,7 +68,7 @@ public struct CloudFallbackRouter: Sendable {
         continue
       }
       outcome = try await router(for: route).refine(
-        request, consent: current, budget: route.budget, sensitivity: sensitivity)
+        request, consent: consent, budget: route.budget, sensitivity: sensitivity)
       source = destination
       attempted.insert(destination)
     }
