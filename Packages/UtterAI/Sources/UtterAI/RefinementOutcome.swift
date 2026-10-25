@@ -1,3 +1,5 @@
+import UtterCore
+
 /// Refinement Router の結果。挿入する本文と、その出どころを持つ（4.1節, AC-16）。
 public struct RefinementOutcome: Hashable, Sendable {
   public enum Source: Hashable, Sendable {
@@ -63,4 +65,40 @@ public enum RefinementFallbackReason: Hashable, Sendable {
   case providerFailed(AIProviderError)
   /// 応答が検証を通らなかった
   case validationFailed(RefinementValidationFailure)
+}
+
+extension RefinementOutcome {
+  /// HUD で知らせる退避の種類（4.1節, AC-16）。クラウド整形の結果と Raw モードでは退避していないため `nil`。
+  ///
+  /// 呼び出し元がキャンセルした場合、`RefinementRouter.refine` は結果を返さず `CancellationError` を投げるため、通知の対象にならない。
+  public var fallbackNotice: RefinementFallbackNotice? {
+    fallbackReason.map(RefinementFallbackNotice.init(reason:))
+  }
+}
+
+extension RefinementFallbackNotice {
+  /// 退避した理由に対応する HUD の通知の種類（4.1節, AC-16, AI-06）。
+  ///
+  /// プロバイダーの失敗は種類ごとに分ける。検証失敗は利用者が対処を変えないため、失敗した項目では分けない。
+  /// 呼び出し元はキャンセルしていないのにプロバイダーが `.cancelled` を返した場合も、ローカル整形の結果を挿入するため通知する。
+  public init(reason: RefinementFallbackReason) {
+    switch reason {
+    case .consentNotGranted: self = .consentNotGranted
+    case .sensitiveInputSuppressed: self = .sensitiveInput
+    case .providerFailed(let error): self.init(providerError: error)
+    case .validationFailed: self = .validationFailed
+    }
+  }
+
+  private init(providerError: AIProviderError) {
+    switch providerError {
+    case .timeout: self = .timeout
+    case .authenticationExpired: self = .authenticationExpired
+    case .quotaExceeded: self = .quotaExceeded
+    case .budgetExceeded: self = .budgetExceeded
+    case .networkUnavailable: self = .networkUnavailable
+    case .invalidResponse: self = .invalidResponse
+    case .cancelled: self = .providerCancelled
+    }
+  }
 }

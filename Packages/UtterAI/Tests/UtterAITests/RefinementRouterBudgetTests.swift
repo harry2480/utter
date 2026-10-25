@@ -291,3 +291,107 @@ extension RefinementRouterBudgetTests {
       model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
   }
 }
+
+extension RefinementRouterBudgetTests {
+  @Test("AC-12: 機密入力なら予約も送信もせず、台帳を変えない")
+  func doesNotReserveForSensitiveInput() async throws {
+    let budgetGuard = try makeGuard(spent: 70)
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      sensitivity: { .secureFieldInput })
+
+    #expect(await stub.callCount == 0)
+    #expect(outcome.fallbackReason == .sensitiveInputSuppressed)
+    #expect(await budgetGuard.ledger.spent(in: october) == 70)
+    // 予約が残っていれば、上限ちょうどの見込み費用は許可されない
+    _ = try await budgetGuard.reserve(
+      model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
+  }
+
+  @Test("AC-12: 予約を待つ間に機密入力へ変わったら、送信せずに予約を取り消す")
+  func cancelsReservationWhenBecomingSensitive() async throws {
+    let budgetGuard = try makeGuard(spent: 70)
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    // 予約の前の判定では許可し、予約を待った後の判定から機密入力にする
+    let calls = Mutex(0)
+
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      sensitivity: {
+        let count = calls.withLock { count in
+          count += 1
+          return count
+        }
+        return count == 1 ? .allowedInput : .secureFieldInput
+      })
+
+    #expect(calls.withLock { $0 } == 2)
+    #expect(await stub.callCount == 0)
+    #expect(
+      outcome
+        == RefinementOutcome(text: request.text, source: .localFallback(.sensitiveInputSuppressed)))
+    #expect(await budgetGuard.ledger.spent(in: october) == 70)
+    // 予約が取り消されていれば、もう一度同じ見込み費用を予約できる
+    _ = try await budgetGuard.reserve(
+      model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
+  }
+
+  @Test("AC-12: 予約できなければ、予約の後の判定はせずに予算超過として退避する")
+  func reevaluatesOnlyAfterReservation() async throws {
+    let budgetGuard = try makeGuard(spent: 90)
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    let calls = Mutex(0)
+
+    // 2回目の判定を予約の前に行う実装なら、退避の理由が機密入力になる
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      sensitivity: {
+        let count = calls.withLock { count in
+          count += 1
+          return count
+        }
+        return count == 1 ? .allowedInput : .secureFieldInput
+      })
+
+    #expect(calls.withLock { $0 } == 1)
+    #expect(await stub.callCount == 0)
+    #expect(outcome.fallbackReason == .providerFailed(.budgetExceeded))
+  }
+
+  @Test("AC-12: 予約を待つ間にキャンセルされたら、機密入力に変わっても退避せず、予約を取り消して CancellationError を投げる")
+  func cancellationTakesPrecedenceOverSensitiveInput() async throws {
+    let budgetGuard = try makeGuard(spent: 70)
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    let request = request
+    let budget = budget(budgetGuard, expected: 30)
+    let calls = Mutex(0)
+    let task = Task {
+      try await router.refine(
+        request, consent: .refinementGranted(), budget: budget,
+        sensitivity: {
+          let count = calls.withLock { count in
+            count += 1
+            return count
+          }
+          // 予約の前の判定の時点でキャンセルし、予約を待った後の確認でキャンセルが見えるようにする
+          withUnsafeCurrentTask { $0?.cancel() }
+          return count == 1 ? .allowedInput : .secureFieldInput
+        })
+    }
+
+    await #expect(throws: CancellationError.self) {
+      try await task.value
+    }
+    #expect(await stub.callCount == 0)
+    #expect(await budgetGuard.ledger.spent(in: october) == 70)
+    // 予約が取り消されていれば、もう一度同じ見込み費用を予約できる
+    _ = try await budgetGuard.reserve(
+      model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
+  }
+}
