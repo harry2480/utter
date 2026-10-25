@@ -47,6 +47,8 @@ public enum EditFailureReason: Hashable, Sendable {
   /// 同意を確認した送信先と、`EditRouter` のプロバイダーの送信先が違う（アプリ側の組み合わせの誤り）。
   /// 別の送信先への同意で送らないよう、プロバイダーは呼ばない（AC-06）
   case destinationMismatch
+  /// 入力先が機密入力（パスワード欄・機密アプリ・除外アプリ・判定不能）のため送信しない。プロバイダーは呼ばない（7章, AC-12）
+  case sensitiveInputSuppressed
   /// プロバイダーが失敗した。予算超過は `.budgetExceeded`、上限時間の超過は `.timeout` になる
   case providerFailed(AIProviderError)
   /// 応答が検証を通らなかった

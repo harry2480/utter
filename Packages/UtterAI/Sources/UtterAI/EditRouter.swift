@@ -3,7 +3,7 @@ import UtterCore
 /// Edit Mode の選択テキストと音声指示を、選択されたクラウドプロバイダーへ1回だけ送信し、応答を検証して返す（AC-14, 2.2節）。
 ///
 /// 送信には、音声入力の整形（`textRefinement`）とは別の、送信先ごとの選択テキストの送信（`editSelection`）への
-/// 同意が要る（AC-06, 7章）。送信しないローカルでは音声指示による編集ができないため、同意がない・失敗・
+/// 同意が要る（AC-06, 7章）。送信しないローカルでは音声指示による編集ができないため、同意がない・機密入力・失敗・
 /// 上限時間の超過・検証失敗のときは、ローカル整形で代わりの結果を作らず「編集できなかった」結果を返す。
 /// 失敗しても再送や別のクラウドプロバイダーへの切り替えはしない（AI-04）。
 public struct EditRouter: Sendable {
@@ -37,11 +37,18 @@ public struct EditRouter: Sendable {
   ///     整形・音声・別の送信先への同意では送信しない
   ///   - budget: 予算上限の設定（AI-04, AI-05）。扱いは `RefinementRouter.refine(_:consent:budget:)` と同じで、
   ///     上限を超えるならプロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` を返す
+  ///   - sensitivity: その時点の入力先（選択範囲のある入力先）で判定し直した結果（7章, AC-12）。
+  ///     `allowsCloudTransmission` でなければプロバイダーを呼ばずに `.sensitiveInputSuppressed` を返す。
+  ///     扱いは `RefinementRouter.refine(_:consent:budget:sensitivity:)` と同じで、予約の前と、予約を待った後の
+  ///     プロバイダーを呼ぶ直前に呼ぶ。予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。
+  ///     確認を省略できないよう既定値は持たせない。同期的に呼ぶため、メインスレッドを待たずに返す
+  ///     （入力先の最新の判定を保持しておき、それを返すなど）
   /// - Throws: 呼び出し元の Task がキャンセルされた場合
   public func edit(
     _ request: EditRequest,
     consent: ConsentState,
-    budget: RefinementBudget?
+    budget: RefinementBudget?,
+    sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> EditOutcome {
     if Task.isCancelled {
       throw CancellationError()
@@ -55,6 +62,10 @@ public struct EditRouter: Sendable {
     guard consent.allows(.editSelection(provider.destination)) else {
       return EditOutcome(content: .notEdited(.consentNotGranted))
     }
+    // 機密入力なら予約もしない
+    guard sensitivity().allowsCloudTransmission else {
+      return EditOutcome(content: .notEdited(.sensitiveInputSuppressed))
+    }
 
     let reservation: BudgetReservation?
     switch try await RefinementRouter.reserve(budget) {
@@ -62,6 +73,11 @@ public struct EditRouter: Sendable {
       reservation = reserved
     case .failure(let error):
       return EditOutcome(content: .notEdited(.providerFailed(error)))
+    }
+    // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
+    if let budget, let reservation, !sensitivity().allowsCloudTransmission {
+      await budget.guard.cancel(reservation)
+      return EditOutcome(content: .notEdited(.sensitiveInputSuppressed))
     }
 
     let provider = provider
