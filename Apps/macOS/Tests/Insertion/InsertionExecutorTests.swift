@@ -172,6 +172,43 @@ struct InsertionExecutorTests {
     #expect(log.sentInsertions.isEmpty)
   }
 
+  @Test("INS-03: AX の書き込みの直前に取り消されていたら書き込まず、プレビューへ退避する")
+  func cancellationBeforeAccessibilityWrite() async {
+    fieldAccess.onSnapshot = { withUnsafeCurrentTask { $0?.cancel() } }
+
+    let report = await insert()
+
+    #expect(report.attempts == [.failed(.accessibility)])
+    #expect(report.outcome == .preview(.cancelled))
+    #expect(log.sentInsertions.isEmpty)
+    #expect(field.value == "abc")
+  }
+
+  @Test("INS-03: Cmd+V の直前に取り消されていたら送らずにクリップボードを戻し、プレビューへ退避する")
+  func cancellationBeforeCommandV() async {
+    pasteboard.onCapture = { withUnsafeCurrentTask { $0?.cancel() } }
+
+    let report = await insert(executor: pasteboardFirst())
+
+    #expect(report.attempts == [.failed(.pasteboard)])
+    #expect(report.outcome == .preview(.cancelled))
+    #expect(report.clipboardRestore == .restored)
+    #expect(log.sentInsertions.isEmpty)
+    #expect(pasteboard.contents == Self.original)
+  }
+
+  @Test("INS-03: キー入力の直前に取り消されていたら1文字も送らず、プレビューへ退避する")
+  func cancellationBeforeKeyEvents() async {
+    fieldAccess.onSnapshot = { withUnsafeCurrentTask { $0?.cancel() } }
+    let policy = InsertionPolicy(defaultRoutes: [.keyEvents])
+
+    let report = await insert("hello", executor: executor(policy: policy))
+
+    #expect(report.attempts == [.failed(.keyEvents)])
+    #expect(report.outcome == .preview(.cancelled))
+    #expect(log.sentInsertions.isEmpty)
+  }
+
   @Test("INS-04: 貼り付けの後に取り消されても、待ってからクリップボードを復元する")
   func cancellationDoesNotHurryRestore() async {
     clock.onSleep = { withUnsafeCurrentTask { $0?.cancel() } }
