@@ -1,6 +1,6 @@
 /// 区分ごとの件数と結果（9章, AC-04）。
 ///
-/// STT 単体の誤り（CER・用語正答率）と、AI 整形後の意味改変を分けて集計する。
+/// STT 単体の誤り（CER・用語正答率）と、AI 整形後の結果（用語正答率・フィラー除去・自己訂正・意味改変）を分けて集計する。
 public struct EvaluationSummary: Hashable, Sendable {
   /// 区分内の発話数
   public var sampleCount = 0
@@ -16,6 +16,10 @@ public struct EvaluationSummary: Hashable, Sendable {
   public var refinedTermErrors = ErrorCount.zero
   /// 意味改変を判定した発話数と、重大な意味改変があった発話数
   public var meaningChanges = ErrorCount.zero
+  /// フィラー除去を判定した発話数（注釈と整形結果がある発話）と、フィラーが残った発話数
+  public var fillerRemovals = ErrorCount.zero
+  /// 自己訂正を判定した発話数（注釈と整形結果がある発話）と、自己訂正に失敗した発話数
+  public var selfCorrections = ErrorCount.zero
 
   public init() {}
 
@@ -35,6 +39,18 @@ public struct EvaluationSummary: Hashable, Sendable {
       refinedTermErrors =
         refinedTermErrors
         + TermAccuracy.count(terms: terms, reference: sample.reference, hypothesis: refined)
+      let fillers = sample.fillers ?? []
+      let corrections = sample.selfCorrections ?? []
+      let success = RefinementSuccess(
+        fillers: fillers, selfCorrections: corrections, normalizer: cer.normalizer)
+      if !fillers.isEmpty {
+        let removed = success.fillersRemoved(reference: sample.reference, refined: refined)
+        fillerRemovals = fillerRemovals + ErrorCount(errors: removed ? 0 : 1, total: 1)
+      }
+      if !corrections.isEmpty {
+        let corrected = success.selfCorrected(reference: sample.reference, refined: refined)
+        selfCorrections = selfCorrections + ErrorCount(errors: corrected ? 0 : 1, total: 1)
+      }
     }
     if let changes = sample.meaningChanges {
       meaningChanges = meaningChanges + ErrorCount(errors: changes.isEmpty ? 0 : 1, total: 1)
@@ -67,8 +83,8 @@ public struct EvaluationReport: Hashable, Sendable {
   /// 区分ごとの件数と結果を Markdown の表で返す。発話本文は含めない。
   public func markdownTable() -> String {
     var lines = [
-      "| 区分 | 件数 | STT 件数 | CER | STT 用語正答率 | 整形件数 | 整形後 用語正答率 | 意味改変 判定件数 | 重大な意味改変率 |",
-      "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+      "| 区分 | 件数 | STT 件数 | CER | STT 用語正答率 | 整形件数 | 整形後 用語正答率 | 意味改変 判定件数 | 重大な意味改変率 | フィラー 判定件数 | フィラー除去成功率 | 自己訂正 判定件数 | 自己訂正成功率 |",
+      "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for category in EvaluationCategory.allCases {
       lines.append(Self.row(category.displayName, categories[category] ?? EvaluationSummary()))
@@ -88,6 +104,10 @@ public struct EvaluationReport: Hashable, Sendable {
       percent(summary.refinedTermErrors.accuracy, of: summary.refinedTermErrors),
       String(summary.meaningChanges.total),
       percent(summary.meaningChanges.errorRate, of: summary.meaningChanges),
+      String(summary.fillerRemovals.total),
+      percent(summary.fillerRemovals.accuracy, of: summary.fillerRemovals),
+      String(summary.selfCorrections.total),
+      percent(summary.selfCorrections.accuracy, of: summary.selfCorrections),
     ]
     return "| " + cells.joined(separator: " | ") + " |"
   }
