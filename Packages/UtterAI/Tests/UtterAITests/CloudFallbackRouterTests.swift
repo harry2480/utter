@@ -79,10 +79,10 @@ struct CloudFallbackRouterTests {
 
     #expect(await claude.callCount == 1)
     #expect(await chatGPT.callCount == 0)
-    #expect(
-      outcome
-        == RefinementOutcome(text: request.text, source: .localFallback(.providerFailed(error)))
-    )
+    #expect(outcome.text == request.text)
+    #expect(outcome.source == .localFallback(.providerFailed(error)))
+    // 課金されている可能性がある失敗は、送信した Claude の予算に見込み費用で記録する（AI-05）
+    #expect((outcome.recordedCost != nil) == !error.isUnbilled)
   }
 
   @Test("AC-12: 機密入力なら、許可があってもどの送信先へも送らずにローカル整形へ退避する")
