@@ -200,7 +200,7 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 
 11章の代替（OpenAI API キー方式）を、判定待ちのまま既定で無効な形で先行実装した（`Packages/UtterAI` の `OpenAIProvider`）。アプリからは組み立てておらず、判定が不成立・不要になったら `OpenAIProvider.swift`・`HTTPStreamingTransport.swift` と、そのテストを消せば外せる。上の出典表（S1〜S15）とは別に、下の出典を **2026-10-24** に確認した。
 
-- 送信先は `https://api.openai.com/v1/responses` に限る（それ以外のホストは設定の時点で拒否する）。認証は利用者自身の API キーを `Authorization: Bearer` で送る。他製品のクライアントID・非公開エンドポイントは使わない（AI-02）
+- 送信先は `https://api.openai.com/v1/responses` に限る（それ以外のホストは設定の時点で拒否し、リダイレクトにも従わない）。認証は利用者自身の API キーを `Authorization: Bearer` で送る。他製品のクライアントID・非公開エンドポイントは使わない（AI-02）
 - プラン利用（3節）の制約とそろえ、`store: false`・`stream: true` で送り、`response.completed` まで届いた応答だけを使う。整形指示は `instructions` に入れる。API キー方式では `max_output_tokens` を送れるため送る（プラン利用では送らない）
 - 受信量の上限（本文のバイト数）と、整形結果の文字数の上限（発話の文字数 × 4.1節の文字数比の上限。短い発話には下限を設ける）を超えたら、残りを受信せずに打ち切って退避する。上限の値は暫定で、Phase 2 で決める
 - エラーは HTTP ステータスと `error.code` で AI-06 に対応づける。ストリームの途中で届いた失敗（`response.failed`・`error`）は課金されている可能性があるため、利用枠・認証の code でも予約を取り消す分類（利用枠不足・認証失効）にせず、見込み費用で予算に記録する（AI-04, AI-05）
