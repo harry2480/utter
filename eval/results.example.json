@@ -5,7 +5,10 @@
     "reference": "えー、明日は三時に集合です。",
     "sttOutput": "えー明日は3時に集合です",
     "refinedOutput": "明日は3時に集合です。",
-    "meaningChanges": []
+    "meaningChanges": [],
+    "fillers": [
+      "えー"
+    ]
   },
   {
     "id": "dev-001",
@@ -29,6 +32,12 @@
     "meaningChanges": [
       "numberChanged",
       "contentOmitted"
+    ],
+    "selfCorrections": [
+      {
+        "retracted": "三時",
+        "corrected": "四時"
+      }
     ]
   }
 ]
