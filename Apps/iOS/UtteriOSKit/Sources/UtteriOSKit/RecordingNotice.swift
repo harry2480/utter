@@ -75,10 +75,13 @@ extension RecordingInterruptionCause {
     switch self {
     case .audioInterruption: "電話の着信などでマイクが使えなくなった"
     case .inputDeviceLost: "マイクの接続が切れた"
+    case .inputDeviceChanged: "マイクが別の機器に切り替わった"
     case .mediaServicesReset: "録音機能がリセットされた"
     case .movedToBackground: "画面のロックやアプリの切り替えがあった"
     case .thermalState: "端末の温度が高くなった"
     case .lowPowerMode: "低電力モードになった"
+    case .systemSleep: "端末がスリープした"
+    case .microphoneAccessRevoked: "マイクの利用の許可が取り消された"
     }
   }
 }
