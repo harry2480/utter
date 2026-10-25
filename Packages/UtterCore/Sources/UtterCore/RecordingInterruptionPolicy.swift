@@ -1,4 +1,4 @@
-/// 録音中の割り込みへの対応方針（iOS-PERF-03）。
+/// 録音中の割り込みへの対応方針（REC-04, iOS-PERF-03）。
 ///
 /// 割り込みで録音を止めるときも、それまでの音声は破棄せず通常どおり処理する（REC-05）。
 /// 処理できる音声がない（`minimumProcessableAudioDuration` 以下）ときだけ録音を中止し、
@@ -16,7 +16,9 @@ public struct RecordingInterruptionPolicy: Hashable, Sendable {
   /// 低電力モードが有効になったら録音を止めるか（暫定: 止めない）
   public let stopsOnLowPowerMode: Bool
   /// 入力機器が使えなくなったら録音を止めるか（暫定: 止める）。
-  /// 止めないと、ヘッドセットから内蔵マイクへ切り替わって周囲の音を録り続けるおそれがある
+  /// 止めないと、ヘッドセットから内蔵マイクへ切り替わって周囲の音を録り続けるおそれがある。
+  /// macOS の既定の入力機器の変更（`inputDeviceChanged`）はこの設定にかかわらず止める。
+  /// macOS では続けるには録音エンジンの作り直し（自動再開）が要るため、Apps/macOS は既定値（止める）を使う
   public let stopsOnInputDeviceLoss: Bool
   /// 録音を止めるとき、取得済みの音声がこの長さ以下なら処理せず中止する
   public let minimumProcessableAudioDuration: Duration
@@ -70,6 +72,9 @@ public struct RecordingInterruptionPolicy: Hashable, Sendable {
       return nil
     case .audioRouteChanged(.inputDeviceLost):
       return stopsOnInputDeviceLoss ? .inputDeviceLost : nil
+    case .audioRouteChanged(.inputDeviceChanged):
+      // 利用者が選んでいない機器で録り続けない。録音エンジンを作り直して続けると自動再開になるため止める
+      return .inputDeviceChanged
     case .audioRouteChanged(.inputDeviceAdded), .audioRouteChanged(.other):
       return nil
     case .mediaServicesReset:
@@ -83,6 +88,15 @@ public struct RecordingInterruptionPolicy: Hashable, Sendable {
       return state >= thermalStopThreshold ? .thermalState : nil
     case .lowPowerModeChanged(let isEnabled):
       return isEnabled && stopsOnLowPowerMode ? .lowPowerMode : nil
+    case .systemWillSleep:
+      // スリープ中は録音できない。スリープ前までの音声を処理する
+      return .systemSleep
+    case .systemDidWake:
+      // スリープに入る時点で録音は止めている。復帰時に自動で再開しない
+      return nil
+    case .microphoneAccessRevoked:
+      // 取り消し後は録音を続けない。取り消し前に取得した音声は通常どおり処理する
+      return .microphoneAccessRevoked
     }
   }
 }
