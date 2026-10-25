@@ -42,7 +42,9 @@ public struct RefinementRouter: Sendable {
   ///   - budget: 予算上限の設定（AI-04, AI-05）。送信前に見込み費用を予約し、上限を超えるなら
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
-  ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す
+  ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す。
+  ///     送信先（`provider.destination`）では課金方式を区別できない。同じ `.chatGPT` でも OpenAI API キー方式（`OpenAIProvider`）は
+  ///     トークン課金のため必ず渡す
   ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。`allowsCloudTransmission` でなければ
   ///     プロバイダーを呼ばずに `.sensitiveInputSuppressed` で退避する。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
   ///     予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。確認を省略できないよう既定値は持たせない。
@@ -99,7 +101,7 @@ public struct RefinementRouter: Sendable {
     let result = await requestWithTimeout(request)
     var recordedCost: RecordedEstimatedCost?
     if let budget, let reservation {
-      recordedCost = await Self.resolve(reservation, with: result, in: budget.guard)
+      recordedCost = await budget.guard.resolve(reservation, with: result.map(\.usage))
     }
     if Task.isCancelled {
       throw CancellationError()
@@ -118,30 +120,6 @@ public struct RefinementRouter: Sendable {
         recordedCost: recordedCost)
     case .failure(let error):
       return fallback(request, reason: .providerFailed(error), recordedCost: recordedCost)
-    }
-  }
-
-  /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
-  ///
-  /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
-  /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
-  /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
-  ///
-  /// - Returns: 台帳に記録した推定費用。取り消した場合は `nil`
-  private static func resolve(
-    _ reservation: BudgetReservation,
-    with result: Result<RefinementResponse, AIProviderError>,
-    in guard: BudgetGuard
-  ) async -> RecordedEstimatedCost? {
-    switch result {
-    case .success(let response):
-      return await `guard`.settle(reservation, actualUsage: response.usage)
-    case .failure(.authenticationExpired), .failure(.quotaExceeded), .failure(.budgetExceeded):
-      await `guard`.cancel(reservation)
-      return nil
-    case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled),
-      .failure(.networkUnavailable):
-      return await `guard`.settle(reservation, actualUsage: nil)
     }
   }
 
@@ -167,7 +145,7 @@ public struct RefinementRouter: Sendable {
   private func requestWithTimeout(
     _ request: RefinementRequest
   ) async -> Result<RefinementResponse, AIProviderError> {
-    let race = Race()
+    let race = Race<RefinementResponse>()
     let provider = provider
     let timeout = timeout
     return await withTaskCancellationHandler {
@@ -195,8 +173,9 @@ public struct RefinementRouter: Sendable {
 }
 
 /// 最初に届いた結果で1回だけ continuation を再開し、残りの Task をキャンセルする。
-final class Race: Sendable {
-  typealias Outcome = Result<RefinementResponse, AIProviderError>
+/// 整形（`RefinementRouter`）とクラウド STT（`OpenAISpeechRecognizer`）の上限時間で使う。
+final class Race<Success: Sendable>: Sendable {
+  typealias Outcome = Result<Success, AIProviderError>
 
   private struct State {
     var continuation: CheckedContinuation<Outcome, Never>?
