@@ -105,7 +105,8 @@ struct ConsentTransmissionTests {
     consent.grant(scope)
 
     let outcome = try await router.refine(
-      request(.natural), consent: { consent }, budget: nil, sensitivity: { .allowedInput })
+      request(.natural), consent: { [consent] in consent }, budget: nil,
+      sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 0)
     #expect(outcome.source == .localFallback(.consentNotGranted))
