@@ -195,3 +195,20 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 - UI は「Continue with ChatGPT」ボタン、「Using ChatGPT plan」表示、「Manage usage」リンク（https://chatgpt.com/settings/usage ）を UI/UX ガイドラインに沿って用意する [S11]
 - クラウド送信の同意（AC-06）と CTX-03（送るのはスタイル区分と辞書語のみ）はプラン利用でも同じく適用する
 - AI-02 に従い、リリース前に本書の出典を再確認し、確認日を更新する
+
+## 付記: OpenAI API キー方式の先行実装（#58）
+
+11章の代替（OpenAI API キー方式）を、判定待ちのまま既定で無効な形で先行実装した（`Packages/UtterAI` の `OpenAIProvider`）。アプリからは組み立てていない。判定が不成立・不要になったときの外し方は、クラウド STT（`OpenAISpeechRecognizer`, #60）を残すかどうかで変わる。クラウド STT も外すなら、`OpenAIProvider.swift`・`HTTPStreamingTransport.swift` と、そのテストを消せば外せる。クラウド STT を残すなら、`OpenAISpeechRecognizer` が使う `HTTPStreamingTransport`・`URLSessionStreamingTransport`・`LineReader`・`ResponsesErrorResponse`・`OpenAIProvider.mapStatus` と、テストが使う `OpenAIProviderTests.StubTransport`・`HangingTransport` を残すか別ファイルへ移してから、`OpenAIProvider` を外す。上の出典表（S1〜S15）とは別に、下の出典を **2026-10-24** に確認した。
+
+- 送信先は `https://api.openai.com/v1/responses` に限る（それ以外のホストは設定の時点で拒否し、リダイレクトにも従わない）。認証は利用者自身の API キーを `Authorization: Bearer` で送る。他製品のクライアントID・非公開エンドポイントは使わない（AI-02）
+- プラン利用（3節）の制約とそろえ、`store: false`・`stream: true` で送り、`response.completed` まで届いた応答だけを使う。整形指示は `instructions` に入れる。API キー方式では `max_output_tokens` を送れるため送る（プラン利用では送らない）
+- 受信量の上限（本文のバイト数）と、整形結果の文字数の上限（発話の文字数 × 4.1節の文字数比の上限。短い発話には下限を設ける）を超えたら、残りを受信せずに打ち切って退避する。上限の値は暫定で、Phase 2 で決める
+- エラーは HTTP ステータスと `error.code` で AI-06 に対応づける。ストリームの途中で届いた失敗（`response.failed`・`error`）は課金されている可能性があるため、利用枠・認証の code でも予約を取り消す分類（利用枠不足・認証失効）にせず、見込み費用で予算に記録する（AI-04, AI-05）
+- 同意は Sign in with ChatGPT と同じ送信先（`CloudAIProviderKind.chatGPT`）として確認する。どちらも OpenAI へ送るため。ただし API キー方式はトークン課金なので、`RefinementRouter` に予算を必ず渡す
+- モデル名と単価はコードに固定しない（AI-05, AI-07）。設定の初期値の候補は **仮置き** で、採用時に公式の料金表で確認し直す
+
+| 項目 | 仮置きの値 | 出典 |
+|---|---|---|
+| 整形用モデルの候補（低遅延の小型モデル, AI-07） | `gpt-5.4-nano`（ほかに `gpt-5-nano`・`gpt-5-mini` など） | OpenAI API Pricing https://developers.openai.com/api/docs/pricing （本文を取得） |
+| 単価（100万トークンあたり、Standard） | `gpt-5.4-nano` 入力 $0.20 / 出力 $1.25、`gpt-5-nano` 入力 $0.05 / 出力 $0.40、`gpt-5-mini` 入力 $0.25 / 出力 $2.00 | 同上 |
+| ストリームのイベント名 | `response.output_text.delta`・`response.completed`・`response.incomplete`・`response.failed`・`error`・`response.refusal.delta` | Streaming API responses https://developers.openai.com/api/docs/guides/streaming-responses （本文を取得。イベント名と `delta`・`response.error.code` の読み方は本文で確認した。`usage`・`error` イベントの `code` など残りの JSON の形は、API リファレンスの本文が大きく取得しきれず未確認のため仮置きで、実際の API キーで確認する） |

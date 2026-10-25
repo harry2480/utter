@@ -31,3 +31,36 @@ public struct URLSessionTransport: HTTPTransport {
     return (data, response)
   }
 }
+
+extension AIProviderError {
+  /// 送信部の失敗を対応づける（AI-06）。
+  init(transportError error: any Error) {
+    if error is CancellationError {
+      self = .cancelled
+      return
+    }
+    guard let urlError = error as? URLError else {
+      self = .networkUnavailable
+      return
+    }
+    switch urlError.code {
+    case .cancelled:
+      self = .cancelled
+    case .timedOut:
+      self = .timeout
+    case .badServerResponse, .cannotParseResponse, .cannotDecodeContentData,
+      .cannotDecodeRawData:
+      self = .invalidResponse
+    default:
+      self = .networkUnavailable
+    }
+  }
+}
+
+extension Duration {
+  /// `URLRequest.timeoutInterval` に渡す秒数
+  var timeInterval: TimeInterval {
+    let (seconds, attoseconds) = components
+    return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
+  }
+}
