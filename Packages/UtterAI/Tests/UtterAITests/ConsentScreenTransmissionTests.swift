@@ -32,7 +32,8 @@ struct ConsentScreenTransmissionTests {
   ) async throws -> (hosts: [String?], outcome: RefinementOutcome) {
     let transport = ClaudeProviderTests.StubTransport(
       .response(status: 200, body: ClaudeProviderTests.successBody))
-    let outcome = try await router(transport).refine(request, consent: consent, budget: nil)
+    let outcome = try await router(transport).refine(
+      request, consent: consent, budget: nil, sensitivity: { .allowedInput })
     return (transport.requests.withLock { $0.map(\.url?.host) }, outcome)
   }
 
