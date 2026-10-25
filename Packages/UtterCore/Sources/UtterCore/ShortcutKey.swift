@@ -37,4 +37,29 @@ public struct ShortcutModifiers: OptionSet, Hashable, Sendable {
   public static let shift = ShortcutModifiers(rawValue: 1 << 3)
   /// Fn / 地球儀キー
   public static let function = ShortcutModifiers(rawValue: 1 << 4)
+
+  /// 定義済みの修飾キーすべて
+  static let known: ShortcutModifiers = [.command, .option, .control, .shift, .function]
+}
+
+/// 正規化した名前の文字列として保存する。空になる名前は読み込みを失敗させる（`RawRepresentable` の既定の実装）
+extension ShortcutKey: Codable {}
+
+/// ビットの組み合わせ（`rawValue`）として保存する
+extension ShortcutModifiers: Codable {
+  /// 定義にないビットを含む値は読み込みを失敗させる（新しい版の修飾キーを黙って落とさない）
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let modifiers = ShortcutModifiers(rawValue: try container.decode(UInt8.self))
+    guard Self.known.isSuperset(of: modifiers) else {
+      throw DecodingError.dataCorruptedError(
+        in: container, debugDescription: "Unknown shortcut modifiers")
+    }
+    self = modifiers
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(rawValue)
+  }
 }
