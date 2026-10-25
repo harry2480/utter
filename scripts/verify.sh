@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルドとユニットテスト → シェルスクリプト lint
+# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド・テスト → シェルスクリプト lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
 # 新しいターゲットを作ったら「アプリの署名なしビルド・テスト」に追加する。
 set -euo pipefail
@@ -33,7 +33,7 @@ else
   done
 fi
 
-echo "==> アプリの署名なしビルドとユニットテスト（xcodegen → xcodebuild）"
+echo "==> アプリの署名なしビルド・テスト（xcodegen → xcodebuild）"
 if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen が見つかりません。brew install xcodegen で導入してください。" >&2
   exit 1
