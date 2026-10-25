@@ -171,6 +171,42 @@ struct RecordedAudioTests {
     #expect(last == .completed("明日の会議"))
   }
 
+  @Test("#60: クラウド STT へ送る WAV は RIFF・リニア PCM 16bit・モノラルのヘッダの後にサンプルを置く")
+  func encodesWAV() throws {
+    let audio = try recorded(
+      [AudioChunk(samples: [1, -1, 0], sampleRate: 16_000)], sampleRate: 16_000)
+
+    let bytes = try [UInt8](#require(audio.wavEncoded()))
+
+    func uint32(_ offset: Int) -> UInt32 {
+      (0..<4).reduce(UInt32(0)) { $0 | UInt32(bytes[offset + $1]) << (8 * UInt32($1)) }
+    }
+    func uint16(_ offset: Int) -> UInt16 {
+      UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
+    }
+    #expect(bytes.count == 44 + 6)
+    #expect(Array(bytes[0..<4]) == Array("RIFF".utf8))
+    #expect(uint32(4) == 36 + 6)
+    #expect(Array(bytes[8..<16]) == Array("WAVEfmt ".utf8))
+    #expect(uint32(16) == 16)
+    #expect(uint16(20) == 1)
+    #expect(uint16(22) == 1)
+    #expect(uint32(24) == 16_000)
+    #expect(uint32(28) == 32_000)
+    #expect(uint16(32) == 2)
+    #expect(uint16(34) == 16)
+    #expect(Array(bytes[36..<40]) == Array("data".utf8))
+    #expect(uint32(40) == 6)
+    #expect(Array(bytes[44...]) == [0xFF, 0x7F, 0x01, 0x80, 0x00, 0x00])
+  }
+
+  @Test("#60: 空の録音も WAV にでき、1秒あたりのバイト数を表せない周波数は nil にする")
+  func encodesEmptyWAVAndRejectsHugeSampleRate() throws {
+    let empty = try #require(try RecordedAudio(sampleRate: 4).wavEncoded())
+    #expect(empty.count == 44)
+    #expect(try RecordedAudio(sampleRate: Int(UInt32.max)).wavEncoded() == nil)
+  }
+
   @Test("REC-06: 文字列表現にサンプルを含めない")
   func redactsSamples() throws {
     let audio = try recorded([AudioChunk(samples: [0.25, -0.5], sampleRate: 4)])
