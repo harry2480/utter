@@ -80,8 +80,8 @@ public struct ShortcutInterpreter: Hashable, Sendable {
   }
 }
 
-/// 録音の操作方式（REC-01, REC-02）。
-public enum ShortcutTriggerMode: Hashable, Sendable {
+/// 録音の操作方式（REC-01, REC-02）。設定に保存する（UtterPersistence の `AppSettings`）。保存形式は case 名の文字列。
+public enum ShortcutTriggerMode: String, Hashable, Sendable, CaseIterable, Codable {
   /// 1回目の押下で開始、2回目の押下で停止
   case toggle
   /// 押している間だけ録音し、離すと停止
