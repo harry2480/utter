@@ -54,7 +54,7 @@ public enum HUDNotice: Hashable, Sendable {
   case maxRecordingDurationReached
   /// 音声バッファの上限に達したため自動停止した
   case audioBufferLimitReached
-  /// 割り込み（電話着信・バックグラウンドへの移動など）で録音を止めた（iOS-PERF-03）
+  /// 割り込み（電話着信・バックグラウンドへの移動・スリープ・入力機器の変更など）で録音を止めた（REC-04, iOS-PERF-03）
   case recordingInterrupted(RecordingInterruptionCause)
   /// クラウド整形をせず、ローカル整形の結果に退避した（4.1節, AC-16）
   case refinementFellBack(RefinementFallbackNotice)
