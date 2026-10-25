@@ -228,7 +228,8 @@ struct ClaudeProviderTests {
     let router = try RefinementRouter(
       provider: provider(StubTransport(.response(status: 200, body: body))))
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.validationFailed(.empty)))
     #expect(outcome.usage == TokenUsage(inputTokens: 3, outputTokens: 5))
@@ -397,7 +398,8 @@ struct ClaudeProviderTests {
     let router = try RefinementRouter(
       provider: provider(StubTransport(.failure(.notConnectedToInternet))))
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.providerFailed(.networkUnavailable)))
   }
@@ -412,7 +414,8 @@ struct ClaudeProviderTests {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))
     let router = try RefinementRouter(provider: provider(transport))
 
-    _ = try await router.refine(request, consent: ConsentState(), budget: nil)
+    _ = try await router.refine(
+      request, consent: ConsentState(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(transport.requests.withLock { $0.isEmpty })
   }

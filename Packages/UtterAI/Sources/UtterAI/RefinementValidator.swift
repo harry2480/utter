@@ -131,7 +131,10 @@ public enum RefinementValidationFailure: Hashable, Sendable, CaseIterable {
   case unrelatedContent
 }
 
-/// 応答検証の閾値。既定値は暫定で、最終値は Phase 2 の評価セットで決める（4.1節）。
+/// 応答検証の閾値（4.1節）。
+///
+/// 既定値は、受け入れるべき整形の評価セットと質問文・命令文の評価セット（AC-17）で確かめた値。
+/// どちらも手書きの模範出力・模擬応答のため、実際のクラウド AI の応答で再評価する（docs/精度評価.md）。
 public struct RefinementValidationConfiguration: Hashable, Sendable {
   public static let defaultLengthRatioRange: ClosedRange<Double> = 0.1...2.5
   public static let defaultMinimumLengthForRatio = 10

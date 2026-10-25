@@ -74,7 +74,7 @@ public struct EditRouter: Sendable {
       }
     }
     if let budget, let reservation {
-      await RefinementRouter.resolve(reservation, with: result, in: budget.guard)
+      await budget.guard.resolve(reservation, with: result.map(\.usage))
     }
     if Task.isCancelled {
       throw CancellationError()
