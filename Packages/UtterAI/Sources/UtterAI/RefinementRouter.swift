@@ -3,7 +3,7 @@ import UtterCore
 
 /// 選択されたクラウドプロバイダーへ1回だけ送信し、応答を検証して返す（4.1節, AC-16）。
 ///
-/// 同意がない・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
+/// 同意がない・機密入力・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
 /// 失敗しても再送や別のクラウドプロバイダーへの切り替えはしない（AI-04）。
 public struct RefinementRouter: Sendable {
   /// クラウド整形の応答待ちの上限時間の既定値（暫定）
@@ -42,12 +42,19 @@ public struct RefinementRouter: Sendable {
   ///   - budget: 予算上限の設定（AI-04, AI-05）。送信前に見込み費用を予約し、上限を超えるなら
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
-  ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す
+  ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す。
+  ///     送信先（`provider.destination`）では課金方式を区別できない。同じ `.chatGPT` でも OpenAI API キー方式（`OpenAIProvider`）は
+  ///     トークン課金のため必ず渡す
+  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。`allowsCloudTransmission` でなければ
+  ///     プロバイダーを呼ばずに `.sensitiveInputSuppressed` で退避する。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
+  ///     予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。確認を省略できないよう既定値は持たせない。
+  ///     同期的に呼ぶため、メインスレッドを待たずに返す（入力先の最新の判定を保持しておき、それを返すなど）
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない
   public func refine(
     _ request: RefinementRequest,
     consent: ConsentState,
-    budget: RefinementBudget?
+    budget: RefinementBudget?,
+    sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> RefinementOutcome {
     if Task.isCancelled {
       throw CancellationError()
@@ -58,6 +65,10 @@ public struct RefinementRouter: Sendable {
     guard consent.allows(.textRefinement(provider.destination)) else {
       return fallback(request, reason: .consentNotGranted)
     }
+    // 機密入力なら予約もしない
+    guard sensitivity().allowsCloudTransmission else {
+      return fallback(request, reason: .sensitiveInputSuppressed)
+    }
 
     let reservation: BudgetReservation?
     switch try await Self.reserve(budget) {
@@ -65,6 +76,11 @@ public struct RefinementRouter: Sendable {
       reservation = reserved
     case .failure(let error):
       return fallback(request, reason: .providerFailed(error))
+    }
+    // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
+    if let budget, let reservation, !sensitivity().allowsCloudTransmission {
+      await budget.guard.cancel(reservation)
+      return fallback(request, reason: .sensitiveInputSuppressed)
     }
 
     let provider = provider
@@ -76,7 +92,7 @@ public struct RefinementRouter: Sendable {
       }
     }
     if let budget, let reservation {
-      await Self.resolve(reservation, with: result, in: budget.guard)
+      await budget.guard.resolve(reservation, with: result.map(\.usage))
     }
     if Task.isCancelled {
       throw CancellationError()
@@ -126,27 +142,6 @@ public struct RefinementRouter: Sendable {
     return .success(reservation)
   }
 
-  /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
-  ///
-  /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
-  /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
-  /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
-  static func resolve(
-    _ reservation: BudgetReservation,
-    with result: RefinementResult,
-    in guard: BudgetGuard
-  ) async {
-    switch result {
-    case .success(let response):
-      await `guard`.settle(reservation, actualUsage: response.usage)
-    case .failure(.authenticationExpired), .failure(.quotaExceeded), .failure(.budgetExceeded):
-      await `guard`.cancel(reservation)
-    case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled),
-      .failure(.networkUnavailable):
-      await `guard`.settle(reservation, actualUsage: nil)
-    }
-  }
-
   private func fallback(
     _ request: RefinementRequest,
     reason: RefinementFallbackReason,
@@ -171,7 +166,7 @@ public struct RefinementRouter: Sendable {
     _ timeout: Duration,
     _ operation: @escaping @Sendable () async -> RefinementResult
   ) async -> RefinementResult {
-    let race = Race()
+    let race = Race<RefinementResponse>()
     return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
         race.install(continuation)
@@ -192,8 +187,9 @@ public struct RefinementRouter: Sendable {
 typealias RefinementResult = Result<RefinementResponse, AIProviderError>
 
 /// 最初に届いた結果で1回だけ continuation を再開し、残りの Task をキャンセルする。
-final class Race: Sendable {
-  typealias Outcome = RefinementResult
+/// 整形（`RefinementRouter` / `EditRouter`）とクラウド STT（`OpenAISpeechRecognizer`）の上限時間で使う。
+final class Race<Success: Sendable>: Sendable {
+  typealias Outcome = Result<Success, AIProviderError>
 
   private struct State {
     var continuation: CheckedContinuation<Outcome, Never>?
