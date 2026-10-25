@@ -47,6 +47,11 @@ struct HUDPresentationTests {
       (.recordingInterrupted(.movedToBackground), "アプリがバックグラウンドに移ったため、録音を停止しました"),
       (.recordingInterrupted(.thermalState), "端末の温度が上がったため、録音を停止しました"),
       (.recordingInterrupted(.lowPowerMode), "低電力モードになったため、録音を停止しました"),
+      (.recordingInterrupted(.inputDeviceChanged), "入力機器が切り替わったため、録音を停止しました"),
+      (.recordingInterrupted(.systemSleep), "Mac がスリープしたため、録音を停止しました"),
+      (.recordingInterrupted(.microphoneAccessRevoked), "マイクの使用許可が取り消されたため、録音を停止しました"),
+      (.refinementFellBack(.timeout), "クラウド整形の応答が時間内に届かなかったため、ローカルで整形しました"),
+      (.refinementFellBack(.sensitiveInput), "入力先が機密入力のため、ローカルで整形しました"),
     ])
   func noticeText(notice: HUDNotice, text: String) throws {
     let processing = try #require(
@@ -60,6 +65,18 @@ struct HUDPresentationTests {
     #expect(lingering.indicator == .notice)
     #expect(lingering.title == text)
     #expect(lingering.message == nil)
+  }
+
+  @Test("AC-16: 録音停止と退避の通知が重なったときは先頭の1件だけを表示する")
+  func showsOnlyFirstNotice() throws {
+    let presentation = try #require(
+      HUDPresentation(
+        HUDContent(
+          status: nil,
+          notices: [.maxRecordingDurationReached, .refinementFellBack(.networkUnavailable)])))
+
+    #expect(presentation.title == "最大録音時間に達したため、録音を停止しました")
+    #expect(presentation.message == nil)
   }
 
   @Test("REC-03: 状態も通知もなければ表示しない")

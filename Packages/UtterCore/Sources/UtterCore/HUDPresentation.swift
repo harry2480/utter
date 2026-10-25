@@ -1,4 +1,4 @@
-/// HUD に表示する文言と表示の種類（REC-03, REC-05）。
+/// HUD に表示する文言と表示の種類（REC-03, REC-05, 4.1節）。
 ///
 /// `HUDContent`（状態と通知の区分）だけから組み立てるため、発話本文・認識結果・API キー・トークン・
 /// エラー詳細を含まない。画面（Apps）はこの値をそのまま描画し、文言を独自に作らない。
@@ -62,6 +62,23 @@ public struct HUDPresentation: Hashable, Sendable {
     case .maxRecordingDurationReached: "最大録音時間に達したため、録音を停止しました"
     case .audioBufferLimitReached: "録音できる音声の上限に達したため、録音を停止しました"
     case .recordingInterrupted(let cause): "\(reason(for: cause))ため、録音を停止しました"
+    case .refinementFellBack(let fallback): "\(reason(for: fallback))ため、ローカルで整形しました"
+    }
+  }
+
+  /// 退避の理由（4.1節, AC-16, AI-06）。種類ごとに利用者の対処が違うため分けて書く。エラー詳細は含めない
+  private static func reason(for fallback: RefinementFallbackNotice) -> String {
+    switch fallback {
+    case .consentNotGranted: "クラウドへの送信に同意していない"
+    case .sensitiveInput: "入力先が機密入力の"
+    case .timeout: "クラウド整形の応答が時間内に届かなかった"
+    case .authenticationExpired: "クラウド整形の API キーが無効になっている"
+    case .quotaExceeded: "クラウド整形の利用枠が不足している"
+    case .budgetExceeded: "月次予算の上限を超える"
+    case .networkUnavailable: "ネットワークに接続できない"
+    case .invalidResponse: "クラウド整形の応答を解釈できなかった"
+    case .providerCancelled: "クラウド整形が中断された"
+    case .validationFailed: "クラウド整形の結果が検証を通らなかった"
     }
   }
 
@@ -69,10 +86,13 @@ public struct HUDPresentation: Hashable, Sendable {
     switch cause {
     case .audioInterruption: "ほかの音声に割り込まれた"
     case .inputDeviceLost: "マイクが使えなくなった"
+    case .inputDeviceChanged: "入力機器が切り替わった"
     case .mediaServicesReset: "音声システムがリセットされた"
     case .movedToBackground: "アプリがバックグラウンドに移った"
     case .thermalState: "端末の温度が上がった"
     case .lowPowerMode: "低電力モードになった"
+    case .systemSleep: "Mac がスリープした"
+    case .microphoneAccessRevoked: "マイクの使用許可が取り消された"
     }
   }
 }
