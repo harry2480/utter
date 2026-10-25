@@ -33,7 +33,7 @@ else
   done
 fi
 
-echo "==> アプリの署名なしビルドとユニットテスト（xcodegen → xcodebuild）"
+echo "==> アプリの署名なしビルド・テスト（xcodegen → xcodebuild）"
 if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen が見つかりません。brew install xcodegen で導入してください。" >&2
   exit 1
