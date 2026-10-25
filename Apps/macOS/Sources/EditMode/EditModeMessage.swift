@@ -34,6 +34,8 @@ enum EditModeMessage {
     case .consentNotGranted:
       "選択テキストの送信に同意していないため、送信しませんでした。選択範囲は変えていません。"
     case .destinationMismatch: "送信先の設定が合わないため、送信しませんでした。選択範囲は変えていません。"
+    case .sensitiveInputSuppressed:
+      "パスワード欄など、送信しない入力先のため送信しませんでした。選択範囲は変えていません。"
     case .providerFailed(.budgetExceeded): "予算の上限に達するため、送信しませんでした。選択範囲は変えていません。"
     case .providerFailed(.timeout): "応答が時間内に届かなかったため、編集しませんでした。選択範囲は変えていません。"
     case .providerFailed: "編集案を取得できませんでした。選択範囲は変えていません。"

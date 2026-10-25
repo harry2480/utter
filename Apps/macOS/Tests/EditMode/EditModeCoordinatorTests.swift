@@ -107,6 +107,37 @@ struct EditModeCoordinatorTests {
     #expect(field.value == Self.value)
   }
 
+  @Test("AC-12: 音声指示を送る時点で選択範囲の入力欄がパスワード欄になっていたら送らない")
+  func secureFieldAtSubmit() async throws {
+    let coordinator = try coordinator()
+    #expect(coordinator.begin() == nil)
+    editField.secure = .on
+
+    let result = await coordinator.submit(instruction: "会議を打ち合わせにして")
+
+    #expect(result == .notEdited(.sensitiveInputSuppressed))
+    #expect(await provider.editCallCount == 0)
+    #expect(presenter.notices == [.notEdited(.sensitiveInputSuppressed)])
+    #expect(presenter.proposals.isEmpty)
+    #expect(field.value == Self.value)
+  }
+
+  @Test(
+    "AC-12: 音声指示を送る時点でセキュア入力が有効・判定できなければ送らない",
+    arguments: [
+      SensitiveSignal.on, .unknown,
+    ])
+  func secureEventInputAtSubmit(_ signal: SensitiveSignal) async throws {
+    let coordinator = try coordinator()
+    #expect(coordinator.begin() == nil)
+    inspector.secure = signal
+
+    #expect(
+      await coordinator.submit(instruction: "会議を打ち合わせにして")
+        == .notEdited(.sensitiveInputSuppressed))
+    #expect(await provider.editCallCount == 0)
+  }
+
   @Test("AC-14: 選択テキストと音声指示だけを送り、差分プレビューを表示する")
   func proposalShown() async throws {
     let coordinator = try coordinator()

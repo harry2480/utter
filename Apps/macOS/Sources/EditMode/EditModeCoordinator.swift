@@ -48,7 +48,8 @@ enum EditUndoResult: Hashable, Sendable {
 /// - 確定時は、録音開始時と同じ要素の同じ範囲に元の選択テキストが残っていることを確かめてから `kAXSelectedTextAttribute` に書き込み、
 ///   読み戻す。範囲の文字列が変わっていた・書き込めなかった・変化がなかった場合は、編集案をコピーできるパネルへ退避する
 /// - 元に戻すときは、該当範囲が確定したテキストのままなら元の選択テキストへ書き戻す。書き換えられていれば上書きせず、元のテキストを退避する
-/// - パスワード欄・セキュア入力・機密アプリ・除外アプリでは、選択範囲を読まず、書き込まない（7章）
+/// - パスワード欄・セキュア入力・機密アプリ・除外アプリでは、選択範囲を読まず、書き込まない（7章）。
+///   音声指示の送信の直前にも、選択範囲を読んだ入力欄と開始時の前面アプリで判定し直し、機密入力なら送らない（AC-12）
 /// - 選択テキスト・音声指示・編集案をログに出さない
 @MainActor
 final class EditModeCoordinator {
@@ -207,7 +208,12 @@ final class EditModeCoordinator {
     }
     let outcome: EditOutcome
     do {
-      outcome = try await router.edit(request, consent: consent(), budget: budget())
+      // `EditRouter` は同期的に判定を求めるため、送る直前にここで判定した値を渡す。Router は予約を待った後にも判定を求めるが、
+      // 入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の変化はここでの判定までしか反映しない
+      let decision = sensitiveDecision(
+        secureField: field.secureField(of: edit.target), app: edit.app)
+      outcome = try await router.edit(
+        request, consent: consent(), budget: budget(), sensitivity: { decision })
     } catch {
       return .superseded
     }
@@ -379,9 +385,15 @@ final class EditModeCoordinator {
   private func sensitiveReasons(secureField: SensitiveSignal, app: String?)
     -> Set<SensitiveInputReason>
   {
+    sensitiveDecision(secureField: secureField, app: app).reasons
+  }
+
+  private func sensitiveDecision(secureField: SensitiveSignal, app: String?)
+    -> SensitiveInputDecision
+  {
     let context = SensitiveInputContext(
       secureField: secureField, secureEventInput: inspector.secureEventInput(), app: app)
-    return sensitivePolicy.decide(context).reasons
+    return sensitivePolicy.decide(context)
   }
 
   /// `value` の `range`（UTF-16 単位）の文字列。範囲が値の外か、文字（`Character`）の境界でない位置
