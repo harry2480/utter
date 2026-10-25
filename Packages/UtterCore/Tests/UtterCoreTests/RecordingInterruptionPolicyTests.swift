@@ -25,7 +25,7 @@ struct RecordingInterruptionPolicyTests {
   }
 
   @Test(
-    "iOS-PERF-03: 一時的な非アクティブ化・割り込みの終了・機器の追加・低電力モード・熱状態の軽い上昇では録音を続ける",
+    "iOS-PERF-03, REC-04: 一時的な非アクティブ化・割り込みの終了・機器の追加・低電力モード・熱状態の軽い上昇・スリープからの復帰では録音を続ける（再開もしない）",
     arguments: [
       RecordingInterruption.appWillResignActive,
       .audioInterruptionEnded,
@@ -36,6 +36,7 @@ struct RecordingInterruptionPolicyTests {
       .thermalStateChanged(.nominal),
       .thermalStateChanged(.fair),
       .thermalStateChanged(.serious),
+      .systemDidWake,
     ]
   )
   func continuesRecording(_ interruption: RecordingInterruption) {
@@ -100,6 +101,48 @@ struct RecordingInterruptionPolicyTests {
       policy.decision(
         for: .audioRouteChanged(.inputDeviceLost), capturedAudioDuration: captured)
         == .continueRecording)
+  }
+
+  // MARK: - macOS（REC-04）
+
+  @Test(
+    "REC-04: macOS のスリープ・既定の入力機器の変更・マイク権限の取り消しでは録音を止めて処理する",
+    arguments: [
+      (RecordingInterruption.systemWillSleep, RecordingInterruptionCause.systemSleep),
+      (.audioRouteChanged(.inputDeviceChanged), .inputDeviceChanged),
+      (.microphoneAccessRevoked, .microphoneAccessRevoked),
+    ]
+  )
+  func macOSInterruptionStopsAndProcesses(
+    _ interruption: RecordingInterruption, _ cause: RecordingInterruptionCause
+  ) {
+    #expect(
+      policy.decision(for: interruption, capturedAudioDuration: captured)
+        == .stopAndProcess(cause))
+  }
+
+  @Test(
+    "REC-05: macOS の割り込みでも音声がなければ録音を中止する",
+    arguments: [
+      (RecordingInterruption.systemWillSleep, RecordingInterruptionCause.systemSleep),
+      (.audioRouteChanged(.inputDeviceChanged), .inputDeviceChanged),
+      (.microphoneAccessRevoked, .microphoneAccessRevoked),
+    ]
+  )
+  func macOSInterruptionWithoutAudioAborts(
+    _ interruption: RecordingInterruption, _ cause: RecordingInterruptionCause
+  ) {
+    #expect(policy.decision(for: interruption, capturedAudioDuration: .zero) == .abort(cause))
+  }
+
+  @Test("REC-04: 既定の入力機器の変更は、入力機器の喪失で続ける設定でも録音を止める")
+  func inputDeviceChangeStopsRegardlessOfLossSetting() throws {
+    let policy = try RecordingInterruptionPolicy(stopsOnInputDeviceLoss: false)
+
+    #expect(
+      policy.decision(
+        for: .audioRouteChanged(.inputDeviceChanged), capturedAudioDuration: captured)
+        == .stopAndProcess(.inputDeviceChanged))
   }
 
   @Test("iOS-PERF-03: 既定値は Phase i0 前の仮定どおり")
