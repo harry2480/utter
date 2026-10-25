@@ -341,11 +341,9 @@ struct TemporaryAudioRecoveryTests {
     let older = try place(Data([0x01]), for: session, secondsAfterStart: 0)
     let newer = try place(Data([0x02]), for: session, secondsAfterStart: 10)
     let candidate = try #require(try recovery.candidates().first)
-    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: newer.url.path)
-    defer {
-      try? FileManager.default.setAttributes(
-        [.posixPermissions: 0o600], ofItemAtPath: newer.url.path)
-    }
+    // 権限を外すだけでは root で実行すると読めてしまうため、通常ファイルでなくして読み込みを失敗させる
+    try FileManager.default.removeItem(at: newer.url)
+    try FileManager.default.createDirectory(at: newer.url, withIntermediateDirectories: false)
 
     let processed = Mutex(false)
 
@@ -358,7 +356,10 @@ struct TemporaryAudioRecoveryTests {
 
     #expect(result == .unreadable)
     #expect(!processed.withLock { $0 })
-    #expect(try recovery.store.list() == [older, newer])
+    // ディレクトリの URL は末尾に `/` が付くため、ファイル名で比べる
+    #expect(
+      try recovery.store.list().map(\.url.lastPathComponent)
+        == [older, newer].map(\.url.lastPathComponent))
   }
 
   @Test("AC-10: 復旧の候補と結果の文字列表現に、セッションID と復旧した値を出さない")
