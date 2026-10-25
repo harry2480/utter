@@ -80,7 +80,7 @@ public struct SessionStateMachine: Sendable {
     return finishRecording(reason: .bufferLimitReached)
   }
 
-  /// 録音中の割り込みを `policy` に従って処理する（iOS-PERF-03）。
+  /// 録音中の割り込みを `policy` に従って処理する（REC-04, iOS-PERF-03）。
   ///
   /// - 録音を止める割り込みで音声があれば、自動停止として認識へ進む（REC-05: 音声を破棄しない）
   /// - 処理できる音声がなければ、録音段階の失敗（`error(.recording)`）として表示する
@@ -191,7 +191,7 @@ public enum SessionStartOutcome: Hashable, Sendable {
   case ignored
 }
 
-/// 録音中の割り込みを処理した結果（iOS-PERF-03）。
+/// 録音中の割り込みを処理した結果（REC-04, iOS-PERF-03）。
 public enum RecordingInterruptionOutcome: Hashable, Sendable {
   /// 録音を続ける
   case continued

@@ -37,12 +37,17 @@ struct AppSettingsStoreTests {
     consentState.grant(.transmission(.textRefinement(.claude)))
     let settings = AppSettings(
       maxRecordingDuration: 120,
+      recordingTrigger: .pushToTalk,
+      recordingShortcut: KeyCombination(modifierOnly: [.function]),
+      inputMode: .realtimePreview,
+      refinementMode: .raw,
       refinementEngine: .cloudAI,
       appStyleOverrides: ["com.apple.terminal": .command],
       refinementModel: "model-a",
       monthlyBudget: MonthlyBudgetSetting(limitAmount: 5, currencyCode: "USD"),
       consentState: consentState,
       historyEnabled: true,
+      modelRetentionMode: .powerSaving,
       excludedApps: ["com.example.secret"])
 
     try AppSettingsStore(defaults: suite.defaults).save(settings)
@@ -50,6 +55,34 @@ struct AppSettingsStoreTests {
 
     #expect(loaded == settings)
     #expect(loaded.consentState.allows(.textRefinement(.claude)))
+  }
+
+  @Test("2.3節, AC-06: 版 1 で保存した設定を読み、保存し直すと版 2 になって値を保つ")
+  func version1DataIsMigratedOnSave() throws {
+    let suite = try TestDefaults("migration")
+    var consentState = ConsentState()
+    consentState.grant(.transmission(.textRefinement(.claude)))
+    let consent = String(decoding: try JSONEncoder().encode(consentState), as: UTF8.self)
+    let version1 =
+      #"{"version": 1, "maxRecordingDuration": 90, "refinementModel": "model-a", "#
+      + #""historyEnabled": true, "consentState": \#(consent)}"#
+    suite.defaults.set(Data(version1.utf8), forKey: AppSettingsStore.key)
+    let store = AppSettingsStore(defaults: suite.defaults)
+
+    var loaded = store.load()
+    loaded.recordingTrigger = .pushToTalk
+    try store.save(loaded)
+
+    let data = try #require(suite.defaults.data(forKey: AppSettingsStore.key))
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(object["version"] as? Int == 2)
+    let reloaded = store.load()
+    #expect(reloaded.maxRecordingDuration == 90)
+    #expect(reloaded.refinementModel == "model-a")
+    #expect(reloaded.historyEnabled)
+    #expect(reloaded.consentState.allows(.textRefinement(.claude)))
+    #expect(reloaded.recordingTrigger == .pushToTalk)
+    #expect(reloaded.inputMode == .instant)
   }
 
   @Test("2.3節: 別の suite には保存が漏れない")
