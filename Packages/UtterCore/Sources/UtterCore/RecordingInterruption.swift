@@ -1,8 +1,10 @@
-/// 録音中に起きた割り込み（iOS-PERF-03）。
+/// 録音中に起きた割り込み（REC-04, iOS-PERF-03）。
 ///
-/// OS の通知（オーディオセッションの割り込み・ルート変更・メディアサービスのリセット、
-/// アプリのライフサイクル、熱状態、低電力モード）は、アプリ側のアダプターでこの値に変換して渡す。
-/// UtterCore は OS の型に依存しない。対応表は docs/アーキテクチャ.md の「iOS の録音割り込み」を参照。
+/// OS の通知（iOS: オーディオセッションの割り込み・ルート変更・メディアサービスのリセット、
+/// アプリのライフサイクル、熱状態、低電力モード。macOS: スリープ、入力機器の切断・既定の入力機器の変更、
+/// マイク権限の取り消し）は、アプリ側のアダプター（Apps/iOS・Apps/macOS）でこの値に変換して渡す。
+/// UtterCore は OS の型に依存しない。対応表は docs/アーキテクチャ.md の「iOS の録音割り込み」と
+/// 「macOS の録音割り込み」を参照。
 public enum RecordingInterruption: Hashable, Sendable {
   /// オーディオ割り込みが始まった（電話着信、他アプリの再生、Siri など）。OS はこの時点で録音を止めている
   case audioInterruptionBegan
@@ -21,6 +23,12 @@ public enum RecordingInterruption: Hashable, Sendable {
   case thermalStateChanged(DeviceThermalState)
   /// 低電力モードが切り替わった
   case lowPowerModeChanged(isEnabled: Bool)
+  /// システムがスリープに入る（macOS）。復帰後も録音は自動で再開しない
+  case systemWillSleep
+  /// システムがスリープから復帰した（macOS）。録音は自動で再開しない
+  case systemDidWake
+  /// 録音中にマイクの使用許可が取り消された（macOS。REC-04, PERM-02）
+  case microphoneAccessRevoked
 }
 
 /// 音声の経路の変化。
@@ -29,6 +37,8 @@ public enum AudioRouteChange: Hashable, Sendable {
   case inputDeviceLost
   /// 新しい入力機器が使えるようになった
   case inputDeviceAdded
+  /// 録音に使っていた入力機器から別の機器に切り替わった（macOS の既定の入力機器の変更）
+  case inputDeviceChanged
   /// それ以外（カテゴリやオーバーライドの変更など）
   case other
 }
@@ -51,6 +61,8 @@ public enum RecordingInterruptionCause: Hashable, Sendable {
   case audioInterruption
   /// 入力機器が使えなくなった
   case inputDeviceLost
+  /// 入力機器が別の機器に切り替わった（macOS）
+  case inputDeviceChanged
   /// メディアサービスのリセット
   case mediaServicesReset
   /// バックグラウンドへの移動（画面ロックを含む）
@@ -59,4 +71,8 @@ public enum RecordingInterruptionCause: Hashable, Sendable {
   case thermalState
   /// 低電力モード
   case lowPowerMode
+  /// システムのスリープ（macOS）
+  case systemSleep
+  /// マイク権限の取り消し
+  case microphoneAccessRevoked
 }
