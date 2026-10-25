@@ -45,8 +45,8 @@ struct NoAnswerSample: Sendable, CustomTestStringConvertible {
 
 /// 既存の閾値の応答検証では棄却できない模擬応答（AC-17）。
 ///
-/// `RefinementValidator` の doc にある「検出できない」場合に当たる。閾値の決定（4.1節）は別の作業のため、
-/// ここでは閾値を変えずに既知の問題として記録し、検出できるようになったらテストが知らせる。
+/// `RefinementValidator` の doc にある「検出できない」場合に当たる。受け入れるべき整形を誤って棄却せずに
+/// 閾値（4.1節）だけで棄却することはできないため（docs/精度評価.md）、既知の問題として記録し、検出できるようになったらテストが知らせる。
 struct UndetectedAnswer: Sendable, CustomTestStringConvertible {
   let id: String
   let utterance: String
