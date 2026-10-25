@@ -67,8 +67,11 @@ struct BudgetGuardTests {
     let reservation = try await budgetGuard.reserve(
       model: "m", expectedUsage: usage(80), in: october)
 
-    await budgetGuard.settle(reservation, actualUsage: usage(20))
+    let recorded = await budgetGuard.settle(reservation, actualUsage: usage(20))
 
+    #expect(
+      recorded
+        == RecordedEstimatedCost(cost: EstimatedCost(amount: 20, currency: yen), month: october))
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
     _ = try await budgetGuard.reserve(model: "m", expectedUsage: usage(80), in: october)
   }
@@ -81,8 +84,11 @@ struct BudgetGuardTests {
     let reservation = try await budgetGuard.reserve(
       model: "m", expectedUsage: usage(30), in: october)
 
-    await budgetGuard.settle(reservation, actualUsage: actual)
+    let recorded = await budgetGuard.settle(reservation, actualUsage: actual)
 
+    #expect(
+      recorded
+        == RecordedEstimatedCost(cost: EstimatedCost(amount: 30, currency: yen), month: october))
     #expect(await budgetGuard.ledger.spent(in: october) == 30)
   }
 
@@ -92,10 +98,10 @@ struct BudgetGuardTests {
     let settled = try await budgetGuard.reserve(model: "m", expectedUsage: usage(30), in: october)
     let cancelled = try await budgetGuard.reserve(model: "m", expectedUsage: usage(30), in: october)
 
-    await budgetGuard.settle(settled, actualUsage: usage(30))
-    await budgetGuard.settle(settled, actualUsage: usage(30))
+    #expect(await budgetGuard.settle(settled, actualUsage: usage(30)) != nil)
+    #expect(await budgetGuard.settle(settled, actualUsage: usage(30)) == nil)
     await budgetGuard.cancel(cancelled)
-    await budgetGuard.settle(cancelled, actualUsage: usage(30))
+    #expect(await budgetGuard.settle(cancelled, actualUsage: usage(30)) == nil)
 
     #expect(await budgetGuard.ledger.spent(in: october) == 30)
   }
@@ -107,7 +113,7 @@ struct BudgetGuardTests {
     let own = try await second.reserve(model: "m", expectedUsage: usage(70), in: october)
     let foreign = try await first.reserve(model: "m", expectedUsage: usage(30), in: october)
 
-    await second.settle(foreign, actualUsage: usage(30))
+    #expect(await second.settle(foreign, actualUsage: usage(30)) == nil)
     await second.cancel(foreign)
 
     #expect(await second.ledger.spent(in: october) == 0)
@@ -136,6 +142,86 @@ struct BudgetGuardTests {
 
     await #expect(throws: AIProviderError.budgetExceeded) {
       try await budgetGuard.reserve(model: "unknown", expectedUsage: usage(1), in: october)
+    }
+  }
+
+  @Test("AI-05: 保存済みの累計から復元した台帳でも、予算判定を続ける")
+  func continuesBudgetWithRestoredLedger() async throws {
+    let september = try YearMonth(year: 2026, month: 9)
+    let ledger = try MonthlyUsageLedger(
+      currency: yen, spentByMonth: [october: Decimal(70), september: Decimal(100)])
+    let budgetGuard = BudgetGuard(
+      budget: try MonthlyBudget(limitAmount: Decimal(100), currency: yen),
+      estimator: CostEstimator(
+        priceTable: try PriceTable(
+          currency: yen, updatedOn: try CivilDate(year: 2026, month: 10, day: 1),
+          prices: [
+            try ModelPrice(
+              model: "m", inputPerMillionTokens: Decimal(1_000_000),
+              outputPerMillionTokens: Decimal(1_000_000))
+          ])),
+      ledger: ledger)
+
+    await #expect(throws: AIProviderError.budgetExceeded) {
+      try await budgetGuard.reserve(model: "m", expectedUsage: usage(31), in: october)
+    }
+    let reservation = try await budgetGuard.reserve(
+      model: "m", expectedUsage: usage(30), in: october)
+    await budgetGuard.settle(reservation, actualUsage: usage(30))
+
+    #expect(await budgetGuard.ledger.spent(in: october) == 100)
+    #expect(await budgetGuard.ledger.spent(in: september) == 100)
+  }
+
+  @Test("AI-05: 実際の使用量の推定費用が数値で表せなければ、予約した見込み費用を記録する")
+  func settlesWithReservedAmountWhenActualCostOverflows() async throws {
+    let budgetGuard = BudgetGuard(
+      budget: try MonthlyBudget(limitAmount: Decimal(100), currency: yen),
+      estimator: CostEstimator(
+        priceTable: try PriceTable(
+          currency: yen, updatedOn: try CivilDate(year: 2026, month: 10, day: 1),
+          prices: [
+            try ModelPrice(
+              model: "m", inputPerMillionTokens: Decimal(1_000_000),
+              outputPerMillionTokens: Decimal.greatestFiniteMagnitude)
+          ])),
+      ledger: MonthlyUsageLedger(currency: yen))
+    let reservation = try await budgetGuard.reserve(
+      model: "m", expectedUsage: usage(30), in: october)
+
+    let recorded = await budgetGuard.settle(
+      reservation, actualUsage: TokenUsage(inputTokens: 0, outputTokens: 2_000_000))
+
+    #expect(recorded?.cost.amount == 30)
+    #expect(await budgetGuard.ledger.spent(in: october) == 30)
+  }
+
+  @Test("AI-04: 推定費用を永続化できなければ、以降の予約を拒否する")
+  func rejectsReservationsAfterPersistenceFailure() async throws {
+    struct SaveFailed: Error {}
+    let budgetGuard = BudgetGuard(
+      budget: try MonthlyBudget(limitAmount: Decimal(100), currency: yen),
+      estimator: CostEstimator(
+        priceTable: try PriceTable(
+          currency: yen, updatedOn: try CivilDate(year: 2026, month: 10, day: 1),
+          prices: [
+            try ModelPrice(
+              model: "m", inputPerMillionTokens: Decimal(1_000_000),
+              outputPerMillionTokens: Decimal(1_000_000))
+          ])),
+      ledger: MonthlyUsageLedger(currency: yen),
+      onRecord: { _ in throw SaveFailed() })
+    let reservation = try await budgetGuard.reserve(
+      model: "m", expectedUsage: usage(10), in: october)
+
+    let recorded = await budgetGuard.settle(reservation, actualUsage: usage(10))
+
+    // メモリの台帳には記録し、記録額も返す
+    #expect(recorded?.cost.amount == 10)
+    #expect(await budgetGuard.ledger.spent(in: october) == 10)
+    #expect(await budgetGuard.hasPersistenceFailure)
+    await #expect(throws: AIProviderError.budgetExceeded) {
+      try await budgetGuard.reserve(model: "m", expectedUsage: usage(1), in: october)
     }
   }
 }

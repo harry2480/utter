@@ -12,7 +12,9 @@ struct RefinementRouterBudgetTests {
     text: "えーと明日の会議は10時からです", mode: .natural, style: .polite)
 
   /// 1トークン 1 円の単価表と、上限 100 円の予算を持つ BudgetGuard
-  private func makeGuard(spent: Int = 0) throws -> BudgetGuard {
+  private func makeGuard(
+    spent: Int = 0, onRecord: (@Sendable (RecordedEstimatedCost) throws -> Void)? = nil
+  ) throws -> BudgetGuard {
     let estimator = CostEstimator(
       priceTable: try PriceTable(
         currency: yen, updatedOn: try CivilDate(year: 2026, month: 10, day: 1),
@@ -25,7 +27,12 @@ struct RefinementRouterBudgetTests {
     try ledger.record(EstimatedCost(amount: Decimal(spent), currency: yen), in: october)
     return BudgetGuard(
       budget: try MonthlyBudget(limitAmount: Decimal(100), currency: yen), estimator: estimator,
-      ledger: ledger)
+      ledger: ledger, onRecord: onRecord)
+  }
+
+  private func recorded(_ amount: Int) -> RecordedEstimatedCost {
+    RecordedEstimatedCost(
+      cost: EstimatedCost(amount: Decimal(amount), currency: yen), month: october)
   }
 
   private func budget(_ budgetGuard: BudgetGuard, expected tokens: Int = 30) -> RefinementBudget {
@@ -47,6 +54,7 @@ struct RefinementRouterBudgetTests {
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
+    #expect(outcome.recordedCost == recorded(20))
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
   }
 
@@ -62,6 +70,7 @@ struct RefinementRouterBudgetTests {
 
     #expect(await stub.callCount == 0)
     #expect(outcome.fallbackReason == .providerFailed(.budgetExceeded))
+    #expect(outcome.recordedCost == nil)
     #expect(await budgetGuard.ledger.spent(in: october) == 90)
   }
 
@@ -95,6 +104,7 @@ struct RefinementRouterBudgetTests {
       sensitivity: { .allowedInput })
 
     #expect(outcome.fallbackReason == .providerFailed(error))
+    #expect(outcome.recordedCost == nil)
     #expect(await budgetGuard.ledger.spent(in: october) == 70)
     // 予約が取り消されていれば、もう一度同じ見込み費用を予約できる
     _ = try await budgetGuard.reserve(
@@ -113,6 +123,7 @@ struct RefinementRouterBudgetTests {
       sensitivity: { .allowedInput })
 
     #expect(outcome.fallbackReason == .providerFailed(error))
+    #expect(outcome.recordedCost == recorded(30))
     #expect(await budgetGuard.ledger.spent(in: october) == 40)
   }
 
@@ -128,6 +139,7 @@ struct RefinementRouterBudgetTests {
       sensitivity: { .allowedInput })
 
     #expect(outcome.fallbackReason != nil)
+    #expect(outcome.recordedCost == recorded(20))
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
   }
 
@@ -141,6 +153,7 @@ struct RefinementRouterBudgetTests {
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
+    #expect(outcome.recordedCost == recorded(30))
     #expect(await budgetGuard.ledger.spent(in: october) == 40)
   }
 
@@ -148,7 +161,10 @@ struct RefinementRouterBudgetTests {
     "AI-05: 送信中に呼び出し元がキャンセルしても、見込み費用で記録してから CancellationError を投げる",
     .timeLimit(.minutes(1)))
   func settlesBeforeThrowingCancellation() async throws {
-    let budgetGuard = try makeGuard(spent: 10)
+    let records = Mutex<[RecordedEstimatedCost]>([])
+    let budgetGuard = try makeGuard(spent: 10) { recorded in
+      records.withLock { $0.append(recorded) }
+    }
     let stub = StubAIProvider(behavior: .echo, delay: .seconds(60))
     let router = try RefinementRouter(provider: stub)
     let request = request
@@ -167,6 +183,8 @@ struct RefinementRouterBudgetTests {
       try await task.value
     }
     #expect(await budgetGuard.ledger.spent(in: october) == 40)
+    // 結果が返らなくても、永続化のための記録額は onRecord に届く
+    #expect(records.withLock { $0 } == [recorded(30)])
   }
 }
 
