@@ -71,7 +71,7 @@ public struct CloudFallbackRouter: Sendable {
 
   /// 別のクラウドプロバイダーへ切り替えてよい結果か。
   ///
-  /// 課金されない失敗（`AIProviderError.isUnbilled`。`RefinementRouter` が予算の予約を取り消す失敗）に限る。
+  /// 課金されない失敗（`AIProviderError.isUnbilled`。`BudgetGuard.resolve` が予算の予約を取り消す失敗）に限る。
   /// 課金されている可能性がある失敗で切り替えると二重に課金されうるため、ローカル整形の結果を使う。
   /// 呼び出し元がキャンセルしていないのにプロバイダーが `.cancelled` を返した場合も、課金されている可能性があるため切り替えない。
   /// 検証失敗は課金済みで、入力が原因のことが多く別の送信先でも同じ結果になりやすいため切り替えない。

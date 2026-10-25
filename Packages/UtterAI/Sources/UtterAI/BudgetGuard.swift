@@ -77,9 +77,8 @@ public actor BudgetGuard {
 extension BudgetGuard {
   /// 送信の結果に応じて予約を確定または取り消す（AI-05）。
   ///
-  /// 応答があれば実際の使用量で確定する。認証や利用枠で拒否された場合は課金されないため取り消す。
-  /// 上限時間の超過・応答の解釈失敗・キャンセルと、ネットワークの失敗は、課金されている可能性があるため見込み費用で確定する。
-  /// ネットワークの失敗には応答の途中で切れた場合も含まれ、送信前の失敗と区別できないため、多めに数える側に倒す。
+  /// 応答があれば実際の使用量で確定する。課金されない失敗（`AIProviderError.isUnbilled`）は取り消し、
+  /// それ以外の失敗は課金されている可能性があるため見込み費用で確定する。
   /// 整形（`RefinementRouter`）とクラウド STT（`OpenAISpeechRecognizer`）で共通に使う。
   func resolve(
     _ reservation: BudgetReservation,
@@ -88,10 +87,9 @@ extension BudgetGuard {
     switch result {
     case .success(let usage):
       settle(reservation, actualUsage: usage)
-    case .failure(.authenticationExpired), .failure(.quotaExceeded), .failure(.budgetExceeded):
+    case .failure(let error) where error.isUnbilled:
       cancel(reservation)
-    case .failure(.timeout), .failure(.invalidResponse), .failure(.cancelled),
-      .failure(.networkUnavailable):
+    case .failure:
       settle(reservation, actualUsage: nil)
     }
   }
