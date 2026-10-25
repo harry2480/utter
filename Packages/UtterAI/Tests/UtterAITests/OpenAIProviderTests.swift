@@ -541,7 +541,8 @@ struct OpenAIProviderTests {
       provider: provider(HangingTransport(entered: signal)), timeout: .milliseconds(50))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT), budget: nil)
+      request, consent: .refinementGranted(.chatGPT), budget: nil,
+      sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.providerFailed(.timeout)))
   }
@@ -629,7 +630,8 @@ struct OpenAIProviderTests {
       provider: provider(StubTransport(.response(status: 200, body: body))))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT), budget: nil)
+      request, consent: .refinementGranted(.chatGPT), budget: nil,
+      sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.validationFailed(.empty)))
     #expect(outcome.usage == TokenUsage(inputTokens: 3, outputTokens: 5))
@@ -641,7 +643,8 @@ struct OpenAIProviderTests {
       provider: provider(StubTransport(.response(status: 200, body: Self.successBody))))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT), budget: nil)
+      request, consent: .refinementGranted(.chatGPT), budget: nil,
+      sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
     #expect(outcome.text == "明日の会議は10時からです。")
@@ -671,7 +674,8 @@ struct OpenAIProviderTests {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))
     let router = try RefinementRouter(provider: provider(transport))
 
-    let outcome = try await router.refine(request, consent: consent, budget: nil)
+    let outcome = try await router.refine(
+      request, consent: consent, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.consentNotGranted))
     #expect(transport.requests.withLock { $0.isEmpty })
@@ -733,7 +737,8 @@ struct OpenAIProviderTests {
       request, consent: .refinementGranted(.chatGPT),
       budget: RefinementBudget(
         guard: budgetGuard, model: "m",
-        expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), month: october))
+        expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), month: october),
+      sensitivity: { .allowedInput })
 
     #expect(outcome.source != .cloud)
     #expect(await budgetGuard.ledger.spent(in: october) == Decimal(expectedSpent))

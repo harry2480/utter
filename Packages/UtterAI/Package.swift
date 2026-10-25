@@ -15,7 +15,8 @@ let package = Package(
   ],
   targets: [
     .target(name: "UtterAI", dependencies: ["UtterCore", "UtterText", "UtterSpeech"]),
-    .testTarget(name: "UtterAITests", dependencies: ["UtterAI", "UtterCore", "UtterSpeech"]),
+    .testTarget(
+      name: "UtterAITests", dependencies: ["UtterAI", "UtterCore", "UtterText", "UtterSpeech"]),
   ],
   swiftLanguageModes: [.v6]
 )
