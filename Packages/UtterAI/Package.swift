@@ -11,10 +11,12 @@ let package = Package(
   dependencies: [
     .package(path: "../UtterCore"),
     .package(path: "../UtterText"),
+    .package(path: "../UtterSpeech"),
   ],
   targets: [
-    .target(name: "UtterAI", dependencies: ["UtterCore", "UtterText"]),
-    .testTarget(name: "UtterAITests", dependencies: ["UtterAI", "UtterCore"]),
+    .target(name: "UtterAI", dependencies: ["UtterCore", "UtterText", "UtterSpeech"]),
+    .testTarget(
+      name: "UtterAITests", dependencies: ["UtterAI", "UtterCore", "UtterText", "UtterSpeech"]),
   ],
   swiftLanguageModes: [.v6]
 )
