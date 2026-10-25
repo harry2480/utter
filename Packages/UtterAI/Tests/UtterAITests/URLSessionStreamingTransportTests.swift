@@ -64,6 +64,21 @@ struct URLSessionStreamingTransportTests {
     #expect(task.state == .canceling || task.state == .completed)
   }
 
+  @Test("AC-06: delegate はリダイレクトに従わず、別のホストへ送らない")
+  func delegateRefusesRedirection() async {
+    let task = unstartedTask()
+    let session = URLSession(configuration: .ephemeral)
+    let response = HTTPURLResponse(
+      url: URL(string: "https://api.openai.com/v1/responses")!, statusCode: 307,
+      httpVersion: "HTTP/1.1", headerFields: ["Location": "https://example.com/v1/responses"])!
+
+    let next = await TaskCapturingDelegate(box: DataTaskBox()).urlSession(
+      session, task: task, willPerformHTTPRedirection: response,
+      newRequest: URLRequest(url: URL(string: "https://example.com/v1/responses")!))
+
+    #expect(next == nil)
+  }
+
   @Test("4.1節: URLSession の本文を受信しながら読み、整形結果を返す", .timeLimit(.minutes(1)))
   func readsStreamThroughURLSession() async throws {
     let provider = OpenAIProvider(

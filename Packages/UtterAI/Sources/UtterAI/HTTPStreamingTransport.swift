@@ -116,4 +116,13 @@ final class TaskCapturingDelegate: NSObject, URLSessionTaskDelegate, Sendable {
   func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
     box.set(task)
   }
+
+  /// リダイレクトには従わない。送信先の確認は最初のホストにしかしないため、API キーと発話を別のホストへ送らない
+  /// （AC-06, AI-02）。3xx の応答はそのまま返り、呼び出し元で失敗として扱う
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest
+  ) async -> URLRequest? {
+    nil
+  }
 }
