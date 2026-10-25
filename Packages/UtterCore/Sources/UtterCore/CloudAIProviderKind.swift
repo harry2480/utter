@@ -6,6 +6,7 @@
 public enum CloudAIProviderKind: Hashable, Sendable, CaseIterable, Codable {
   /// Claude API
   case claude
-  /// Sign in with ChatGPT
+  /// ChatGPT（OpenAI）。Sign in with ChatGPT と、その代替の OpenAI API キー方式（要件定義 11章）の両方を指す。
+  /// どちらも OpenAI へ送るため、同意は同じ送信先として扱う
   case chatGPT
 }
