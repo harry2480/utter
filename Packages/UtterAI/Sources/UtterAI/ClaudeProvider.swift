@@ -90,7 +90,7 @@ public struct ClaudeProvider: AIProvider {
       if Task.isCancelled {
         throw .cancelled
       }
-      throw Self.mapTransportError(error)
+      throw AIProviderError(transportError: error)
     }
     if Task.isCancelled {
       throw .cancelled
@@ -101,7 +101,7 @@ public struct ClaudeProvider: AIProvider {
   func makeURLRequest(_ prompt: RefinementPrompt) throws(AIProviderError) -> URLRequest {
     var request = URLRequest(url: configuration.endpoint)
     request.httpMethod = "POST"
-    request.timeoutInterval = Self.seconds(configuration.requestTimeout)
+    request.timeoutInterval = configuration.requestTimeout.timeInterval
     request.setValue("application/json", forHTTPHeaderField: "content-type")
     request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
     request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
@@ -116,11 +116,6 @@ public struct ClaudeProvider: AIProvider {
     }
     request.httpBody = encoded
     return request
-  }
-
-  private static func seconds(_ duration: Duration) -> TimeInterval {
-    let (seconds, attoseconds) = duration.components
-    return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
   }
 }
 
@@ -163,27 +158,6 @@ extension ClaudeProvider {
     default:
       // 400・404・413 など。リクエストやモデル名の設定の誤り
       .invalidResponse
-    }
-  }
-
-  /// 送信部の失敗を `AIProviderError` に対応づける。
-  static func mapTransportError(_ error: any Error) -> AIProviderError {
-    if error is CancellationError {
-      return .cancelled
-    }
-    guard let urlError = error as? URLError else {
-      return .networkUnavailable
-    }
-    switch urlError.code {
-    case .cancelled:
-      return .cancelled
-    case .timedOut:
-      return .timeout
-    case .badServerResponse, .cannotParseResponse, .cannotDecodeContentData,
-      .cannotDecodeRawData:
-      return .invalidResponse
-    default:
-      return .networkUnavailable
     }
   }
 }
