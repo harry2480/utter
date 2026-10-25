@@ -225,6 +225,8 @@ struct OpenAIProviderTests {
       (503, "engine_overloaded", .networkUnavailable),
       (400, "invalid_request_error", .invalidResponse),
       (404, "model_not_found", .invalidResponse),
+      // リダイレクトには従わないため、3xx はそのまま失敗になる
+      (307, "redirect", .invalidResponse),
     ])
   func mapsErrorStatus(_ status: Int, _ code: String, _ expected: AIProviderError) async {
     let body =
