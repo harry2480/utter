@@ -164,6 +164,11 @@ public struct TemporaryAudioStore: Sendable {
     }
   }
 
+  /// 現在時刻で保持期限を過ぎているか（`sweep()` と同じ判定）。
+  func isExpired(_ record: TemporaryAudioRecord) -> Bool {
+    record.shouldDelete(at: now(), retention: retention)
+  }
+
   private func fileNames() throws(TemporaryAudioStoreError) -> [String] {
     guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
     do {

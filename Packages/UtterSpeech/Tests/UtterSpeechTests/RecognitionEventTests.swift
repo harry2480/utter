@@ -54,6 +54,8 @@ struct RecognitionEventTests {
     #expect(
       Set(SpeechRecognitionError.allCases) == [
         .modelUnavailable, .unsupportedAudioFormat, .engineFailed, .resourceLimited,
+        .consentNotGranted, .audioLimitExceeded, .budgetExceeded, .timeout, .authenticationExpired,
+        .quotaExceeded, .networkUnavailable, .invalidResponse,
       ])
   }
 }
