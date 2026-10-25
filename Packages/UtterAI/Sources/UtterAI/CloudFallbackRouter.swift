@@ -2,7 +2,8 @@ import UtterCore
 
 /// クラウド整形が失敗したとき、明示的な許可がある場合に限って別のクラウドプロバイダーへ切り替える（4.1節, AI-04）。
 ///
-/// 各送信先への送信は `RefinementRouter` で1回ずつ行い、同意・予算・上限時間・応答の検証・退避はそちらに従う。
+/// 各送信先への送信は `RefinementRouter` で1回ずつ行い、同意・機密入力の判定・予算・上限時間・応答の検証・退避はそちらに従う。
+/// 機密入力で送信を抑止した場合（7章, AC-12）は、別の送信先へも切り替えない。
 /// 自動フォールバックへの同意（`ConsentScope.crossProviderFallback`）がなければ、`RefinementRouter` と同じく
 /// 最初の送信先へ1回だけ送信し、失敗したらローカル整形の結果に退避する。
 /// 同意があっても、切り替え元と切り替え先の両方への整形の同意がない送信先は飛ばす（`ConsentState.allowsFallback`）。
@@ -37,15 +38,18 @@ public struct CloudFallbackRouter: Sendable {
   ///     同期的に呼ぶため、メインスレッドを待たずに返す（最新の同意状態を保持しておき、それを返すなど）
   ///   - primary: 最初に送信する、利用者が選んだ送信先
   ///   - fallbacks: 切り替えを許可されている場合に、順に試す送信先。送信済みの送信先と同じ送信先は飛ばし、再送しない
+  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。送信先ごとに `RefinementRouter.refine` へ渡し、
+  ///     そちらが送信の前に呼ぶ。確認を省略できないよう既定値は持たせない
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセル後は次の送信先へ送らない
   public func refine(
     _ request: RefinementRequest,
     consent: @Sendable () -> ConsentState,
     primary: RefinementRoute,
-    fallbacks: [RefinementRoute]
+    fallbacks: [RefinementRoute],
+    sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> RefinementOutcome {
     var outcome = try await router(for: primary).refine(
-      request, consent: consent(), budget: primary.budget)
+      request, consent: consent(), budget: primary.budget, sensitivity: sensitivity)
     var source = primary.provider.destination
     var attempted: Set<CloudAIProviderKind> = [source]
     for route in fallbacks {
@@ -62,7 +66,8 @@ public struct CloudFallbackRouter: Sendable {
       else {
         continue
       }
-      outcome = try await router(for: route).refine(request, consent: current, budget: route.budget)
+      outcome = try await router(for: route).refine(
+        request, consent: current, budget: route.budget, sensitivity: sensitivity)
       source = destination
       attempted.insert(destination)
     }
@@ -75,6 +80,7 @@ public struct CloudFallbackRouter: Sendable {
   /// 課金されている可能性がある失敗で切り替えると二重に課金されうるため、ローカル整形の結果を使う。
   /// 呼び出し元がキャンセルしていないのにプロバイダーが `.cancelled` を返した場合も、課金されている可能性があるため切り替えない。
   /// 検証失敗は課金済みで、入力が原因のことが多く別の送信先でも同じ結果になりやすいため切り替えない。
+  /// 機密入力による抑止は送信先によらないため切り替えない。
   private static func allowsFallback(after outcome: RefinementOutcome) -> Bool {
     switch outcome.source {
     case .cloud, .raw:
@@ -83,7 +89,7 @@ public struct CloudFallbackRouter: Sendable {
       switch reason {
       case .providerFailed(let error):
         error.isUnbilled
-      case .validationFailed, .consentNotGranted:
+      case .validationFailed, .consentNotGranted, .sensitiveInputSuppressed:
         false
       }
     }

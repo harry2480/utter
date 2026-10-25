@@ -75,13 +75,31 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: false), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 1)
     #expect(await chatGPT.callCount == 0)
     #expect(
       outcome
         == RefinementOutcome(text: request.text, source: .localFallback(.providerFailed(error)))
+    )
+  }
+
+  @Test("AC-12: 機密入力なら、許可があってもどの送信先へも送らずにローカル整形へ退避する")
+  func doesNotSendOrFallBackOnSensitiveInput() async throws {
+    let claude = StubAIProvider(behavior: .echo, destination: .claude)
+    let chatGPT = StubAIProvider(behavior: .echo, destination: .chatGPT)
+    let router = try CloudFallbackRouter()
+
+    let outcome = try await router.refine(
+      request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
+      fallbacks: [route(chatGPT)], sensitivity: { .secureFieldInput })
+
+    #expect(await claude.callCount == 0)
+    #expect(await chatGPT.callCount == 0)
+    #expect(
+      outcome
+        == RefinementOutcome(text: request.text, source: .localFallback(.sensitiveInputSuppressed))
     )
   }
 
@@ -96,7 +114,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 1)
     #expect(await chatGPT.receivedRequests == [request])
@@ -116,7 +134,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 1)
     #expect(await chatGPT.callCount == 0)
@@ -132,7 +150,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 0)
     #expect(outcome.fallbackReason == .providerFailed(.quotaExceeded))
@@ -147,7 +165,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(otherClaude), route(chatGPT)])
+      fallbacks: [route(otherClaude), route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await otherClaude.callCount == 0)
     #expect(await chatGPT.callCount == 1)
@@ -162,7 +180,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 0)
     #expect(await chatGPT.callCount == 0)
@@ -178,7 +196,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       raw, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 0)
     #expect(await chatGPT.callCount == 0)
@@ -193,7 +211,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 1)
     #expect(await chatGPT.callCount == 1)
@@ -217,7 +235,7 @@ struct CloudFallbackRouterTests {
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true),
       primary: route(claude, budget: budget(claudeGuard)),
-      fallbacks: [route(chatGPT, budget: budget(chatGPTGuard))])
+      fallbacks: [route(chatGPT, budget: budget(chatGPTGuard))], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 0)
     #expect(outcome.source == .cloud)
@@ -236,7 +254,7 @@ struct CloudFallbackRouterTests {
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true),
       primary: route(claude, budget: budget(claudeGuard)),
-      fallbacks: [route(chatGPT, budget: budget(chatGPTGuard))])
+      fallbacks: [route(chatGPT, budget: budget(chatGPTGuard))], sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 0)
     #expect(outcome.fallbackReason == .providerFailed(.budgetExceeded))
@@ -255,7 +273,9 @@ struct CloudFallbackRouterTests {
     let primary = route(claude)
     let fallbacks = [route(chatGPT)]
     let task = Task {
-      try await router.refine(request, consent: consent, primary: primary, fallbacks: fallbacks)
+      try await router.refine(
+        request, consent: consent, primary: primary, fallbacks: fallbacks,
+        sensitivity: { .allowedInput })
     }
     while await claude.callCount == 0 {
       await Task.yield()
@@ -277,7 +297,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT), route(otherClaude)])
+      fallbacks: [route(chatGPT), route(otherClaude)], sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 1)
     #expect(await otherClaude.callCount == 0)
@@ -293,7 +313,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [route(chatGPT)])
+      fallbacks: [route(chatGPT)], sensitivity: { .allowedInput })
 
     #expect(
       outcome
@@ -314,7 +334,8 @@ struct CloudFallbackRouterTests {
     let revoked = state
 
     _ = try await router.refine(
-      request, consent: { revoked }, primary: route(claude), fallbacks: [route(chatGPT)])
+      request, consent: { revoked }, primary: route(claude), fallbacks: [route(chatGPT)],
+      sensitivity: { .allowedInput })
 
     #expect(await chatGPT.callCount == 0)
   }
@@ -335,7 +356,7 @@ struct CloudFallbackRouterTests {
     let task = Task {
       try await router.refine(
         request, consent: { consent.state.withLock { $0 } }, primary: primary,
-        fallbacks: fallbacks)
+        fallbacks: fallbacks, sensitivity: { .allowedInput })
     }
     while await claude.callCount == 0 {
       await Task.yield()
@@ -355,7 +376,7 @@ struct CloudFallbackRouterTests {
 
     let outcome = try await router.refine(
       request, consent: consent([.claude, .chatGPT], fallback: true), primary: route(claude),
-      fallbacks: [])
+      fallbacks: [], sensitivity: { .allowedInput })
 
     #expect(await claude.callCount == 1)
     #expect(outcome.fallbackReason == .providerFailed(.authenticationExpired))
@@ -371,7 +392,9 @@ struct CloudFallbackRouterTests {
     let primary = route(claude)
     let fallbacks = [route(chatGPT)]
     let task = Task {
-      try await router.refine(request, consent: consent, primary: primary, fallbacks: fallbacks)
+      try await router.refine(
+        request, consent: consent, primary: primary, fallbacks: fallbacks,
+        sensitivity: { .allowedInput })
     }
     while await chatGPT.callCount == 0 {
       await Task.yield()
