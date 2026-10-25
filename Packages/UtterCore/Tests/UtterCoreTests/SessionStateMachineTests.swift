@@ -511,6 +511,63 @@ struct SessionStateMachineTests {
     #expect(machine.phase == .recognizing)
   }
 
+  // MARK: - REC-04（macOS の割り込み）
+
+  @Test("REC-04: スリープで録音を止めたら認識へ進め、復帰しても録音を自動で再開しない")
+  func sleepStopsAndWakeDoesNotResume() throws {
+    let ids = IDSequence()
+    var machine = SessionStateMachine(makeSessionID: ids.next)
+    machine.start(at: t0)
+
+    let slept = machine.handleInterruption(
+      .systemWillSleep, capturedAudioDuration: .seconds(5),
+      policy: RecordingInterruptionPolicy())
+    #expect(slept == .stopped(try #require(machine.currentToken)))
+    #expect(machine.activeSession?.stopReason == .interrupted(.systemSleep))
+
+    let wokeWhileProcessing = machine.handleInterruption(
+      .systemDidWake, capturedAudioDuration: .zero, policy: RecordingInterruptionPolicy())
+    #expect(wokeWhileProcessing == .ignored)
+    #expect(machine.phase == .recognizing)
+
+    _ = try machine.handle(event(machine, .recognitionCompleted))
+    _ = try machine.handle(event(machine, .refinementCompleted))
+    _ = try machine.handle(event(machine, .insertionCompleted))
+    let wokeWhileIdle = machine.handleInterruption(
+      .systemDidWake, capturedAudioDuration: .zero, policy: RecordingInterruptionPolicy())
+    #expect(wokeWhileIdle == .ignored)
+    #expect(machine.phase == .idle)
+    #expect(ids.count == 1)
+  }
+
+  @Test("REC-04: 録音中にマイク権限が取り消され音声がなければ、録音の失敗として表示する")
+  func microphoneAccessRevokedWithoutAudioAborts() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+
+    let outcome = machine.handleInterruption(
+      .microphoneAccessRevoked, capturedAudioDuration: .zero,
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .aborted(.microphoneAccessRevoked))
+    #expect(machine.phase == .error(.recording))
+    #expect(machine.activeSession?.stopReason == .interrupted(.microphoneAccessRevoked))
+  }
+
+  @Test("REC-04: 既定の入力機器が変わったら、それまでの音声を認識へ進める")
+  func inputDeviceChangeStopsAndProcesses() throws {
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+
+    let outcome = machine.handleInterruption(
+      .audioRouteChanged(.inputDeviceChanged), capturedAudioDuration: .seconds(2),
+      policy: RecordingInterruptionPolicy())
+
+    #expect(outcome == .stopped(try #require(machine.currentToken)))
+    #expect(machine.phase == .recognizing)
+    #expect(machine.activeSession?.stopReason == .interrupted(.inputDeviceChanged))
+  }
+
   // MARK: - Helpers
 
   /// `nil` は録音中
