@@ -42,7 +42,9 @@ public struct RefinementRouter: Sendable {
   ///   - budget: 予算上限の設定（AI-04, AI-05）。送信前に見込み費用を予約し、上限を超えるなら
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
-  ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す
+  ///     `nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限って明示的に渡す。
+  ///     送信先（`provider.destination`）では課金方式を区別できない。同じ `.chatGPT` でも OpenAI API キー方式（`OpenAIProvider`）は
+  ///     トークン課金のため必ず渡す
   ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。`allowsCloudTransmission` でなければ
   ///     プロバイダーを呼ばずに `.sensitiveInputSuppressed` で退避する。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
   ///     予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。確認を省略できないよう既定値は持たせない。
