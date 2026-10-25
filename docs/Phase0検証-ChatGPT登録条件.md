@@ -198,7 +198,7 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 
 ## 付記: OpenAI API キー方式の先行実装（#58）
 
-11章の代替（OpenAI API キー方式）を、判定待ちのまま既定で無効な形で先行実装した（`Packages/UtterAI` の `OpenAIProvider`）。アプリからは組み立てておらず、判定が不成立・不要になったら `OpenAIProvider.swift`・`HTTPStreamingTransport.swift` と、そのテストを消せば外せる。上の出典表（S1〜S15）とは別に、下の出典を **2026-10-24** に確認した。
+11章の代替（OpenAI API キー方式）を、判定待ちのまま既定で無効な形で先行実装した（`Packages/UtterAI` の `OpenAIProvider`）。アプリからは組み立てていない。判定が不成立・不要になったときの外し方は、クラウド STT（`OpenAISpeechRecognizer`, #60）を残すかどうかで変わる。クラウド STT も外すなら、`OpenAIProvider.swift`・`HTTPStreamingTransport.swift` と、そのテストを消せば外せる。クラウド STT を残すなら、`OpenAISpeechRecognizer` が使う `HTTPStreamingTransport`・`URLSessionStreamingTransport`・`LineReader`・`ResponsesErrorResponse`・`OpenAIProvider.mapStatus` と、テストが使う `OpenAIProviderTests.StubTransport`・`HangingTransport` を残すか別ファイルへ移してから、`OpenAIProvider` を外す。上の出典表（S1〜S15）とは別に、下の出典を **2026-10-24** に確認した。
 
 - 送信先は `https://api.openai.com/v1/responses` に限る（それ以外のホストは設定の時点で拒否し、リダイレクトにも従わない）。認証は利用者自身の API キーを `Authorization: Bearer` で送る。他製品のクライアントID・非公開エンドポイントは使わない（AI-02）
 - プラン利用（3節）の制約とそろえ、`store: false`・`stream: true` で送り、`response.completed` まで届いた応答だけを使う。整形指示は `instructions` に入れる。API キー方式では `max_output_tokens` を送れるため送る（プラン利用では送らない）
