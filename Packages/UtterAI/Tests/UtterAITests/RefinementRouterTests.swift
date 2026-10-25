@@ -36,7 +36,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: .respond("明日の会議は10時からです。", usage: usage))
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome == RefinementOutcome(text: "明日の会議は10時からです。", source: .cloud, usage: usage))
@@ -49,7 +50,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: .respond("\n 明日の会議は10時からです。\n\n"))
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == "明日の会議は10時からです。")
     #expect(outcome.source == .cloud)
@@ -62,7 +64,8 @@ struct RefinementRouterTests {
       provider: stub, localRefiner: FixedLocalRefiner(text: "ローカル整形"))
     let raw = RefinementRequest(text: "えーと明日の会議", mode: .raw)
 
-    let outcome = try await router.refine(raw, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      raw, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
     #expect(outcome == RefinementOutcome(text: "えーと明日の会議", source: .raw))
@@ -73,7 +76,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: .echo)
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: ConsentState(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: ConsentState(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
     #expect(
@@ -89,7 +93,8 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(
       provider: stub, localRefiner: FixedLocalRefiner(text: "ローカル整形"))
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome
@@ -101,7 +106,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: .fail(.cancelled))
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome
@@ -115,7 +121,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: .respond("", usage: usage))
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == request.text)
     #expect(outcome.fallbackReason == .validationFailed(.empty))
@@ -128,7 +135,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: .respond("明日は晴れの予報です。"))
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(question, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      question, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == question.text)
     #expect(outcome.fallbackReason == .validationFailed(.questionAnswered))
@@ -141,7 +149,8 @@ struct RefinementRouterTests {
     let clock = ContinuousClock()
     let start = clock.now
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(clock.now - start < .seconds(30))
     #expect(outcome.text == request.text)
@@ -155,7 +164,8 @@ struct RefinementRouterTests {
     let clock = ContinuousClock()
     let start = clock.now
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(clock.now - start < .seconds(2))
     #expect(outcome.fallbackReason == .providerFailed(.timeout))
@@ -167,7 +177,8 @@ struct RefinementRouterTests {
       behavior: .respond("明日の会議は10時からです。"), delay: .milliseconds(20))
     let router = try RefinementRouter(provider: stub, timeout: .seconds(30))
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
   }
@@ -180,7 +191,8 @@ struct RefinementRouterTests {
     let stub = StubAIProvider(behavior: behavior)
     let router = try RefinementRouter(provider: stub)
 
-    let outcome = try await router.refine(request, consent: .refinementGranted(), budget: nil)
+    let outcome = try await router.refine(
+      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 1)
     #expect(outcome.fallbackReason != nil)
@@ -193,7 +205,8 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
     let request = request
     let task = Task {
-      try await router.refine(request, consent: .refinementGranted(), budget: nil)
+      try await router.refine(
+        request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
     }
     while await stub.callCount == 0 {
       await Task.yield()
@@ -215,7 +228,8 @@ struct RefinementRouterTests {
     let clock = ContinuousClock()
     let start = clock.now
     let task = Task {
-      try await router.refine(request, consent: .refinementGranted(), budget: nil)
+      try await router.refine(
+        request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
     }
     try await Task.sleep(for: .milliseconds(20))
 
@@ -236,7 +250,8 @@ struct RefinementRouterTests {
     let request = request
     let task = Task {
       withUnsafeCurrentTask { $0?.cancel() }
-      return try await router.refine(request, consent: consent, budget: nil)
+      return try await router.refine(
+        request, consent: consent, budget: nil, sensitivity: { .allowedInput })
     }
 
     await #expect(throws: CancellationError.self) {
