@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド → Release の署名設定の検査 → シェルスクリプト lint → ワークフロー lint
+# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルドとユニットテスト → Release の署名設定の検査 → シェルスクリプト lint → ワークフロー lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
-# 新しいターゲットを作ったら「アプリの署名なしビルド」に追加する。
+# 新しいターゲットを作ったら「アプリの署名なしビルド・テスト」に追加する。
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,7 +33,7 @@ else
   done
 fi
 
-echo "==> アプリの署名なしビルド（xcodegen → xcodebuild）"
+echo "==> アプリの署名なしビルド・テスト（xcodegen → xcodebuild）"
 if ! command -v xcodegen >/dev/null 2>&1; then
   echo "xcodegen が見つかりません。brew install xcodegen で導入してください。" >&2
   exit 1
@@ -54,7 +54,16 @@ xcodebuild \
   -derivedDataPath "$derived_data" \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
   -quiet build
-# メニューバー常駐で Dock に出さない設定が入っていることを確かめる（アプリは起動しない）
+# アプリの純粋なロジックのユニットテスト（アプリは起動しない）
+xcodebuild \
+  -project Apps/macOS/Utter.xcodeproj \
+  -scheme UtterMac \
+  -configuration Debug \
+  -destination "platform=macOS,arch=$(uname -m)" \
+  -derivedDataPath "$derived_data" \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
+  -quiet test
+# メニューバー常駐で Dock に出さない設定と、マイクの用途説明が入っていることを確かめる（アプリは起動しない）
 mac_info_plist="$derived_data/Build/Products/Debug/utter.app/Contents/Info.plist"
 if [[ ! -f "$mac_info_plist" ]]; then
   echo "macOS アプリのビルド成果物が見つかりません: $mac_info_plist" >&2
@@ -62,6 +71,26 @@ if [[ ! -f "$mac_info_plist" ]]; then
 fi
 if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != "true" ]]; then
   echo "macOS アプリの Info.plist に LSUIElement = YES がありません。" >&2
+  exit 1
+fi
+# マイクの用途説明がないと、録音を始めたときに OS がアプリを終了させる（PERM-01）
+if ! /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$mac_info_plist" >/dev/null 2>&1; then
+  echo "macOS アプリの Info.plist に NSMicrophoneUsageDescription がありません。" >&2
+  exit 1
+fi
+# XPC STT Worker がアプリに組み込まれ、アプリ側が接続する名前（アプリの Bundle ID + .stt-worker）になっていることを確かめる
+worker_info_plist="$derived_data/Build/Products/Debug/utter.app/Contents/XPCServices/UtterSTTWorker.xpc/Contents/Info.plist"
+if [[ ! -f "$worker_info_plist" ]]; then
+  echo "XPC STT Worker がアプリに組み込まれていません: $worker_info_plist" >&2
+  exit 1
+fi
+mac_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$mac_info_plist")"
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$worker_info_plist")" != "$mac_bundle_id.stt-worker" ]]; then
+  echo "XPC STT Worker の Bundle ID が $mac_bundle_id.stt-worker ではありません。" >&2
+  exit 1
+fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :XPCService:ServiceType' "$worker_info_plist")" != "Application" ]]; then
+  echo "XPC STT Worker の Info.plist に XPCService.ServiceType = Application がありません。" >&2
   exit 1
 fi
 
