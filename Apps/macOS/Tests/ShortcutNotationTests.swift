@@ -47,4 +47,33 @@ struct ShortcutNotationTests {
       GlobalShortcutStatusText.reasonText(.registrationFailed(.alreadyRegistered))
         == "他のアプリが同じ組み合わせを使っています")
   }
+
+  @Test("REC-02: 修飾キー単独の物理キーの名前を解釈し、左右を含めて表記する")
+  func modifierKeys() {
+    #expect(ShortcutNotation.parseModifierKey(" Right-Option ") == .rightOption)
+    #expect(ShortcutNotation.parseModifierKey("fn") == .function)
+    #expect(ShortcutNotation.parseModifierKey("option") == nil)
+    #expect(
+      ShortcutNotation.display(GlobalShortcutSetting(modifierKey: .rightOption, mode: .toggle))
+        == "右⌥")
+    #expect(
+      ShortcutNotation.display(
+        GlobalShortcutSetting(
+          combination: KeyCombination(key: .space, modifiers: .option), mode: .toggle))
+        == "⌥Space")
+  }
+
+  @Test("PERM-02: 権限がなく使えない機能は、許可するか通常のキー組み合わせにするよう案内する")
+  func permissionStatusText() {
+    let target = GlobalShortcutSetting(modifierKey: .function, mode: .pushToTalk)
+    #expect(
+      GlobalShortcutStatusText.text(
+        for: .unavailable(target, .eventTapUnavailable(.permissionMissing(.inputMonitoring))))
+        == "ショートカット Fn を使えません: 入力監視の許可がありません。許可するか、通常のキー組み合わせを割り当ててください")
+    #expect(GlobalShortcutStatusText.text(for: EscapeCaptureStatus.off) == nil)
+    #expect(
+      GlobalShortcutStatusText.text(
+        for: EscapeCaptureStatus.unavailable(.permissionMissing(.accessibility)))
+        == "Esc でキャンセル: アクセシビリティの許可がないため使えません")
+  }
 }

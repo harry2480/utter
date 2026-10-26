@@ -8,8 +8,10 @@ enum STTWorkerComposition {
   /// `nil` のままなら Worker を起動せず、認識は `failed(.modelUnavailable)` になる。判定後に設定値から渡す
   static let selectedEngine: STTEngineKind? = nil
 
-  /// - Parameter onTermination: 認識中に Worker が異常終了したセッション。一時音声からの再処理
-  ///   （`RecordedAudio` を同じ `SessionID` で認識し直す。#59）はここから始める
+  /// 一時音声からの再処理（`RecordedAudio` を同じ `SessionID` で認識し直す, AC-10）は、`SessionCoordinator` が失敗を受け取った後に
+  /// `STTWorkerRecognitionRecovery`（`termination(of:)`）で異常終了かを確かめて行う。`onTermination` は失敗を流した後に届くため、
+  /// セッションの進行には使わない
+  /// - Parameter onTermination: 認識中に Worker が異常終了したセッション
   static func makeRecognizer(
     engine: STTEngineKind? = selectedEngine,
     onTermination: (@Sendable (STTWorkerTermination) async -> Void)? = nil
@@ -17,5 +19,18 @@ enum STTWorkerComposition {
     guard let connector = XPCSTTWorkerConnector() else { return nil }
     return STTWorkerSpeechRecognizer(
       engine: engine, connector: connector, onTermination: onTermination)
+  }
+
+  /// 端末の状態の監視を `recognizer` に結線する（6章, AC-11）。
+  ///
+  /// 保持モードの設定はまだないため、6章の標準（バランスモード、保持時間は `ModelRetentionPolicy` の仮置きの既定値）を送る。
+  /// 設定の結線（Phase 1）で `DeviceResourceMonitoring.updatePolicy(_:)` から利用者の設定を送る
+  @MainActor
+  static func makeResourceMonitoring(
+    for recognizer: STTWorkerSpeechRecognizer
+  ) -> DeviceResourceMonitoring? {
+    // 既定の引数は検証を通る値のため失敗しない
+    guard let policy = try? ModelRetentionPolicy() else { return nil }
+    return DeviceResourceMonitoring(policy: policy, receiver: recognizer)
   }
 }

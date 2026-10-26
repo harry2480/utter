@@ -16,24 +16,34 @@ import UtterSpeech
 /// - 最大録音時間・音声バッファの上限・割り込みで録音を止めたら、それまでの音声を処理して HUD で知らせる（REC-05, iOS-PERF-03）
 /// - キャンセルは録音〜整形中と失敗の表示中だけ受け付ける。挿入が始まったら取り消さない（REC-01）
 /// - 処理中の開始操作は無視する（REC-06）
-/// - 発話本文はログ・HUD に出さない。挿入できなければ挿入側がコピー可能なプレビューへ退避する（AC-09）
+/// - 入力モードが Realtime Preview なら、認識の `partial` / `confirmed` を `TranscriptPreview` に溜めて HUD に出す（2.2節, AC-03）。
+///   Instant（既定）では出さない。入力欄への挿入はどちらも停止後に一括で行う
+/// - 発話本文はログに出さない。HUD に出すのは Realtime Preview の録音中・認識中の認識テキストだけ。
+///   挿入できなければ挿入側がコピー可能なプレビューへ退避する（AC-09）
+/// - 録音のチャンクは一時音声の差し込み口にも渡す。STT Worker の異常終了で認識が失敗したら、録音が止まるのを待って
+///   メモリ上の録音全体で1回だけ認識し直す（7章, AC-10）
+/// - 状態が変わるたびに `onPhaseChange` を呼ぶ（ショートカットの Esc の捕捉をセッション中だけ有効にするため, REC-01）
 @MainActor
 @Observable
 final class SessionCoordinator {
   /// セッションの現在の状態。メニューの表示に使う
   private(set) var phase: SessionPhase = .idle
+  /// 状態が変わるたびに呼ぶ。Esc のイベントタップのコールバックの中からも同期的に呼ばれるため、重い処理をしない
+  @ObservationIgnored var onPhaseChange: (@MainActor () -> Void)?
 
   @ObservationIgnored private var machine: SessionStateMachine
   @ObservationIgnored private let recorder: any AudioRecorder
   @ObservationIgnored private let recognizer: (any SpeechRecognizer)?
   @ObservationIgnored private let refiner: any SessionRefining
   @ObservationIgnored private let refinementReporter: (any SessionRefinementReporting)?
+  @ObservationIgnored private let showsRealtimePreview: Bool
   @ObservationIgnored private let inserter: any SessionTextInserting
   @ObservationIgnored private let history: (any SessionHistoryRecording)?
   @ObservationIgnored private let hud: HUDController
   @ObservationIgnored private let deadlineScheduler: any SessionDeadlineScheduling
   @ObservationIgnored private let interruptionPolicy: RecordingInterruptionPolicy
   @ObservationIgnored private let audioRetention: (any SessionAudioRetaining)?
+  @ObservationIgnored private let recognitionRecovery: (any SessionRecognitionRecovering)?
   @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
 
   /// 進行中のセッションの非同期処理
@@ -47,8 +57,12 @@ final class SessionCoordinator {
   ///   - recognizer: 音声認識。エンジンが選ばれていなければ `nil`（Phase 0 の判定待ちで既定のエンジンを持たない）
   ///   - refiner: 整形（TXT-01, AI-01, AI-03）。録音開始時の前面アプリをスタイル区分の判定に渡す（CTX-01）
   ///   - refinementReporter: 整形の経路を知らせる差し込み口（AC-16）。#133 の結線まで `nil`
+  ///   - showsRealtimePreview: 入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）。
+  ///     入力モードの設定（#130）を結線するまでは構成値で選ぶ
   ///   - history: 入力履歴への保存（7章, AC-12）。`nil` なら保存しない
-  ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。#132 の結線まで `nil`
+  ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。`nil` なら保存しない
+  ///   - recognitionRecovery: 失敗した認識を録音音声でやり直すかの判断（7章, AC-10）。`nil`、または `audioRetention` が
+  ///     `nil` ならやり直さない
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
   init(
     configuration: SessionConfiguration = SessionConfiguration(),
@@ -56,12 +70,14 @@ final class SessionCoordinator {
     recognizer: (any SpeechRecognizer)?,
     refiner: any SessionRefining,
     refinementReporter: (any SessionRefinementReporting)? = nil,
+    showsRealtimePreview: Bool = false,
     inserter: any SessionTextInserting,
     history: (any SessionHistoryRecording)? = nil,
     hud: HUDController,
     deadlineScheduler: any SessionDeadlineScheduling,
     interruptionPolicy: RecordingInterruptionPolicy = RecordingInterruptionPolicy(),
     audioRetention: (any SessionAudioRetaining)? = nil,
+    recognitionRecovery: (any SessionRecognitionRecovering)? = nil,
     makeSessionID: @escaping @Sendable () -> SessionID = { SessionID() },
     now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
   ) {
@@ -70,18 +86,38 @@ final class SessionCoordinator {
     self.recognizer = recognizer
     self.refiner = refiner
     self.refinementReporter = refinementReporter
+    self.showsRealtimePreview = showsRealtimePreview
     self.inserter = inserter
     self.history = history
     self.hud = hud
     self.deadlineScheduler = deadlineScheduler
     self.interruptionPolicy = interruptionPolicy
     self.audioRetention = audioRetention
+    self.recognitionRecovery = audioRetention == nil ? nil : recognitionRecovery
     self.now = now
     hud.onErrorDisplayExpired = { [weak self] in
       guard let self else { return }
       machine.dismissError()
       reflect()
     }
+  }
+
+  /// 新しいセッションを始めないよう止めているか（起動時の復旧中, 7章, AC-10）
+  @ObservationIgnored private(set) var isSuspended = false
+
+  /// 待機中なら、`resume()` まで新しいセッションを始めないようにして `true` を返す。待機中でなければ何もせず `false`。
+  ///
+  /// STT Worker は同時に1セッションしか認識しないため、起動時の復旧が認識し直す間に録音を始めると、
+  /// その録音が `resourceLimited` で失敗して発話を失う。それを防ぐために、復旧の確認と認識の間は開始操作を無視する
+  func suspendIfIdle() -> Bool {
+    guard machine.phase == .idle, !isSuspended else { return false }
+    isSuspended = true
+    return true
+  }
+
+  /// `suspendIfIdle()` で止めた開始操作を受け付け直す
+  func resume() {
+    isSuspended = false
   }
 
   /// 進行中のセッション。テストと表示の確認に使う
@@ -117,9 +153,10 @@ final class SessionCoordinator {
     }
   }
 
-  /// 録音を始める。待機中でなければ何もしない（処理中の開始操作は無視する, REC-06）
+  /// 録音を始める。待機中でなければ何もしない（処理中の開始操作は無視する, REC-06）。
+  /// 起動時の復旧が音声認識を使っている間（`suspendIfIdle()` から `resume()` まで）も無視する
   func startRecording() {
-    guard machine.phase == .idle else { return }
+    guard machine.phase == .idle, !isSuspended else { return }
     guard let recognizer else {
       failWithoutRecording(notice: .speechRecognitionNotConfigured)
       return
@@ -205,30 +242,52 @@ final class SessionCoordinator {
 
     let forwarding = forward(recording.chunks, session: session)
     var text: String?
+    var failure: SpeechRecognitionError?
     var completed = false
     // 別のセッション・順序の古いイベントは捨てる（認識の契約の SessionID と順序番号で確かめる）
     var filter = RecognitionEventFilter()
     filter.begin(session)
+    // Realtime Preview の確定済み・暫定テキスト。セッションごとに作り直し、前の発話を残さない
+    var preview = TranscriptPreview()
     for await event in recognizer.recognize(forwarding.audio, session: session) {
       guard isActive(session) else { return }
       guard filter.accept(event) == nil else { continue }
       switch event.kind {
       case .partial, .confirmed:
-        // Realtime Preview（2.2節, AC-03）は別の作業で HUD に結線する
+        if showsRealtimePreview {
+          preview.apply(event.kind)
+          hud.updateTranscript(
+            HUDTranscript(
+              confirmedText: preview.confirmedText, provisionalText: preview.provisionalText),
+            for: session)
+        }
         continue
       case .completed(let value):
         text = value
         completed = true
-      case .failed:
+      case .failed(let error):
+        failure = error
         completed = true
       }
       if completed { break }
     }
     guard isActive(session) else { return }
 
+    // STT Worker の異常終了で失敗したら、録音音声で認識し直す（7章, AC-10）
+    var recognizesAgain = false
+    if text == nil, let failure, let recognitionRecovery {
+      recognizesAgain = await recognitionRecovery.shouldRecognizeAgain(session, after: failure)
+      guard isActive(session) else { return }
+    }
+
     // 録音の終わり（割り込み・上限到達）を状態機械へ反映してから認識の結果を渡す
     if machine.phase == .recording {
-      await stopRecorder().value
+      if recognizesAgain {
+        // 録音中に失敗した。発話を途中で切らないよう、録音は止めずに利用者の停止（または上限）を待つ
+        await forwarding.task.value
+      } else {
+        await stopRecorder().value
+      }
       await ends.value
       guard isActive(session) else { return }
       if machine.phase == .recording {
@@ -237,6 +296,10 @@ final class SessionCoordinator {
       }
     }
     guard machine.phase == .recognizing else { return }
+    if recognizesAgain {
+      text = await recognizeAgain(session, forwarding: forwarding.task, recognizer: recognizer)
+      guard isActive(session), machine.phase == .recognizing else { return }
+    }
     guard let text else {
       // 失敗、または終端イベントのないまま認識が終わった
       fail(session, notice: nil)
@@ -275,22 +338,54 @@ final class SessionCoordinator {
     endRetention(session, completed: true)
   }
 
-  /// 録音のチャンクを一時音声の差し込み口に渡しながら、音声認識へ流す。
-  /// 音声認識がストリームを手放したら読むのをやめる（録音側は受け手の破棄として録音を止める）
+  /// 録音のチャンクを一時音声の差し込み口に渡しながら、音声認識へ流す。録音が止まったら差し込み口に伝える。
+  ///
+  /// 音声認識がストリームを手放したら、認識し直せない構成では読むのをやめる（録音側は受け手の破棄として録音を止める）。
+  /// 認識し直せる構成では、Worker の異常終了の後も録音全体を溜められるよう読み続ける（録音は調停役が停止・キャンセル・失敗で止める）。
+  /// 音声認識へのストリームのバッファは無制限のため、`SpeechRecognizer` の実装は、読まなくなったらストリームを手放す
+  /// （`STTWorkerSpeechRecognizer` は終端イベントで手放す）。手放さなくても、溜まるのは最大録音時間の分まで
   private func forward(
     _ chunks: AsyncStream<AudioChunk>, session: SessionID
   ) -> (audio: AsyncStream<AudioChunk>, task: Task<Void, Never>) {
-    let retention = audioRetention
     let (stream, continuation) = AsyncStream.makeStream(of: AudioChunk.self)
-    let task = Task {
+    let task = Task { [weak self] in
       for await chunk in chunks {
-        retention?.append(chunk, to: session)
+        self?.retain(chunk, session: session)
         continuation.yield(chunk)
       }
       continuation.finish()
+      self?.finishRetaining(session)
     }
-    continuation.onTermination = { _ in task.cancel() }
+    if recognitionRecovery == nil {
+      continuation.onTermination = { _ in task.cancel() }
+    }
     return (stream, task)
+  }
+
+  /// `end` を伝える前のセッションのチャンクだけを差し込み口に渡す
+  private func retain(_ chunk: AudioChunk, session: SessionID) {
+    guard retainedSession == session else { return }
+    audioRetention?.append(chunk, to: session)
+  }
+
+  private func finishRetaining(_ session: SessionID) {
+    guard retainedSession == session else { return }
+    audioRetention?.finishRecording(session)
+  }
+
+  /// 差し込み口のメモリ上の録音全体で、同じセッションID のまま認識し直す（7章, AC-10）。完了しなければ `nil`
+  private func recognizeAgain(
+    _ session: SessionID, forwarding: Task<Void, Never>, recognizer: any SpeechRecognizer
+  ) async -> String? {
+    // 録音のチャンクをすべて差し込み口に渡し終えてから音声を取り出す
+    await forwarding.value
+    guard isActive(session), retainedSession == session,
+      let audio = audioRetention?.recordedAudio(for: session)
+    else { return nil }
+    switch await recognizer.recognizeAgain(audio, session: session) {
+    case .completed(let text): return text
+    case .failed, .cancelled: return nil
+    }
   }
 
   /// 録音が止まった理由を状態機械へ反映する（REC-04, REC-05）
@@ -399,7 +494,9 @@ final class SessionCoordinator {
 
   /// 状態機械の変化を HUD・最大録音時間のタイマー・表示へ反映する
   private func reflect(failureNotice: HUDNotice? = nil) {
+    let previous = phase
     phase = machine.phase
+    if phase != previous { onPhaseChange?() }
     hud.update(from: machine, failureNotice: failureNotice)
     deadlineScheduler.schedule(at: machine.recordingDeadline) { [weak self] in
       self?.recordingDeadlineReached()
