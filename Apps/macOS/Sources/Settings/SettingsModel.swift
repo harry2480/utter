@@ -30,7 +30,7 @@ final class SettingsModel {
   private(set) var cost: CostState = .loading
 
   private let store: AppSettingsStore
-  private let openUsageStore: @Sendable () throws -> MonthlyUsageStore
+  private let openUsageStore: @Sendable () async throws -> MonthlyUsageStore
   /// 一度開いた保存先を使い回す（読み直すたびにデータベースを開き直さない）
   private var usageStore: MonthlyUsageStore?
   private let now: @Sendable () -> Date
@@ -42,7 +42,7 @@ final class SettingsModel {
 
   init(
     store: AppSettingsStore,
-    openUsageStore: @escaping @Sendable () throws -> MonthlyUsageStore,
+    openUsageStore: @escaping @Sendable () async throws -> MonthlyUsageStore,
     now: @escaping @Sendable () -> Date = { Date() },
     calendar: Calendar = .current
   ) {
@@ -126,7 +126,11 @@ final class SettingsModel {
       () -> (store: MonthlyUsageStore?, state: CostState) in
       let opened: MonthlyUsageStore
       do {
-        opened = try usageStore ?? openUsageStore()
+        if let usageStore {
+          opened = usageStore
+        } else {
+          opened = try await openUsageStore()
+        }
       } catch {
         return (nil, .unreadable)
       }

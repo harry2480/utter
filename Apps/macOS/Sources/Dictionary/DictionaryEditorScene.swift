@@ -5,8 +5,14 @@ import UtterPersistence
 struct DictionaryEditorScene: Scene {
   static let windowID = "dictionary"
 
-  @State private var model = DictionaryEditorModel {
-    DictionaryStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
+  @State private var model: DictionaryEditorModel
+
+  /// - Parameter database: アプリで1つだけ開くデータベース（入力履歴・推定費用の累計と共有する）
+  init(database: AppDatabaseProvider) {
+    _model = State(
+      initialValue: DictionaryEditorModel {
+        DictionaryStore(database: try await database.database())
+      })
   }
 
   var body: some Scene {

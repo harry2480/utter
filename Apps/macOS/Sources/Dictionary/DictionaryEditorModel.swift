@@ -31,10 +31,10 @@ final class DictionaryEditorModel {
   /// 読み込み中・保存中は次の読み込みや編集を受け付けない。読み込みと保存が交錯して、保存した内容が画面から巻き戻るのを防ぐ
   private(set) var isBusy = false
 
-  private let openStore: @Sendable () throws -> DictionaryStore
+  private let openStore: @Sendable () async throws -> DictionaryStore
   private var store: DictionaryStore?
 
-  init(openStore: @escaping @Sendable () throws -> DictionaryStore) {
+  init(openStore: @escaping @Sendable () async throws -> DictionaryStore) {
     self.openStore = openStore
   }
 
@@ -54,7 +54,11 @@ final class DictionaryEditorModel {
       let opened: DictionaryStore
       let contents: (terms: [String], rules: [StoredReplacementRule])
       do {
-        opened = try store ?? openStore()
+        if let store {
+          opened = store
+        } else {
+          opened = try await openStore()
+        }
         contents = try opened.contents()
       } catch {
         return .failure(.unreadable)

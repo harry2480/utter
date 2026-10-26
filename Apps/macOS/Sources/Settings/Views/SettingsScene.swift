@@ -6,16 +6,18 @@ import UtterPersistence
 ///
 /// 設定画面は1つの Settings シーンにまとめ、項目はタブで分ける（API キーなどの画面もタブとして足す）
 struct SettingsScene: Scene {
-  @State private var model = SettingsModel(
-    store: AppSettingsStore(defaults: .standard),
-    openUsageStore: {
-      MonthlyUsageStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
-    })
+  @State private var model: SettingsModel
   /// 「API キー」タブの状態（AC-12）
   @State private var apiKeyModel: APIKeySettingsModel
 
-  /// - Parameter claudeAPIKeyStore: Claude API キーの保存先。整形（`SessionRefinementPipeline`）と同じものを渡す
-  init(claudeAPIKeyStore: any APIKeyStore) {
+  /// - Parameters:
+  ///   - claudeAPIKeyStore: Claude API キーの保存先。整形（`SessionRefinementPipeline`）と同じものを渡す
+  ///   - database: アプリで1つだけ開くデータベース。推定費用の累計を読む（辞書・入力履歴と共有する）
+  init(claudeAPIKeyStore: any APIKeyStore, database: AppDatabaseProvider) {
+    _model = State(
+      initialValue: SettingsModel(
+        store: AppSettingsStore(defaults: .standard),
+        openUsageStore: { MonthlyUsageStore(database: try await database.database()) }))
     _apiKeyModel = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
   }
 
