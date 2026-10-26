@@ -72,7 +72,7 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
   ) {
     self.init(
       credential: .fixed(apiKey), configuration: configuration, transport: transport,
-      promptBuilder: promptBuilder)
+      promptBuilder: promptBuilder, editPromptBuilder: editPromptBuilder)
   }
 
   /// 整形のたびに `apiKeyStore` からキーを読み出す。
@@ -80,18 +80,20 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
     apiKeyStore: any APIKeyStore,
     configuration: Configuration,
     transport: any HTTPTransport = URLSessionTransport(),
-    promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder()
+    promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder(),
+    editPromptBuilder: EditPromptBuilder = EditPromptBuilder()
   ) {
     self.init(
       credential: .store(apiKeyStore), configuration: configuration, transport: transport,
-      promptBuilder: promptBuilder)
+      promptBuilder: promptBuilder, editPromptBuilder: editPromptBuilder)
   }
 
   private init(
     credential: Credential,
     configuration: Configuration,
     transport: any HTTPTransport,
-    promptBuilder: RefinementPromptBuilder
+    promptBuilder: RefinementPromptBuilder,
+    editPromptBuilder: EditPromptBuilder
   ) {
     self.credential = credential
     self.configuration = configuration
