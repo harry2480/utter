@@ -18,6 +18,7 @@ import UtteriOSKit
 @main
 struct UtterApp: App {
   @State private var model: RecordingSessionModel
+  @State private var refinementSettings: RefinementSettingsModel
   @State private var consentSettings: ConsentSettingsModel
   @State private var claudeAPIKeySettings: APIKeySettingsModel
   @State private var speechModel: SpeechModelSettingsModel?
@@ -33,7 +34,7 @@ struct UtterApp: App {
       Bundle.main.object(forInfoDictionaryKey: "UtterAppGroupIdentifier") as? String
     let storage = SharedResultStorage.resolve(
       appGroupIdentifier: appGroupIdentifier, appLocalDirectory: Self.appLocalResultsDirectory())
-    // 同意の画面とクラウド整形で同じ保存先を使い、撤回を次の送信から反映する（AC-06）
+    // 整形と予算・同意の画面とクラウド整形で同じ保存先を使い、変更・撤回を次の送信から反映する（AC-06）
     let settingsStore = AppSettingsStore(defaults: .standard)
     let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
     let databaseURL = Self.databaseURL()
@@ -53,6 +54,11 @@ struct UtterApp: App {
     _speechModel = State(
       initialValue: modelAssets.map { SpeechModelSettingsModel(assets: $0) })
     self.speechEngine = speechEngine
+    _refinementSettings = State(
+      initialValue: RefinementSettingsModel(
+        store: settingsStore,
+        // 推定費用の表示のときに、メインスレッドの外で開く
+        openUsageStore: { MonthlyUsageStore(database: try UtterDatabase.open(at: databaseURL)) }))
     _consentSettings = State(
       initialValue: ConsentSettingsModel(
         controller: ConsentSettingsController(store: settingsStore)))
@@ -67,7 +73,7 @@ struct UtterApp: App {
   var body: some Scene {
     WindowGroup {
       RecordingView(
-        model: model, consentSettings: consentSettings,
+        model: model, refinementSettings: refinementSettings, consentSettings: consentSettings,
         claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
         speechModel: speechModel, hostAppStatus: hostAppStatus)
     }
