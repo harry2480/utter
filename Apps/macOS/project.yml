@@ -48,7 +48,9 @@ targets:
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
         # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）。
-        # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
+        # グローバルショートカット（RegisterEventHotKey）は権限を要求しない。
+        # 修飾キー単独（入力監視）と Esc 捕捉（アクセシビリティ）は #51 の判定待ちで既定で無効。
+        # どちらも Info.plist の用途説明キーはなく、メニューの文言で用途を示し、利用者の操作でだけ要求する
         # Entitlement は UtterMac.entitlements に足す。Release は Hardened Runtime のため、
         # マイクを使うなら com.apple.security.device.audio-input が要る（scripts/check-release-config.sh が確かめる）
         CODE_SIGN_ENTITLEMENTS: UtterMac.entitlements
