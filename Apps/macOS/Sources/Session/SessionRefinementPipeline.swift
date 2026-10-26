@@ -126,13 +126,14 @@ final class SessionRefinementPipeline: SessionRefining {
     let latest = settingsStore.load()
     guard latest.refinementEngine == .cloudAI else { return local(.localEngineSelected) }
     let consent = currentConsent()
-    // `RefinementRouter` は同期的に判定を求めるため、ここで判定した値を渡す。Router は予約を待った後にも判定を求めるが、
-    // 入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の変化はここでの判定までしか反映しない
+    // `RefinementRouter` は同期的に同意と判定を求めるため、ここで読み直した同意と判定した値を渡す。Router は予約を
+    // 待った後にも求めるが、入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の
+    // 変化はここでの読み直しと判定までしか反映しない
     let decision = Self.decide(sensitivity(), settings: latest)
     let outcome: RefinementOutcome
     do throws(CancellationError) {
       outcome = try await router.refine(
-        request, consent: consent, budget: budget, sensitivity: { decision })
+        request, consent: { consent }, budget: budget, sensitivity: { decision })
     } catch {
       // 送信後にキャンセルされても推定費用は記録されるため、保存の失敗は確かめる
       await noteUsagePersistence(of: budget.guard)
