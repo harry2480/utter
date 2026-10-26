@@ -56,7 +56,7 @@ xcodebuild \
   -derivedDataPath "$derived_data" \
   -disableAutomaticPackageResolution \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
-  UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= \
+  UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= UTTER_MAC_STT_ENGINE= \
   -quiet build
 # アプリの純粋なロジックのユニットテスト（アプリは起動しない）
 xcodebuild \
@@ -67,7 +67,7 @@ xcodebuild \
   -derivedDataPath "$derived_data" \
   -disableAutomaticPackageResolution \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
-  UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= \
+  UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= UTTER_MAC_STT_ENGINE= \
   -quiet test
 # メニューバー常駐で Dock に出さない設定と、マイクの用途説明が入っていることを確かめる（アプリは起動しない）
 mac_info_plist="$derived_data/Build/Products/Debug/utter.app/Contents/Info.plist"
@@ -101,11 +101,12 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :XPCService:ServiceType' "$worker_inf
 fi
 # 自動更新（Sparkle）: URL と公開鍵を空にした（Local.xcconfig の値を上書きした）ビルドで、Info.plist に空のまま入り、アプリは Sparkle を起動しない。
 # 低頻度の確認・システムプロファイルを送らない・自動インストールを選べないことも確かめる（Apps/macOS/Info.plist）
+# STT エンジン（UtterSTTEngine）も同じく空にしたビルドで、既定のエンジンを持たない（未選択）ことを確かめる（#48 / #49 の判定待ち）
 mac_plist_value() {
   /usr/libexec/PlistBuddy -c "Print :$1" "$mac_info_plist" 2>/dev/null || echo "<なし>"
 }
 for key_and_expected in "SUFeedURL=" "SUPublicEDKey=" "SUScheduledCheckInterval=604800" \
-  "SUEnableSystemProfiling=false" "SUAllowsAutomaticUpdates=false"; do
+  "SUEnableSystemProfiling=false" "SUAllowsAutomaticUpdates=false" "UtterSTTEngine="; do
   key="${key_and_expected%%=*}"
   expected="${key_and_expected#*=}"
   if [[ "$(mac_plist_value "$key")" != "$expected" ]]; then

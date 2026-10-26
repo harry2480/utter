@@ -14,6 +14,10 @@ UTTER_BUNDLE_ID_PREFIX = com.example.yourname.utter
 // UTTER_APP_GROUP_ENABLED = YES
 // UTTER_APP_GROUP_ID = group.com.example.yourname.utter
 
+// macOS で SpeechAnalyzer による音声認識を試す場合だけ、次の行のコメントを外す（#48 の判定待ち。既定は未選択で文字にしない）。
+// モデルは設定画面の「音声認識」タブの「モデルを取得」で取得する（Apple のサーバーから macOS が取得する。ネットワークを使う）
+// UTTER_MAC_STT_ENGINE = speechAnalyzer
+
 // iOS で SpeechAnalyzer による音声認識を試す場合だけ、次の行のコメントを外す（#54 の判定待ち。既定は未設定で文字にしない）。
 // モデルはアプリの「音声認識の設定」の「モデルを取得」で取得する
 // UTTER_IOS_STT_ENGINE = speechAnalyzer

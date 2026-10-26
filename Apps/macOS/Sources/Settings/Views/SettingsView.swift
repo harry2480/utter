@@ -3,8 +3,10 @@ import SwiftUI
 import UtterAI
 import UtterCore
 import UtterPersistence
+import UtterSpeech
 
-/// 設定画面（AC-05, AC-12, AI-05, AI-07, CTX-01, CTX-02, REC-01, REC-02, REC-05, 2.2節, 6章, 7章）。
+/// 設定画面（AC-05, AC-12, AI-05, AI-07, CTX-01, CTX-02, PERM-03, REC-01, REC-02, REC-05,
+/// 2.2節, 4章, 6章, 7章）。
 ///
 /// 検証・保存・表示値は `SettingsModel` / `SettingsForm` / `CloudCostBridge` が持ち、ここは並べるだけにする。
 /// 入力はまとめて「保存」で検証・保存する（数値・通貨・サイトなどの入力途中の値を保存しない）。
@@ -12,6 +14,10 @@ struct SettingsView: View {
   @Bindable var model: SettingsModel
   /// 「API キー」タブの状態。キーは Keychain に即時に保存し、下の「保存」とは別に扱う（AC-12）
   let apiKeyModel: APIKeySettingsModel
+  /// 「音声認識」タブに出すエンジン。ビルド設定で選び、この画面では変えない（未選択なら `nil`）
+  let sttEngine: STTEngineKind?
+  /// 「音声認識」タブのモデルの取得状態。モデルの取得はタブのボタンからだけ行う（PERM-03）
+  let speechModel: SpeechModelSettingsModel?
   @State private var selection: SettingsTab = .recording
 
   var body: some View {
@@ -32,12 +38,16 @@ struct SettingsView: View {
         ExcludedAppsSettingsTab(model: model)
           .tabItem { Label("除外アプリ", systemImage: "hand.raised") }
           .tag(SettingsTab.excludedApps)
+        SpeechRecognitionSettingsTab(engine: sttEngine, model: speechModel)
+          .tabItem { Label("音声認識", systemImage: "waveform") }
+          .tag(SettingsTab.speechRecognition)
         ClaudeAPIKeySettingsView(model: apiKeyModel)
           .tabItem { Label("API キー", systemImage: "key") }
           .tag(SettingsTab.apiKey)
       }
-      // API キーのタブは独自の保存・削除を持つため、設定の「保存」「元に戻す」を出さない
-      if selection != .apiKey {
+      // API キーのタブは独自の保存・削除を持ち、音声認識のタブは保存する項目を持たないため、
+      // 設定の「保存」「元に戻す」を出さない
+      if selection.showsSaveActions {
         Divider()
         SettingsFooter(model: model)
           .padding()
@@ -57,7 +67,16 @@ private enum SettingsTab: Hashable {
   case cost
   case style
   case excludedApps
+  case speechRecognition
   case apiKey
+
+  /// 設定の「保存」「元に戻す」を出すタブか
+  var showsSaveActions: Bool {
+    switch self {
+    case .recording, .refinement, .cost, .style, .excludedApps: true
+    case .speechRecognition, .apiKey: false
+    }
+  }
 }
 
 private struct SettingsFooter: View {
