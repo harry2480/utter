@@ -86,7 +86,9 @@ struct UsageStoreBudgetSourceTests {
     var consent = ConsentState()
     consent.grant(CloudFixtures.claudeConsent)
     let outcome = try await RefinementRouter(provider: provider, localRefiner: LocalBasicRefiner())
-      .refine(request, consent: consent, budget: budget.budget, sensitivity: { .allowedInput })
+      .refine(
+        request, consent: { [consent] in consent }, budget: budget.budget,
+        sensitivity: { .allowedInput })
     await budget.finish()
     return outcome
   }
@@ -161,7 +163,9 @@ struct UsageStoreBudgetSourceTests {
       consent.grant(CloudFixtures.claudeConsent)
       let outcome = try? await RefinementRouter(
         provider: provider, localRefiner: LocalBasicRefiner()
-      ).refine(request, consent: consent, budget: budget.budget, sensitivity: { .allowedInput })
+      ).refine(
+        request, consent: { [consent] in consent }, budget: budget.budget,
+        sensitivity: { .allowedInput })
       await budget.finish()
       return outcome
     }

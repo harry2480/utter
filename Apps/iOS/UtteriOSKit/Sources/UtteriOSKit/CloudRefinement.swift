@@ -129,10 +129,12 @@ public struct CloudRefinement {
       await budget.finish()
       return local(.localEngineSelected)
     }
+    // `AppSettingsStore` は `Sendable` でないため、読み直した同意状態を渡す
+    let consentState = latest.consentState
     let outcome: RefinementOutcome
     do throws(CancellationError) {
       outcome = try await router.refine(
-        request, consent: latest.consentState, budget: budget.budget, sensitivity: sensitivity)
+        request, consent: { consentState }, budget: budget.budget, sensitivity: sensitivity)
     } catch {
       // 送信後にキャンセルされても課金されている可能性があるため、推定費用は記録する
       await budget.finish()
