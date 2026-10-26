@@ -33,9 +33,13 @@ final class AppComposition {
       deadlineScheduler: TaskHUDRefreshScheduler())
     self.hud = hud
     self.session = session
-    shortcuts = ShortcutCoordinator(
+    let shortcuts = ShortcutCoordinator(
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })
+    self.shortcuts = shortcuts
+    // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
+    // Esc の捕捉をセッション中だけ有効にする（REC-01）
+    session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
   }
 
   /// 使う STT エンジン。既定のエンジンは Phase 0 の判定（11章）待ちのため、構成で明示的に選ばない限り `nil`。

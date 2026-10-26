@@ -20,6 +20,8 @@ import UtterSpeech
 final class SessionCoordinator {
   /// セッションの現在の状態。メニューの表示に使う
   private(set) var phase: SessionPhase = .idle
+  /// `phase` が変わったときに呼ぶ（ショートカットの Esc 捕捉をセッション中だけ有効にするため）
+  @ObservationIgnored var onPhaseChange: (@MainActor () -> Void)?
 
   @ObservationIgnored private var machine: SessionStateMachine
   @ObservationIgnored private let recorder: any AudioRecorder
@@ -381,7 +383,9 @@ final class SessionCoordinator {
 
   /// 状態機械の変化を HUD・最大録音時間のタイマー・表示へ反映する
   private func reflect(failureNotice: HUDNotice? = nil) {
+    let previous = phase
     phase = machine.phase
+    if phase != previous { onPhaseChange?() }
     hud.update(from: machine, failureNotice: failureNotice)
     deadlineScheduler.schedule(at: machine.recordingDeadline) { [weak self] in
       self?.recordingDeadlineReached()
