@@ -1,0 +1,25 @@
+# アプリ（UtterMac）のユニットテストのターゲットと、スキームのテストの設定。project.yml の include で読み込む
+targets:
+  # 画面の状態（View を除く）のユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする
+  UtterMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      - path: Sources/Settings
+        excludes:
+          - "Views/**"
+    dependencies:
+      - package: UtterCore
+      - package: UtterAI
+      - package: UtterPersistence
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  UtterMac:
+    test:
+      config: Debug
+      targets:
+        - UtterMacTests
