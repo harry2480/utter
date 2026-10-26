@@ -9,6 +9,8 @@
   - SUEnableSystemProfiling: システムプロファイル（OS 版・機種など）を送らない（テレメトリを実装しない）
   - SUAllowsAutomaticUpdates: 更新の自動ダウンロード・自動インストールを選べなくし、入れる前に必ず利用者に確かめる
   自動確認するかどうか（SUEnableAutomaticChecks）はここに書かない。Sparkle が初回に利用者へ確かめ、メニューから切り替えられる
+  UtterSTTEngine: 使う STT エンジン。ビルド設定 UTTER_MAC_STT_ENGINE（Config/Base.xcconfig では空、Local.xcconfig で与える）。
+  空・知らない値なら未選択で、音声認識を使わない（Phase 0 #48 / #49 の判定待ち。受け付けるのは speechAnalyzer だけ）
 -->
 <plist version="1.0">
 <dict>
@@ -22,5 +24,7 @@
 	<false/>
 	<key>SUAllowsAutomaticUpdates</key>
 	<false/>
+	<key>UtterSTTEngine</key>
+	<string>$(UTTER_MAC_STT_ENGINE)</string>
 </dict>
 </plist>

@@ -27,6 +27,8 @@ final class AppComposition {
   /// 端末の状態の監視（6章, AC-11）。録音・認識の有無に関わらず動かす。
   /// STT Worker の認識器を作らないとき（エンジンが未選択、接続先の Bundle ID が取れない）は、送り先がないため監視もしない（`nil`）
   let resourceMonitoring: DeviceResourceMonitoring?
+  /// 使う STT エンジン。未選択なら `nil`（`selectedEngine()`）。設定画面の「音声認識」タブに出す
+  let sttEngine: STTEngineKind?
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
@@ -39,6 +41,7 @@ final class AppComposition {
     let preview = InsertionPreviewPanel()
     let insertion = InsertionExecutor.system(preview: preview)
     let engine = Self.selectedEngine()
+    self.sttEngine = engine
     // エンジンが選ばれていなければ STT Worker を作らない（SessionCoordinator が「音声認識が設定されていません」を表示する）
     let recognizer = engine.flatMap { STTWorkerComposition.makeRecognizer(engine: $0) }
     let settingsStore = AppSettingsStore(defaults: .standard)
@@ -97,15 +100,21 @@ final class AppComposition {
 
   /// 使う STT エンジン。既定のエンジンは Phase 0 の判定（11章）待ちのため、構成で明示的に選ばない限り `nil`。
   ///
-  /// 設定画面（版2設定）が入るまでは、Debug ビルドに限り起動引数で選べる:
-  /// `open utter.app --args -UtterDebugSTTEngine speechAnalyzer`（`stub` は Worker の往復の確認用）
-  private static func selectedEngine() -> STTEngineKind? {
+  /// Config/Local.xcconfig の `UTTER_MAC_STT_ENGINE`（Info.plist の `UtterSTTEngine`）で選ぶ。
+  /// Release で受け付けるのは `speechAnalyzer` だけで、知らない値・空の値は `nil`（判定は `STTEngineSetting`）。
+  /// Debug ビルドに限り、起動引数がビルド設定より優先し、開発用の `stub`（Worker の往復の確認用）も選べる:
+  /// `open utter.app --args -UtterDebugSTTEngine speechAnalyzer`
+  static func selectedEngine() -> STTEngineKind? {
     #if DEBUG
-      if let raw = debugArgument("UtterDebugSTTEngine"), let engine = STTEngineKind(rawValue: raw) {
-        return engine
-      }
+      let launchArgument = debugArgument("UtterDebugSTTEngine")
+      let allowsStub = true
+    #else
+      let launchArgument: String? = nil
+      let allowsStub = false
     #endif
-    return STTWorkerComposition.selectedEngine
+    let value = Bundle.main.object(forInfoDictionaryKey: STTEngineSetting.infoPlistKey) as? String
+    return STTEngineSetting.resolve(
+      buildSetting: value, launchArgument: launchArgument, allowsStub: allowsStub)
   }
 
   /// 入力モードが Realtime Preview か（2.2節）。入力モードの設定（#130）を結線するまでは、MVP 標準の Instant を使う。

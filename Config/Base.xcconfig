@@ -18,6 +18,12 @@ UTTER_APP_GROUP_ID =
 // 空なら拡張は手動で切り替える案内だけを出す。本体アプリ側のスキームの登録は #53 の成立後に追加する
 UTTER_HOST_APP_URL_SCHEME =
 
+// macOS の STT エンジン（Phase 0 #48 SpeechAnalyzer / #49 WhisperKit の判定待ち）。既定は未選択で、
+// 音声入力のショートカットを押しても「音声認識が設定されていません」と表示する（マイクは開かない）。
+// SpeechAnalyzer を試すときだけ Local.xcconfig で speechAnalyzer にする（受け付けるのは speechAnalyzer だけ。
+// 知らない値は未選択に倒す）。値は Info.plist の UtterSTTEngine に入る
+UTTER_MAC_STT_ENGINE =
+
 // iOS の STT エンジン（#54 の判定待ち）。既定は未設定で、録音はするが文字にはしない。
 // SpeechAnalyzer を試すときだけ Local.xcconfig で speechAnalyzer にする
 UTTER_IOS_STT_ENGINE =
