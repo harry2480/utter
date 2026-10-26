@@ -19,7 +19,7 @@ public struct RefinementPromptBuilder: Sendable {
   public func build(_ request: RefinementRequest) -> RefinementPrompt? {
     guard let modeInstruction = Self.instruction(for: request.mode) else { return nil }
     let terms = Self.sanitizedTerms(request.dictionaryTerms)
-    let nonce = uniqueNonce(avoiding: [request.text] + terms)
+    let nonce = Self.uniqueNonce(makeNonce, avoiding: [request.text] + terms)
 
     var system = [
       Self.role,
@@ -46,13 +46,16 @@ public struct RefinementPromptBuilder: Sendable {
   }
 
   /// `contents` のどれにも含まれない NONCE。重なったら作り直し、作り直しても重なる場合は番号を付ける。
+  /// `EditPromptBuilder` と共用する。
   ///
   /// 大文字・小文字や全角・半角だけが違う偽のタグも避けるため、小文字にして比べる。
-  private func uniqueNonce(avoiding contents: [String]) -> String {
+  static func uniqueNonce(
+    _ makeNonce: @Sendable () -> String, avoiding contents: [String]
+  ) -> String {
     let lowercasedContents = contents.map { $0.lowercased() }
     var attempt = 0
     while true {
-      let base = validNonce()
+      let base = validNonce(makeNonce)
       let nonce = attempt == 0 ? base : base + String(attempt)
       if !lowercasedContents.contains(where: { $0.contains(nonce.lowercased()) }) {
         return nonce
@@ -62,7 +65,7 @@ public struct RefinementPromptBuilder: Sendable {
   }
 
   /// 注入された NONCE が空でない ASCII の英数字ならそれを、そうでなければ乱数を使う。
-  private func validNonce() -> String {
+  private static func validNonce(_ makeNonce: @Sendable () -> String) -> String {
     let nonce = makeNonce()
     guard !nonce.isEmpty, nonce.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
       return Self.randomNonce()
@@ -70,8 +73,8 @@ public struct RefinementPromptBuilder: Sendable {
     return nonce
   }
 
-  /// 空の語と重複を除き、改行・制御文字を空白にして1行1語にする。
-  private static func sanitizedTerms(_ terms: [String]) -> [String] {
+  /// 空の語と重複を除き、改行・制御文字を空白にして1行1語にする。`EditPromptBuilder` と共用する。
+  static func sanitizedTerms(_ terms: [String]) -> [String] {
     var seen: Set<String> = []
     return terms.compactMap { term in
       let flattened = term.map { $0.isNewline || $0.isControlOrFormat ? " " : $0 }
