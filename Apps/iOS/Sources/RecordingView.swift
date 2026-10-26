@@ -1,4 +1,5 @@
 import SwiftUI
+import UtterAI
 import UtterCore
 import UtterPersistence
 import UtteriOSKit
@@ -6,10 +7,13 @@ import UtteriOSKit
 /// 録音の開始・停止・状態と、結果の確認・コピー（iOS-04, iOS-07）。進行の判断は `RecordingSessionModel` が持つ。
 struct RecordingView: View {
   let model: RecordingSessionModel
+  let consentSettings: ConsentSettingsModel
+  let claudeAPIKeySettings: APIKeySettingsModel
   let speechEngine: SpeechEngineSelection
   /// 取得できるモデルがあるエンジンのときだけ
   let speechModel: SpeechModelSettingsModel?
   @Environment(\.scenePhase) private var scenePhase
+  @State private var isShowingSettings = false
 
   var body: some View {
     NavigationStack {
@@ -20,12 +24,19 @@ struct RecordingView: View {
       .navigationTitle("utter")
       .refreshable { await model.refreshResults() }
       .toolbar {
-        NavigationLink {
-          SpeechSettingsView(engine: speechEngine, model: speechModel)
-        } label: {
-          Label("音声認識の設定", systemImage: "gearshape")
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            isShowingSettings = true
+          } label: {
+            Label("設定", systemImage: "gearshape")
+          }
         }
       }
+    }
+    .sheet(isPresented: $isShowingSettings) {
+      SettingsView(
+        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings,
+        speechEngine: speechEngine, speechModel: speechModel)
     }
     .task { await model.prepareResults() }
     .onChange(of: scenePhase) { _, phase in
@@ -60,6 +71,11 @@ struct RecordingView: View {
       }
       if let stopNotice = model.stopNotice {
         Text(stopNotice.message)
+      }
+      if let refinementNotice = model.refinementNotice {
+        Text(refinementNotice.message)
+          .font(.footnote)
+          .foregroundStyle(.secondary)
       }
       if let failure = model.failure {
         Text(failure.message)

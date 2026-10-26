@@ -7,10 +7,10 @@ import UtterSpeech
 
 /// 本体アプリの録音セッションの進行（iOS-04, iOS-07, iOS-PERF-03）。
 ///
-/// 録音 → 音声認識 → ローカル整形 → 共有結果の保存を `SessionStateMachine` に沿って進め、
+/// 録音 → 音声認識 → 整形 → 共有結果の保存を `SessionStateMachine` に沿って進め、
 /// 画面に出す状態・通知・救済用の結果一覧を持つ。iOS では状態機械の `inserting` を「共有結果の保存」に使う。
-/// - 録音は `AudioRecorder`、認識は `SpeechRecognizer`、整形は `LocalRefiner` を注入する。
-///   クラウド整形はこの型では扱わない
+/// - 録音は `AudioRecorder`、認識は `SpeechRecognizer`、ローカル整形は `LocalRefiner` を注入する。
+///   クラウド整形は `CloudRefinement` を渡したときだけ使い、同意・API キー・予算がそろわなければローカル整形だけを使う（iOS-10）
 /// - 割り込みは `handle(_:)` で受け、`RecordingInterruptionPolicy` に従って止める。止めたときも取得済みの音声は処理する
 /// - 時刻・待ち時間・セッションIDは注入でき、テストでは実時間を待たない
 @MainActor
@@ -30,6 +30,8 @@ public final class RecordingSessionModel {
   public private(set) var isRescueListUnavailable = false
   /// 直近のコピー操作の結果
   public private(set) var copyNotice: ResultCopyNotice?
+  /// 直近のセッションで、クラウド整形を使えずローカル整形の結果を保存した理由（4.1節）
+  public private(set) var refinementNotice: RefinementNotice?
   /// キーボードと結果を共有しているか
   public let sharing: SharedResultSharing
 
@@ -52,6 +54,7 @@ public final class RecordingSessionModel {
     let recorder: any AudioRecorder
     let recognizer: any SpeechRecognizer
     let refiner: any LocalRefiner
+    let cloudRefinement: CloudRefinement?
     let refinementMode: RefinementMode
     let store: SharedResultStore
     let rescue: SharedResultRescueCoordinator
@@ -67,7 +70,8 @@ public final class RecordingSessionModel {
   /// - Parameters:
   ///   - recorder: 録音の実装
   ///   - recognizer: 音声認識。STT エンジンの判定（#54）までは `UnconfiguredSpeechRecognizer`
-  ///   - refiner: ローカル整形。既定は Local Basic（AI-03）
+  ///   - refiner: ローカル整形。既定は Local Basic（AI-03）。クラウド整形の退避先にも使う
+  ///   - cloudRefinement: クラウド整形。`nil` ならローカル整形だけを使う
   ///   - refinementMode: 整形モード。既定は Natural
   ///   - storage: 共有結果の保存先
   ///   - copier: 救済画面のコピー先（クリップボード）
@@ -83,6 +87,7 @@ public final class RecordingSessionModel {
     recorder: any AudioRecorder,
     recognizer: any SpeechRecognizer,
     refiner: any LocalRefiner = LocalBasicRefiner(),
+    cloudRefinement: CloudRefinement? = nil,
     refinementMode: RefinementMode = .natural,
     storage: SharedResultStorage,
     copier: any SharedResultTextCopier,
@@ -99,7 +104,8 @@ public final class RecordingSessionModel {
     stateMachine = SessionStateMachine(
       configuration: sessionConfiguration, makeSessionID: makeSessionID)
     dependencies = Dependencies(
-      recorder: recorder, recognizer: recognizer, refiner: refiner, refinementMode: refinementMode,
+      recorder: recorder, recognizer: recognizer, refiner: refiner,
+      cloudRefinement: cloudRefinement, refinementMode: refinementMode,
       store: storage.store,
       rescue: SharedResultRescueCoordinator(store: storage.store, copier: copier, now: date),
       copier: copier, policy: policy, audioBuffer: audioBuffer,
@@ -130,6 +136,7 @@ public final class RecordingSessionModel {
     stopNotice = nil
     failure = nil
     copyNotice = nil
+    refinementNotice = nil
 
     guard await dependencies.recorder.requestPermission() else {
       failure = .microphoneDenied
@@ -369,8 +376,26 @@ public final class RecordingSessionModel {
 
   private func refineAndSave(_ text: String) async {
     guard stateMachine.phase == .refining, let refining = stateMachine.currentToken else { return }
-    let refined = dependencies.refiner.refine(
-      RefinementRequest(text: text, mode: dependencies.refinementMode))
+    let request = RefinementRequest(text: text, mode: dependencies.refinementMode)
+    let refined: String
+    if let cloud = dependencies.cloudRefinement {
+      let result: SessionRefinementResult
+      do {
+        result = try await cloud.refine(request, localRefiner: dependencies.refiner)
+      } catch {
+        // キャンセルした操作が状態を戻していなければ、整形中のまま残さず失敗として閉じる
+        if stateMachine.currentToken == refining {
+          apply(.failed, token: refining)
+        }
+        return
+      }
+      // 整形を待つ間にキャンセルされたセッションの結果は使わない
+      guard stateMachine.currentToken == refining else { return }
+      refined = result.text
+      refinementNotice = RefinementNotice(route: result.route)
+    } else {
+      refined = dependencies.refiner.refine(request)
+    }
     guard !refined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       failure = .noSpeech
       apply(.failed, token: refining)

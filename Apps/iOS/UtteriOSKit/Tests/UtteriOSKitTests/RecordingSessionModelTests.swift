@@ -70,6 +70,7 @@ struct RecordingSessionModelTests {
     let results = try await storedResults()
     #expect(results.map(\.text) == [refined])
     #expect(results.first?.createdAt == createdAt)
+    #expect(await waitUntil { !model.rescueList.items.isEmpty })
     #expect(model.rescueList.items.map(\.state) == [.notInserted(text: refined)])
     #expect(model.failure == nil)
     #expect(model.stopNotice == nil)
