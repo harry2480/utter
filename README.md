@@ -21,7 +21,7 @@
 ## 動作環境（暫定）
 
 - macOS 26 以降 / Apple Silicon
-- iOS 版は本人所有の iPhone への Xcode 実機インストールのみ（App Store 非公開）。最低対応バージョンは Phase i0 で確定
+- iOS 版は本人所有の iPhone への Xcode 実機インストールのみ（App Store 非公開）。最低対応バージョンは Phase i0 で確定（現在のビルド設定は仮置きの iOS 26）
 
 ## 開発
 
@@ -34,7 +34,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild build/test → Release の署名設定の検査 → shellcheck → actionlint） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS は build/test、iOS Simulator は build）→ Release の署名設定の検査 → shellcheck → actionlint） |
 | `scripts/build-local.sh` | 自前ビルド（各自の Apple ID の開発用署名。秘密情報は不要） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
@@ -43,7 +43,7 @@
 
 ### ビルド
 
-macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）は xcodegen でプロジェクトを生成してビルドします。
+macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）と iOS アプリ（現在は起動画面だけのスケルトン）は、xcodegen でプロジェクトを生成してビルドします。
 手順と開発用署名（`Config/Local.xcconfig`）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
 
 自前ビルドに開発者の秘密情報は要りません。自分の Apple ID（無料の Personal Team でよい）の開発用署名でビルドします。
@@ -66,7 +66,7 @@ utter/
 ├── scripts/              # verify / format / Loop
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
 ├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterSpeechWhisperKit / UtterAI / UtterText / UtterPersistence）
-├── Apps/                 # macOS / iOS アプリ（現在は macOS のスケルトンのみ）
+├── Apps/                 # macOS / iOS アプリ（iOS は現在スケルトンのみ）
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
 ```
