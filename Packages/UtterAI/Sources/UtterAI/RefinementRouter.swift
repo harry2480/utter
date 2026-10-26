@@ -5,6 +5,7 @@ import UtterCore
 ///
 /// 同意がない・機密入力・失敗・上限時間の超過・検証失敗のときは、ローカル整形の結果に退避して発話を失わない。
 /// 失敗しても再送や別のクラウドプロバイダーへの切り替えはしない（AI-04）。
+/// 別のクラウドプロバイダーへの切り替えは、明示的な許可がある場合に `CloudFallbackRouter` が行う。
 public struct RefinementRouter: Sendable {
   /// クラウド整形の応答待ちの上限時間の既定値（暫定）
   public static let defaultTimeout: Duration = .seconds(10)
@@ -37,8 +38,10 @@ public struct RefinementRouter: Sendable {
   ///   発話を失わないよう他の失敗と同じく退避する
   ///
   /// - Parameters:
-  ///   - consent: `refine` を呼んだ時点の最新の同意状態。プロバイダーの送信先への整形の同意がなければ、プロバイダーを呼ばない（AC-06）。
-  ///     別の送信先・別の送信内容（音声・Edit の選択テキスト）への同意では送信しない
+  ///   - consent: 最新の同意状態を返す。プロバイダーの送信先への整形の同意がなければ、プロバイダーを呼ばない（AC-06）。
+  ///     別の送信先・別の送信内容（音声・Edit の選択テキスト）への同意では送信しない。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
+  ///     予約を待つ間に撤回された場合は、送信せずに予約を取り消す。
+  ///     同期的に呼ぶため、メインスレッドを待たずに返す（最新の同意状態を保持しておき、それを返すなど）
   ///   - budget: 予算上限の設定（AI-04, AI-05）。送信前に見込み費用を予約し、上限を超えるなら
   ///     プロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` で退避する。送信後は使用量で確定する。
   ///     予算上限を守る送信先（Claude など、トークン課金の API）では必ず渡す。予算の確認を省略できないよう既定値は持たせず、
@@ -54,7 +57,7 @@ public struct RefinementRouter: Sendable {
   ///   送信後にキャンセルされた場合も推定費用は台帳に記録し、`BudgetGuard` の `onRecord` に渡す
   public func refine(
     _ request: RefinementRequest,
-    consent: ConsentState,
+    consent: @Sendable () -> ConsentState,
     budget: RefinementBudget?,
     sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> RefinementOutcome {
@@ -64,7 +67,7 @@ public struct RefinementRouter: Sendable {
     if request.mode == .raw {
       return RefinementOutcome(text: request.text, source: .raw)
     }
-    guard consent.allows(.textRefinement(provider.destination)) else {
+    guard consent().allows(.textRefinement(provider.destination)) else {
       return fallback(request, reason: .consentNotGranted)
     }
     // 機密入力なら予約もしない
@@ -91,6 +94,11 @@ public struct RefinementRouter: Sendable {
         await budget.guard.cancel(reservation)
       }
       throw CancellationError()
+    }
+    // 予約を待つ間に同意が撤回されたら、送信せずに予約を取り消す
+    if let budget, let reservation, !consent().allows(.textRefinement(provider.destination)) {
+      await budget.guard.cancel(reservation)
+      return fallback(request, reason: .consentNotGranted)
     }
     // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
     if let budget, let reservation, !sensitivity().allowsCloudTransmission {

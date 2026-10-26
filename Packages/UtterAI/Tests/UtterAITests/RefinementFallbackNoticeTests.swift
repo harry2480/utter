@@ -68,7 +68,7 @@ struct RefinementFallbackNoticeTests {
     let router = try RefinementRouter(provider: stub)
     let task = Task { () async throws -> RefinementFallbackNotice? in
       try await router.refine(
-        Self.request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput }
+        Self.request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput }
       ).fallbackNotice
     }
     while await stub.callCount == 0 {
@@ -90,7 +90,7 @@ struct RefinementFallbackNoticeTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      Self.request, consent: ConsentState(), budget: nil, sensitivity: { .secureFieldInput })
+      Self.request, consent: { ConsentState() }, budget: nil, sensitivity: { .secureFieldInput })
 
     #expect(outcome.fallbackNotice == .consentNotGranted)
     #expect(await stub.callCount == 0)
