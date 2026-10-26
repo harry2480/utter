@@ -3,14 +3,14 @@
 
   /// メニューの HUD のデモ（Debug ビルドのみ）。状態機械を進めて HUD の表示を目視で確かめる
   struct HUDDemoMenuItem: View {
-    let demo: HUDDemo
+    @Environment(AppComposition.self) private var composition
 
     var body: some View {
       Button("HUD のデモ（上限到達）") {
-        demo.runLimitReached()
+        composition.hudDemo.runLimitReached()
       }
       Button("HUD のデモ（失敗）") {
-        demo.runFailure()
+        composition.hudDemo.runFailure()
       }
     }
   }

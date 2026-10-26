@@ -5,13 +5,10 @@ import SwiftUI
 ///
 /// 項目は機能のディレクトリに置き、ここには1機能1行で並べるだけにする。
 struct AppMenu: View {
-  /// アプリ全体で1つずつ持つ部品（`@Observable` ではないため引数で受け取る）
-  let composition: AppComposition
-
   var body: some View {
     // 機能ごとの項目。1機能1行で、関係する機能の近くに足す
     #if DEBUG
-      HUDDemoMenuItem(demo: composition.hudDemo)
+      HUDDemoMenuItem()
       Divider()
     #endif
     ConsentSettingsMenuItem()

@@ -7,13 +7,15 @@ import SwiftUI
 ///
 /// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、
 /// ここと `AppMenu` には1機能1行で並べるだけにする。複数の PR が同じ行を書き換えないようにするため。
+/// アプリ全体で1つずつ持つ部品（`AppComposition`）は、ここで持って `.environment` で渡す。
 @main
 struct UtterApp: App {
   @State private var composition = AppComposition()
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      AppMenu(composition: composition)
+      AppMenu()
+        .environment(composition)
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
     ConsentSettingsScene()
