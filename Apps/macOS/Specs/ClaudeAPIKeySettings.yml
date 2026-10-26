@@ -1,7 +1,0 @@
-# Claude API キーの設定（AC-12）の、アプリ（UtterMac）の設定。project.yml の include で読み込む
-targets:
-  UtterMac:
-    settings:
-      base:
-        # keychain-access-groups: Claude API キーを data protection keychain（本デバイス限定）に保存するため（AC-12）
-        CODE_SIGN_ENTITLEMENTS: Utter.entitlements
