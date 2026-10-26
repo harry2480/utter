@@ -27,6 +27,8 @@ include:
     relativePaths: false
   - path: Specs/UtterPersistence.yml
     relativePaths: false
+  - path: Specs/Entitlements.yml
+    relativePaths: false
   - path: Specs/Microphone.yml
     relativePaths: false
 targets:
