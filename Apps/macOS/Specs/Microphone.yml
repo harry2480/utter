@@ -1,4 +1,4 @@
-# 録音（Sources/Audio）が使うアプリ（UtterMac）の設定。project.yml の include で読み込む
+# マイクの権限の用途説明（PERM-01）。project.yml の include で読み込む
 targets:
   UtterMac:
     settings:

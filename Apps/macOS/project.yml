@@ -29,9 +29,9 @@ include:
     relativePaths: false
   - path: Specs/UtterPersistence.yml
     relativePaths: false
-  - path: Specs/UtterSTTWorker.yml
+  - path: Specs/Microphone.yml
     relativePaths: false
-  - path: Specs/Audio.yml
+  - path: Specs/UtterSTTWorker.yml
     relativePaths: false
   - path: Specs/UtterMacTests.yml
     relativePaths: false
@@ -53,7 +53,7 @@ targets:
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
         # 権限の用途説明と Entitlement は、その機能を実装する PR で追加する（PERM-01）
-        # マイクの用途説明は録音の Specs/Audio.yml に置く
+        # マイクの用途説明は Specs/Microphone.yml に置く
         # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
         # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
         # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
