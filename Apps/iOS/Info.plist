@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 自動生成する Info.plist（GENERATE_INFOPLIST_FILE）に足す独自のキーだけを置く。
+     UtterAppGroupIdentifier: Config/Local.xcconfig の UTTER_APP_GROUP_ID。未設定なら空で、結果はアプリ内にだけ保存する（#56） -->
+<plist version="1.0">
+<dict>
+	<key>UtterAppGroupIdentifier</key>
+	<string>$(UTTER_APP_GROUP_ID)</string>
+</dict>
+</plist>

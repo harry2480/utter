@@ -21,6 +21,13 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterSpeech:
+    path: ../../Packages/UtterSpeech
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
+  # 録音セッションの進行・割り込みの変換・結果の保存先の選択（OS の API を使わずにテストする部分）
+  UtteriOSKit:
+    path: UtteriOSKit
 targets:
   UtteriOS:
     type: application
@@ -29,6 +36,9 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterPersistence
+      - package: UtteriOSKit
     settings:
       base:
         PRODUCT_NAME: utter
@@ -40,12 +50,17 @@ targets:
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: "YES"
+        # 自動生成に足す独自のキー（App Group ID）だけを置く
+        INFOPLIST_FILE: Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: utter
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        # 権限の用途説明（マイク・音声認識など）・App Group・Entitlement は、その機能を実装する PR で追加する（PERM-01）。
-        # App Group は無料署名で使えるかの判定（#56）待ち
+        # 権限の用途説明は、この PR で使うマイクだけ（PERM-01）。音声認識（Speech）は STT エンジンを結線する PR で追加する
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。音声は保存・送信しません。
+        # App Group は無料署名で使えるかの判定（#56）待ちのため既定では使わない。Config/Local.xcconfig で
+        # UTTER_APP_GROUP_ID と UTTER_IOS_CODE_SIGN_ENTITLEMENTS（UtteriOS-AppGroup.entitlements）を設定したときだけ有効にする
+        CODE_SIGN_ENTITLEMENTS: $(UTTER_IOS_CODE_SIGN_ENTITLEMENTS)
 schemes:
   UtteriOS:
     build:

@@ -22,7 +22,8 @@ scripts/check-logging.sh
 
 echo "==> Swift Package build / test"
 shopt -s nullglob
-packages=(Packages/*/Package.swift)
+# Apps/*/*/Package.swift はアプリのうち OS の API を使わずにテストできる部分（Apps/iOS/UtteriOSKit）
+packages=(Packages/*/Package.swift Apps/*/*/Package.swift)
 if (( ${#packages[@]} == 0 )); then
   echo "Packages/ にSwift Packageがないためスキップします。"
 else

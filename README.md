@@ -43,8 +43,8 @@
 
 ### ビルド
 
-macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）と iOS アプリ（現在は起動画面だけのスケルトン）は、xcodegen でプロジェクトを生成してビルドします。
-手順と開発用署名（`Config/Local.xcconfig`）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
+macOS アプリ（メニューバー常駐。ショートカットでの録音・音声認識・整形・挿入と、設定・入力履歴の画面まで）と iOS アプリ（現在は録音と結果の確認・コピーまで。音声認識は未設定）は、xcodegen でプロジェクトを生成してビルドします。
+手順と開発用署名（`Config/Local.xcconfig`。Team ID・Bundle ID の接頭辞・iOS の App Group ID）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
 
 自前ビルドに開発者の秘密情報は要りません。自分の Apple ID（無料の Personal Team でよい）の開発用署名でビルドします。
 
@@ -66,7 +66,7 @@ utter/
 ├── scripts/              # verify / format / Loop
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
 ├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterSpeechWhisperKit / UtterAI / UtterText / UtterPersistence）
-├── Apps/                 # macOS / iOS アプリ（iOS は現在スケルトンのみ）
+├── Apps/                 # macOS / iOS アプリ（iOS は録音と結果保存まで）
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
 ```
