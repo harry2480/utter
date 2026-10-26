@@ -1,9 +1,10 @@
-/// クラウド AI へ送る整形プロンプト（TXT-04, CTX-03）。
+/// クラウド AI へ送る整形・Edit のプロンプト（TXT-04, CTX-03, AC-14）。
 ///
 /// 指示（`system`）と整形対象（`user`）を分ける。`user` には発話と辞書語だけを区切りタグで囲んで入れ、
 /// 指示は `system` にだけ書く。プロバイダー実装はこの2つをそれぞれの API の
 /// システム指示・ユーザー入力に割り当てる。
-/// 文脈を勝手に足せないよう、値は `RefinementPromptBuilder` からだけ作る。
+/// Edit では `user` に選択テキスト・音声指示・辞書語を入れる。
+/// 文脈を勝手に足せないよう、値は `RefinementPromptBuilder` と `EditPromptBuilder` からだけ作る。
 public struct RefinementPrompt: Hashable, Sendable {
   /// 整形の指示
   public let system: String
