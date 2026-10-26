@@ -36,7 +36,7 @@ Loopを使う場合は [docs/loop-engineering.md](docs/loop-engineering.md) の�
 
 ### 現在のフェーズ
 
-Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐する macOS アプリターゲット（`Apps/macOS`。XPC STT Worker `Workers/macOSSTT` を組み込む）と、iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き。録音・Local Basic 整形・共有結果の保存と救済画面まで。STT は未設定、App Group は Local.xcconfig で設定したときだけ）がある。iOS 側の STT・クラウド整形は未結線で、キーボード拡張のターゲットはまだ存在しない。
+Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐する macOS アプリターゲット（`Apps/macOS`。XPC STT Worker `Workers/macOSSTT` を組み込む）と、iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き。録音・Local Basic 整形・共有結果の保存と救済画面まで。STT は既定で未設定で Local.xcconfig で SpeechAnalyzer を選んだときだけ結線、App Group は Local.xcconfig で設定したときだけ）がある。iOS 側のクラウド整形は未結線で、キーボード拡張のターゲットはまだ存在しない。
 検証結果で要件定義11章・14章の判定基準に従って方針が変わるため、検証前の前提でコードを広げない。
 
 ### アーキテクチャ
