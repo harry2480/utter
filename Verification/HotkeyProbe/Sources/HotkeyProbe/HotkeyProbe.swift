@@ -369,7 +369,7 @@ enum HotkeyProbe {
   private static func logValidation(_ combination: KeyCombination, log: ProbeLog) {
     let registered = SystemShortcuts.load().filter(\.enabled).map(\.binding)
     let validator = ShortcutValidator(
-      capabilities: ShortcutCapabilities(supportsModifierOnly: true))
+      capabilities: ShortcutCapabilities(supportsModifierOnly: true, supportsEscapeCapture: true))
     let issues = validator.issues(
       for: combination, bindingID: "utter.record", registered: registered)
     log.write(
