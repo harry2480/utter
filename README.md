@@ -28,13 +28,14 @@
 ### 前提
 
 - Xcode 26 以降（Swift 6）
-- shellcheck・xcodegen（`brew install shellcheck xcodegen`）
+- shellcheck・xcodegen・actionlint（`brew install shellcheck xcodegen actionlint`）
 
 ### コマンド
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → shellcheck） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → Release の署名設定の検査 → shellcheck → actionlint） |
+| `scripts/build-local.sh` | 自前ビルド（各自の Apple ID の開発用署名。秘密情報は不要） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
 | `scripts/merge-pr.sh [PR]` | PR をマージコミットでマージしてブランチ削除（squash 禁止） |
@@ -44,6 +45,16 @@
 
 macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）は xcodegen でプロジェクトを生成してビルドします。
 手順と開発用署名（`Config/Local.xcconfig`）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
+
+自前ビルドに開発者の秘密情報は要りません。自分の Apple ID（無料の Personal Team でよい）の開発用署名でビルドします。
+
+```sh
+cp Config/Local.xcconfig.example Config/Local.xcconfig   # DEVELOPMENT_TEAM と UTTER_BUNDLE_ID_PREFIX を自分の値にする
+scripts/build-local.sh                                    # build/local/DerivedData/Build/Products/Release/utter.app
+```
+
+同じ Team ID・Bundle ID・証明書でビルドし続ければ、Accessibility やマイクの許可は再ビルドで外れません（[自前ビルド（固定の開発用署名）](docs/ビルド・配布規約.md#自前ビルド固定の開発用署名ac-13)）。
+公式バイナリ（Developer ID 署名・公証）は GitHub Releases で配布する予定です（署名方式は #47 で確定）。
 
 ## プロジェクト構成
 
