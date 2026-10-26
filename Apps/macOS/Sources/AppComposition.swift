@@ -63,12 +63,16 @@ final class AppComposition {
       recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init))
     self.hud = hud
     self.session = session
-    let resourceMonitoring = recognizer.flatMap {
-      STTWorkerComposition.makeResourceMonitoring(for: $0)
+    let retentionPolicy = ModelRetentionPolicy.fromSettings(settingsStore.load())
+    let resourceMonitoring = recognizer.flatMap { recognizer in
+      retentionPolicy.map {
+        STTWorkerComposition.makeResourceMonitoring(for: recognizer, policy: $0)
+      }
     }
     self.resourceMonitoring = resourceMonitoring
     resourceMonitoring?.start()
     Self.stopAtTermination(resourceMonitoring)
+    Self.followRetentionSetting(resourceMonitoring, from: retentionPolicy)
     let launchRecovery = audioQueue.map {
       LaunchAudioRecovery(
         queue: $0, recognizer: recognizer,
@@ -95,6 +99,28 @@ final class AppComposition {
       forName: NSApplication.willTerminateNotification, object: nil, queue: .main
     ) { _ in
       MainActor.assumeIsolated { monitoring.stop() }
+    }
+  }
+
+  /// 設定画面で保持モード（6章）が変わったら、STT Worker へ送る方針を送り直す。
+  ///
+  /// 設定は UserDefaults に保存されるため、その変更の通知で読み直し、方針が変わったときだけ送る
+  private static func followRetentionSetting(
+    _ monitoring: DeviceResourceMonitoring?, from initial: ModelRetentionPolicy?
+  ) {
+    guard let monitoring else { return }
+    let tracker = RetentionPolicyTracker(current: initial)
+    // アプリの終了まで登録したままにするため、戻り値（登録の解除に使う）は持たない
+    _ = NotificationCenter.default.addObserver(
+      forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+    ) { _ in
+      MainActor.assumeIsolated {
+        let settings = AppSettingsStore(defaults: .standard).load()
+        guard let policy = ModelRetentionPolicy.fromSettings(settings),
+          tracker.replace(with: policy)
+        else { return }
+        monitoring.updatePolicy(policy)
+      }
     }
   }
 
@@ -135,4 +161,21 @@ final class AppComposition {
       UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)[key] as? String
     }
   #endif
+}
+
+/// 直前に STT Worker へ送った保持の方針。同じ方針を送り直さないために持つ
+@MainActor
+private final class RetentionPolicyTracker {
+  private var current: ModelRetentionPolicy?
+
+  init(current: ModelRetentionPolicy?) {
+    self.current = current
+  }
+
+  /// 方針が変わったら置き換えて `true`。同じなら `false`
+  func replace(with policy: ModelRetentionPolicy) -> Bool {
+    guard policy != current else { return false }
+    current = policy
+    return true
+  }
 }
