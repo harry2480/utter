@@ -1,4 +1,5 @@
 # マイクの権限の用途説明（PERM-01）。project.yml の include で読み込む
+# Hardened Runtime で録音するための Entitlement（com.apple.security.device.audio-input）は UtterMac.entitlements に置く
 targets:
   UtterMac:
     settings:
