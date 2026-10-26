@@ -27,8 +27,8 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: shellcheck と xcodegen をインストール
-        run: brew install shellcheck xcodegen
+      - name: shellcheck・xcodegen・actionlint をインストール
+        run: brew install shellcheck xcodegen actionlint
 
       - run: scripts/verify.sh
 

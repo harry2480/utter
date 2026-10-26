@@ -1,0 +1,21 @@
+# 自動更新（Sparkle 2）のパッケージと、アプリ（UtterMac）からの依存・ライセンス表示・Info.plist。
+# project.yml の include で読み込む。Phase 0 #47（依存のライセンス確定）の判定待ちの先行実装で、既定で無効
+packages:
+  # 版を上げるときは docs/ライセンス・依存関係.md の表を再確認し、Package.resolved も更新する
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
+targets:
+  UtterMac:
+    sources:
+      # 同梱する依存のライセンス表示（Sparkle の MIT と EXTERNAL LICENSES。バイナリ配布時に表示を含める義務がある）。
+      # Contents/Resources/Licenses/ に入る。版を上げたら差し替える（scripts/verify.sh が取得した LICENSE と比べる）
+      - path: Licenses
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: Sparkle
+    settings:
+      base:
+        # 生成する Info.plist に足すキー（自動更新の設定。INFOPLIST_KEY_ で書けないもの）
+        INFOPLIST_FILE: Info.plist
