@@ -1,4 +1,4 @@
-# アプリ（UtterMac）のユニットテストのターゲットと、スキームのテスト設定。project.yml の include で読み込む
+# アプリのユニットテストのターゲット（UtterMacTests）と、UtterMac のスキームでのテスト実行。project.yml の include で読み込む
 targets:
   # 画面の状態（View を除く）のユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする
   UtterMacTests:
