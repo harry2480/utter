@@ -4,7 +4,7 @@ import XPC
 
 /// アプリに組み込んだ XPC STT Worker（Workers/macOSSTT）への接続を作る（4章, 13章）。
 struct XPCSTTWorkerConnector: STTWorkerConnecting {
-  /// Worker の Bundle ID。アプリの Bundle ID に `.stt-worker` を付けたもの（Apps/macOS/project.yml）
+  /// Worker の Bundle ID。アプリの Bundle ID に `.stt-worker` を付けたもの（Apps/macOS/Specs/UtterSTTWorker.yml）
   let serviceName: String
 
   init(serviceName: String) {
