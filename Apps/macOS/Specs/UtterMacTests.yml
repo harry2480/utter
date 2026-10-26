@@ -9,6 +9,8 @@ targets:
       - path: Sources/Shortcut
       - path: Sources/Insertion
       - path: Sources/Session
+      # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
+      - path: Sources/Recovery
       # Session が使う型（TaskHUDRefreshScheduler）と、表示の依頼のまとめ（HUDDisplayQueue）。パネルと画面は含めない
       - path: Sources/HUD/TaskHUDRefreshScheduler.swift
       - path: Sources/HUD/HUDDisplayQueue.swift
@@ -16,6 +18,7 @@ targets:
       - package: UtterCore
       - package: UtterSpeech
       - package: UtterAI
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
