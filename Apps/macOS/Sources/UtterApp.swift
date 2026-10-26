@@ -10,6 +10,7 @@ import UtterPersistence
 @main
 struct UtterApp: App {
   @State private var historyModels: InputHistoryModelProvider
+  @State private var consentSettings: ConsentSettingsModel
 
   init() {
     let database = AppDatabaseProvider()
@@ -17,6 +18,9 @@ struct UtterApp: App {
     let settingsStore = AppSettingsStore(defaults: .standard)
     _historyModels = State(
       initialValue: InputHistoryModelProvider(database: database, settingsStore: settingsStore))
+    _consentSettings = State(
+      initialValue: ConsentSettingsModel(
+        controller: ConsentSettingsController(store: settingsStore)))
   }
 
   var body: some Scene {
@@ -32,7 +36,16 @@ struct UtterApp: App {
     // 起動時・前回の状態の復元で開かない（履歴の本文を利用者が開くまで画面に出さない）
     .defaultLaunchBehavior(.suppressed)
     .restorationBehavior(.disabled)
+
+    Window("クラウド送信の同意", id: WindowID.consentSettings) {
+      ConsentSettingsView(model: consentSettings)
+    }
+    .windowResizability(.contentMinSize)
   }
+}
+
+enum WindowID {
+  static let consentSettings = "consentSettings"
 }
 
 /// メニューバーのメニュー
@@ -43,6 +56,11 @@ private struct MenuContent: View {
     Button("入力履歴…") {
       openWindow(id: InputHistoryWindow.id)
       // メニューバー常駐（Dock に出ない）アプリは、開いたウインドウを前面に出すため自分を前面にする
+      NSApplication.shared.activate()
+    }
+    Button("クラウド送信の同意…") {
+      openWindow(id: WindowID.consentSettings)
+      // Dock に出ないアプリのため、開いた画面を前面に出す
       NSApplication.shared.activate()
     }
     Divider()
