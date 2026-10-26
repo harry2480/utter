@@ -8,7 +8,9 @@ import UtterCore
 /// Claude API（Anthropic Messages API）による整形（AI-01, AI-06, AI-07）。
 ///
 /// - 1回の整形につき Messages API へ1回だけ送信し、再送しない
-/// - API キーとモデル名は呼び出し側から受け取り、保存しない（Keychain・設定はアプリの責務）
+/// - API キーとモデル名は呼び出し側から受け取り、保存しない（Keychain・設定はアプリの責務）。
+///   `APIKeyStore` を渡すと整形のたびに読み出すため、設定画面での保存・削除がすぐに反映される。
+///   キーが未設定か読み出せないときは送信せず `authenticationExpired` を投げる（AC-12）
 /// - 送信の同意は呼び出し側（`RefinementRouter`）で確認する（AC-06）
 /// - プロンプトは `RefinementPromptBuilder` で組み立て、発話はデータとして渡す（TXT-04, CTX-03）
 /// - Edit（AC-14）のプロンプトは `EditPromptBuilder` で組み立て、選択テキストはデータとして渡す。
@@ -55,8 +57,9 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
   }
 
   public var destination: CloudAIProviderKind { .claude }
+  public var isTokenBilled: Bool { true }
   public let configuration: Configuration
-  private let apiKey: String
+  private let credential: Credential
   private let transport: any HTTPTransport
   private let promptBuilder: RefinementPromptBuilder
   private let editPromptBuilder: EditPromptBuilder
@@ -68,7 +71,32 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
     promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder(),
     editPromptBuilder: EditPromptBuilder = EditPromptBuilder()
   ) {
-    self.apiKey = apiKey
+    self.init(
+      credential: .fixed(apiKey), configuration: configuration, transport: transport,
+      promptBuilder: promptBuilder, editPromptBuilder: editPromptBuilder)
+  }
+
+  /// 整形のたびに `apiKeyStore` からキーを読み出す。
+  public init(
+    apiKeyStore: any APIKeyStore,
+    configuration: Configuration,
+    transport: any HTTPTransport = URLSessionTransport(),
+    promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder(),
+    editPromptBuilder: EditPromptBuilder = EditPromptBuilder()
+  ) {
+    self.init(
+      credential: .store(apiKeyStore), configuration: configuration, transport: transport,
+      promptBuilder: promptBuilder, editPromptBuilder: editPromptBuilder)
+  }
+
+  private init(
+    credential: Credential,
+    configuration: Configuration,
+    transport: any HTTPTransport,
+    promptBuilder: RefinementPromptBuilder,
+    editPromptBuilder: EditPromptBuilder
+  ) {
+    self.credential = credential
     self.configuration = configuration
     self.transport = transport
     self.promptBuilder = promptBuilder
@@ -96,7 +124,7 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
     if Task.isCancelled {
       throw .cancelled
     }
-    let urlRequest = try makeURLRequest(prompt)
+    let urlRequest = try makeURLRequest(prompt, apiKey: try resolveAPIKey())
 
     let data: Data
     let response: HTTPURLResponse
@@ -114,7 +142,23 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
     return try Self.parse(data, response: response)
   }
 
-  func makeURLRequest(_ prompt: RefinementPrompt) throws(AIProviderError) -> URLRequest {
+  /// 送信に使う API キー。未設定・読み出せないときは送信しない。
+  private func resolveAPIKey() throws(AIProviderError) -> String {
+    switch credential {
+    case .fixed(let apiKey):
+      return apiKey
+    case .store(let store):
+      // 保存先の失敗の詳細（状態コード）はここでは扱わない。設定画面で確かめる
+      guard let key = try? store.load() else {
+        throw .authenticationExpired
+      }
+      return key.value
+    }
+  }
+
+  func makeURLRequest(_ prompt: RefinementPrompt, apiKey: String) throws(AIProviderError)
+    -> URLRequest
+  {
     var request = URLRequest(url: configuration.endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = configuration.requestTimeout.timeInterval
@@ -132,6 +176,14 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
     }
     request.httpBody = encoded
     return request
+  }
+}
+
+extension ClaudeProvider {
+  /// API キーの受け取り方
+  private enum Credential: Sendable {
+    case fixed(String)
+    case store(any APIKeyStore)
   }
 }
 

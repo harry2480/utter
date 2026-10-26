@@ -84,6 +84,58 @@ struct DictionaryStoreTests {
     #expect(try store.terms().isEmpty)
     #expect(try store.rules().isEmpty)
   }
+
+  @Test("TXT-03: 辞書語と置換ルールを、渡した内容と順序に置き換える")
+  func replaceAllReplacesContentsInOrder() throws {
+    try store.addTerm("old")
+    try store.saveRule(StoredReplacementRule(pattern: "old", replacement: "x"))
+
+    try store.replaceAll(
+      terms: ["utter", "Claude", "utter"],
+      rules: [
+        StoredReplacementRule(pattern: "ぎっとはぶ", replacement: "GitHub"),
+        StoredReplacementRule(pattern: "くろーど", replacement: "Claude", ignoresCase: true),
+        StoredReplacementRule(pattern: "ぎっとはぶ", replacement: "GitHub2"),
+      ])
+
+    #expect(try store.terms() == ["utter", "Claude"])
+    #expect(try store.contents().terms == store.terms())
+    #expect(try store.contents().rules == store.rules())
+    #expect(
+      try store.rules() == [
+        StoredReplacementRule(pattern: "ぎっとはぶ", replacement: "GitHub2"),
+        StoredReplacementRule(pattern: "くろーど", replacement: "Claude", ignoresCase: true),
+      ])
+  }
+
+  @Test("TXT-03: 空の辞書語・パターンを含む置き換えは何も保存しない")
+  func replaceAllRejectsEmptyValuesWithoutChanges() throws {
+    try store.addTerm("utter")
+    try store.saveRule(StoredReplacementRule(pattern: "a", replacement: "b"))
+
+    #expect(throws: DictionaryStoreError.emptySpelling) {
+      try store.replaceAll(terms: ["new", ""], rules: [])
+    }
+    #expect(throws: DictionaryStoreError.emptyPattern) {
+      try store.replaceAll(terms: [], rules: [StoredReplacementRule(pattern: "", replacement: "x")])
+    }
+    #expect(try store.terms() == ["utter"])
+    #expect(try store.rules() == [StoredReplacementRule(pattern: "a", replacement: "b")])
+  }
+
+  @Test("TXT-03: ファイルに保存した辞書を、開き直しても読み出せる")
+  func replaceAllPersistsAcrossReopen() throws {
+    let directory = TemporaryDirectory()
+    let url = directory.url.appendingPathComponent("utter.sqlite")
+    let rules = [StoredReplacementRule(pattern: "くろーど", replacement: "Claude")]
+
+    try DictionaryStore(database: UtterDatabase.open(at: url))
+      .replaceAll(terms: ["utter"], rules: rules)
+    let reopened = DictionaryStore(database: try UtterDatabase.open(at: url))
+
+    #expect(try reopened.terms() == ["utter"])
+    #expect(try reopened.rules() == rules)
+  }
 }
 
 struct MonthlyUsageStoreTests {

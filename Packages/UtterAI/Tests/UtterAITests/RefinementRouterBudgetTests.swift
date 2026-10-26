@@ -265,6 +265,42 @@ extension RefinementRouterBudgetTests {
       model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
   }
 
+  @Test("AC-06: 予約の後に同意の撤回で予約を取り消す間にキャンセルされたら、退避せずに CancellationError を投げる")
+  func cancellationTakesPrecedenceOverRevokedConsent() async throws {
+    let budgetGuard = try makeGuard(spent: 70)
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    let request = request
+    let budget = budget(budgetGuard, expected: 30)
+    let calls = Mutex(0)
+    let consent: @Sendable () -> ConsentState = {
+      let count = calls.withLock { count in
+        count += 1
+        return count
+      }
+      guard count == 1 else {
+        // 予約を待った後の確認で撤回とキャンセルを同時に起こし、取り消しの後の確認でキャンセルが見えるようにする
+        withUnsafeCurrentTask { $0?.cancel() }
+        return ConsentState()
+      }
+      return .refinementGranted()
+    }
+    let task = Task {
+      try await router.refine(
+        request, consent: consent, budget: budget, sensitivity: { .allowedInput })
+    }
+
+    await #expect(throws: CancellationError.self) {
+      try await task.value
+    }
+    #expect(calls.withLock { $0 } == 2)
+    #expect(await stub.callCount == 0)
+    #expect(await budgetGuard.ledger.spent(in: october) == 70)
+    // 予約が取り消されていれば、もう一度同じ見込み費用を予約できる
+    _ = try await budgetGuard.reserve(
+      model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
+  }
+
   @Test("AC-12: 予約できなければ、予約の後の判定はせずに予算超過として退避する")
   func reevaluatesOnlyAfterReservation() async throws {
     let budgetGuard = try makeGuard(spent: 90)

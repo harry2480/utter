@@ -115,9 +115,10 @@ public struct RefinementRoute: Sendable {
   /// 送信先ごとの予算上限の設定。`nil` はトークン課金ではない送信先（Sign in with ChatGPT など）に限る
   public let budget: RefinementBudget?
 
-  /// - Throws: Claude への送信先で予算上限の設定がない場合（AI-04）。切り替え先も含め、Claude へは必ず予算を確認して送る
+  /// - Throws: トークン課金の送信先（`AIProvider.isTokenBilled`。Claude・OpenAI API キー方式）で予算上限の設定がない場合（AI-04, AI-05）。
+  ///   切り替え先も含め、トークン課金の送信先へは必ず予算を確認して送る。Claude へは申告によらず予算を求める
   public init(provider: any AIProvider, budget: RefinementBudget?) throws(RefinementRouteError) {
-    if provider.destination == .claude, budget == nil {
+    if budget == nil, provider.isTokenBilled || provider.destination == .claude {
       throw .budgetRequired
     }
     self.provider = provider
@@ -126,6 +127,6 @@ public struct RefinementRoute: Sendable {
 }
 
 public enum RefinementRouteError: Error, Hashable, Sendable {
-  /// 予算上限を守る送信先（Claude）に予算上限の設定がない
+  /// 予算上限を守る送信先（トークン課金の送信先）に予算上限の設定がない
   case budgetRequired
 }

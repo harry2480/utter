@@ -11,8 +11,10 @@ public struct AppSettings: Hashable, Sendable {
   ///
   /// - 版 1：#119 時点の形式。それ以前の #76 の形式も版 1 を名乗るが、アプリが未リリースで利用者データが
   ///   ないため移行しない（読める項目だけ復元し、ほかは既定値になる）
-  /// - 版 2：録音の操作方式・録音ショートカット・入力モード・整形モード・モデル保持モードを追加。
-  ///   版 1 の項目はそのまま引き継ぎ（旧既定の整形用モデル名だけ新しい既定値に置き換える）、追加した項目は既定値で補う
+  /// - 版 2：録音の操作方式・録音ショートカット・入力モード・整形モード・モデル保持モード、
+  ///   サイト単位の識別の許可とサイト別のスタイル上書き（CTX-02）を追加。
+  ///   版 1 の項目はそのまま引き継ぎ（旧既定の整形用モデル名だけ新しい既定値に置き換える）、追加した項目は既定値で補う。
+  ///   サイト別の項目は版 2 のリリース前に足した。ない保存値は既定値（許可なし・上書きなし）で読むため、版を分けない
   public static let currentVersion = 2
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
@@ -62,6 +64,16 @@ public struct AppSettings: Hashable, Sendable {
     didSet { appStyleOverrides = Self.normalizedOverrides(appStyleOverrides) }
   }
 
+  /// Web サイト単位の識別を許可しているか（CTX-02）。既定は無効（明示的許可制）。
+  /// 許可を外してもサイト別の上書きは消さない（`SiteStyleResolver` と同じ）
+  public var siteIdentificationAllowed: Bool
+
+  /// サイト別のスタイル上書き（CTX-02）。キーは `SiteHost(host:)` で正規化したホスト名で、正規化できないキーは除く。
+  /// ホスト名は閲覧先を表すため、ログに出さない・クラウドへ送らない（CTX-03）
+  public var siteStyleOverrides: [String: RefinementStyle] {
+    didSet { siteStyleOverrides = Self.normalizedSiteOverrides(siteStyleOverrides) }
+  }
+
   /// 整形用 AI モデル名（AI-07）。前後の空白を除いて持ち、空になれば既定値に戻す
   public var refinementModel: String {
     didSet { refinementModel = Self.normalizedModel(refinementModel) }
@@ -101,6 +113,8 @@ public struct AppSettings: Hashable, Sendable {
     refinementMode: RefinementModeSetting = .natural,
     refinementEngine: RefinementEngine = .localBasic,
     appStyleOverrides: [String: RefinementStyle] = [:],
+    siteIdentificationAllowed: Bool = false,
+    siteStyleOverrides: [String: RefinementStyle] = [:],
     refinementModel: String = AppSettings.defaultRefinementModel,
     priceTable: PriceTableSetting = .empty,
     monthlyBudget: MonthlyBudgetSetting? = nil,
@@ -117,6 +131,8 @@ public struct AppSettings: Hashable, Sendable {
     self.refinementMode = refinementMode
     self.refinementEngine = refinementEngine
     self.appStyleOverrides = Self.normalizedOverrides(appStyleOverrides)
+    self.siteIdentificationAllowed = siteIdentificationAllowed
+    self.siteStyleOverrides = Self.normalizedSiteOverrides(siteStyleOverrides)
     self.refinementModel = Self.normalizedModel(refinementModel)
     self.priceTable = priceTable
     self.monthlyBudget = monthlyBudget
@@ -125,6 +141,15 @@ public struct AppSettings: Hashable, Sendable {
     self.modelRetentionMode = modelRetentionMode
     self.performanceRetentionAllowed = performanceRetentionAllowed
     self.excludedApps = Self.normalizedExcludedApps(excludedApps)
+  }
+
+  /// 前面アプリとサイトからスタイルを選ぶ判定器（CTX-01, CTX-02）。
+  /// アプリ別の上書きは既定の対応表に重ね、サイト別の上書きは許可があるときだけ使う
+  public var contextStyleResolver: ContextStyleResolver {
+    ContextStyleResolver(
+      app: AppStyleResolver(overrides: appStyleOverrides),
+      site: SiteStyleResolver(
+        isSiteIdentificationAllowed: siteIdentificationAllowed, overrides: siteStyleOverrides))
   }
 
   private static func normalizedMaxRecordingDuration(_ value: Double) -> Double {
@@ -136,6 +161,19 @@ public struct AppSettings: Hashable, Sendable {
     _ overrides: [String: RefinementStyle]
   ) -> [String: RefinementStyle] {
     AppStyleResolver.normalizedKeys(overrides)
+  }
+
+  /// `SiteStyleResolver` と同じ規則でキーを正規化する。正規化できないキーは除き、
+  /// 正規化後に重なるキーは Unicode スカラー順で先のキーの値を採る
+  private static func normalizedSiteOverrides(
+    _ overrides: [String: RefinementStyle]
+  ) -> [String: RefinementStyle] {
+    var result: [String: RefinementStyle] = [:]
+    for key in overrides.keys.sorted() {
+      guard let host = SiteHost(host: key), result[host.rawValue] == nil else { continue }
+      result[host.rawValue] = overrides[key]
+    }
+    return result
   }
 
   private static func normalizedModel(_ model: String) -> String {
@@ -164,6 +202,8 @@ extension AppSettings: Codable {
     case refinementMode
     case refinementEngine
     case appStyleOverrides
+    case siteIdentificationAllowed
+    case siteStyleOverrides
     case refinementModel
     case priceTable
     case monthlyBudget
@@ -212,7 +252,7 @@ extension AppSettings: Codable {
       maxRecordingDuration: value(Double.self, .maxRecordingDuration)
         ?? Self.defaultMaxRecordingDuration,
       refinementEngine: value(RefinementEngine.self, .refinementEngine) ?? .localBasic,
-      appStyleOverrides: Self.decodeOverrides(from: container),
+      appStyleOverrides: Self.decodeOverrides(from: container, forKey: .appStyleOverrides),
       refinementModel: value(String.self, .refinementModel) ?? Self.defaultRefinementModel,
       priceTable: value(PriceTableSetting.self, .priceTable) ?? .empty,
       monthlyBudget: value(MonthlyBudgetSetting.self, .monthlyBudget),
@@ -240,6 +280,12 @@ extension AppSettings: Codable {
     // 読めない許可は未許可に倒す
     performanceRetentionAllowed =
       value(Bool.self, .performanceRetentionAllowed) ?? performanceRetentionAllowed
+    // 読めないサイト単位の識別の許可は未許可に倒す（CTX-02）
+    siteIdentificationAllowed =
+      value(Bool.self, .siteIdentificationAllowed) ?? siteIdentificationAllowed
+    // 初期化子の中では didSet が呼ばれないため、ここで正規化する
+    siteStyleOverrides = Self.normalizedSiteOverrides(
+      Self.decodeOverrides(from: container, forKey: .siteStyleOverrides))
   }
 
   /// 読めない・型が合わない値は `nil`
@@ -251,11 +297,11 @@ extension AppSettings: Codable {
 
   /// 読めないスタイルの項目だけを除く
   private static func decodeOverrides(
-    from container: KeyedDecodingContainer<CodingKeys>
+    from container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
   ) -> [String: RefinementStyle] {
     let entries =
       (try? container.decodeIfPresent(
-        [String: Lossy<RefinementStyle>].self, forKey: .appStyleOverrides)) ?? nil
+        [String: Lossy<RefinementStyle>].self, forKey: key)) ?? nil
     return (entries ?? [:]).compactMapValues(\.value)
   }
 
@@ -277,6 +323,8 @@ extension AppSettings: Codable {
     try container.encode(refinementMode, forKey: .refinementMode)
     try container.encode(refinementEngine, forKey: .refinementEngine)
     try container.encode(appStyleOverrides, forKey: .appStyleOverrides)
+    try container.encode(siteIdentificationAllowed, forKey: .siteIdentificationAllowed)
+    try container.encode(siteStyleOverrides, forKey: .siteStyleOverrides)
     try container.encode(refinementModel, forKey: .refinementModel)
     try container.encode(priceTable, forKey: .priceTable)
     try container.encodeIfPresent(monthlyBudget, forKey: .monthlyBudget)
