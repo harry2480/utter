@@ -11,7 +11,9 @@ import UtterCore
 /// - API キーとモデル名は呼び出し側から受け取り、保存しない（Keychain・設定はアプリの責務）
 /// - 送信の同意は呼び出し側（`RefinementRouter`）で確認する（AC-06）
 /// - プロンプトは `RefinementPromptBuilder` で組み立て、発話はデータとして渡す（TXT-04, CTX-03）
-public struct ClaudeProvider: AIProvider {
+/// - Edit（AC-14）のプロンプトは `EditPromptBuilder` で組み立て、選択テキストはデータとして渡す。
+///   選択テキストの送信の同意は呼び出し側（`EditRouter`）で確認する
+public struct ClaudeProvider: AIProvider, AIEditProvider {
   public static let defaultEndpoint = URL(string: "https://api.anthropic.com/v1/messages")!
   static let apiVersion = "2023-06-01"
 
@@ -57,17 +59,20 @@ public struct ClaudeProvider: AIProvider {
   private let apiKey: String
   private let transport: any HTTPTransport
   private let promptBuilder: RefinementPromptBuilder
+  private let editPromptBuilder: EditPromptBuilder
 
   public init(
     apiKey: String,
     configuration: Configuration,
     transport: any HTTPTransport = URLSessionTransport(),
-    promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder()
+    promptBuilder: RefinementPromptBuilder = RefinementPromptBuilder(),
+    editPromptBuilder: EditPromptBuilder = EditPromptBuilder()
   ) {
     self.apiKey = apiKey
     self.configuration = configuration
     self.transport = transport
     self.promptBuilder = promptBuilder
+    self.editPromptBuilder = editPromptBuilder
   }
 
   public func refine(_ request: RefinementRequest) async throws(AIProviderError)
@@ -77,6 +82,17 @@ public struct ClaudeProvider: AIProvider {
     guard let prompt = promptBuilder.build(request) else {
       return RefinementResponse(text: request.text)
     }
+    return try await send(prompt)
+  }
+
+  public func edit(_ request: EditRequest) async throws(AIProviderError) -> RefinementResponse {
+    try await send(editPromptBuilder.build(request))
+  }
+
+  /// プロンプトを Messages API へ1回だけ送り、応答を解釈する。
+  private func send(_ prompt: RefinementPrompt) async throws(AIProviderError)
+    -> RefinementResponse
+  {
     if Task.isCancelled {
       throw .cancelled
     }

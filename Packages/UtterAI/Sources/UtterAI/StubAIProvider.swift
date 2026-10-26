@@ -3,15 +3,15 @@ import UtterCore
 /// テスト用の `AIProvider`（AI-06）。ネットワークに出ない。
 ///
 /// 固定応答・空応答・各エラーと、応答までの遅延を注入できる。
-/// 呼び出しごとに受け取った入力を記録する。
-public actor StubAIProvider: AIProvider {
+/// 呼び出しごとに受け取った入力を記録する。Edit（`AIEditProvider`）の呼び出しも同じ振る舞いで応答する。
+public actor StubAIProvider: AIProvider, AIEditProvider {
   /// 呼び出しに対する振る舞い。
   public enum Behavior: Hashable, Sendable {
     /// 指定したテキストを返す。空文字列で空応答になる
     case respond(String, usage: TokenUsage? = nil)
     /// 指定したエラーを投げる
     case fail(AIProviderError)
-    /// 入力テキストをそのまま返す
+    /// 入力テキストをそのまま返す。Edit では選択テキストをそのまま返す
     case echo
   }
 
@@ -21,8 +21,13 @@ public actor StubAIProvider: AIProvider {
   public private(set) var delay: Duration
   /// 受け取った入力（呼び出し順）
   public private(set) var receivedRequests: [RefinementRequest] = []
+  /// Edit で受け取った入力（呼び出し順）
+  public private(set) var receivedEditRequests: [EditRequest] = []
 
+  /// 整形の呼び出し回数
   public var callCount: Int { receivedRequests.count }
+  /// Edit の呼び出し回数
+  public var editCallCount: Int { receivedEditRequests.count }
 
   public init(
     behavior: Behavior = .respond(""), delay: Duration = .zero,
@@ -45,6 +50,15 @@ public actor StubAIProvider: AIProvider {
     -> RefinementResponse
   {
     receivedRequests.append(request)
+    return try await respond(echoing: request.text)
+  }
+
+  public func edit(_ request: EditRequest) async throws(AIProviderError) -> RefinementResponse {
+    receivedEditRequests.append(request)
+    return try await respond(echoing: request.selection)
+  }
+
+  private func respond(echoing input: String) async throws(AIProviderError) -> RefinementResponse {
     // 遅延中に振る舞いが変わっても、呼び出した時点の設定で応答する。
     let behavior = self.behavior
     let delay = self.delay
@@ -64,7 +78,7 @@ public actor StubAIProvider: AIProvider {
     case .fail(let error):
       throw error
     case .echo:
-      return RefinementResponse(text: request.text)
+      return RefinementResponse(text: input)
     }
   }
 }
