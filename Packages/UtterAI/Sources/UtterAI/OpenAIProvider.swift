@@ -93,6 +93,8 @@ public struct OpenAIProvider: AIProvider {
 
   /// OpenAI の送信先。Sign in with ChatGPT と同じ事業者へ送るため、同じ送信先として同意を確認する
   public var destination: CloudAIProviderKind { .chatGPT }
+  /// API キー方式はトークン課金のため、予算上限を必ず確認する
+  public var isTokenBilled: Bool { true }
   public let configuration: Configuration
   private let apiKey: String
   private let transport: any HTTPStreamingTransport
