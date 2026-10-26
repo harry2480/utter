@@ -21,6 +21,8 @@ packages:
     path: ../../Packages/UtterCore
   UtterAI:
     path: ../../Packages/UtterAI
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -30,6 +32,7 @@ targets:
     dependencies:
       - package: UtterCore
       - package: UtterAI
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter
