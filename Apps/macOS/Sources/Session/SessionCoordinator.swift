@@ -14,13 +14,17 @@ import UtterSpeech
 /// - 最大録音時間・音声バッファの上限・割り込みで録音を止めたら、それまでの音声を処理して HUD で知らせる（REC-05, iOS-PERF-03）
 /// - キャンセルは録音〜整形中と失敗の表示中だけ受け付ける。挿入が始まったら取り消さない（REC-01）
 /// - 処理中の開始操作は無視する（REC-06）
-/// - 発話本文はログ・HUD に出さない。挿入できなければ挿入側がコピー可能なプレビューへ退避する（AC-09）
+/// - 入力モードが Realtime Preview なら、認識の `partial` / `confirmed` を `TranscriptPreview` に溜めて HUD に出す（2.2節, AC-03）。
+///   Instant（既定）では出さない。入力欄への挿入はどちらも停止後に一括で行う
+/// - 発話本文はログに出さない。HUD に出すのは Realtime Preview の録音中・認識中の認識テキストだけ。
+///   挿入できなければ挿入側がコピー可能なプレビューへ退避する（AC-09）
+/// - 状態が変わるたびに `onPhaseChange` を呼ぶ（ショートカットの Esc の捕捉をセッション中だけ有効にするため, REC-01）
 @MainActor
 @Observable
 final class SessionCoordinator {
   /// セッションの現在の状態。メニューの表示に使う
   private(set) var phase: SessionPhase = .idle
-  /// `phase` が変わったときに呼ぶ（ショートカットの Esc 捕捉をセッション中だけ有効にするため）
+  /// 状態が変わるたびに呼ぶ。Esc のイベントタップのコールバックの中からも同期的に呼ばれるため、重い処理をしない
   @ObservationIgnored var onPhaseChange: (@MainActor () -> Void)?
 
   @ObservationIgnored private var machine: SessionStateMachine
@@ -28,6 +32,7 @@ final class SessionCoordinator {
   @ObservationIgnored private let recognizer: (any SpeechRecognizer)?
   @ObservationIgnored private let refiner: any LocalRefiner
   @ObservationIgnored private let refinementMode: RefinementMode
+  @ObservationIgnored private let showsRealtimePreview: Bool
   @ObservationIgnored private let styleResolver: AppStyleResolver
   @ObservationIgnored private let inserter: any SessionTextInserting
   @ObservationIgnored private let hud: HUDController
@@ -47,6 +52,8 @@ final class SessionCoordinator {
   ///   - recognizer: 音声認識。エンジンが選ばれていなければ `nil`（Phase 0 の判定待ちで既定のエンジンを持たない）
   ///   - refiner: ローカルの整形（AI-03）。クラウド整形はここに渡さない
   ///   - refinementMode: 整形モード（TXT-01）
+  ///   - showsRealtimePreview: 入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）。
+  ///     入力モードの設定（#130）を結線するまでは構成値で選ぶ
   ///   - styleResolver: 録音開始時の前面アプリからスタイル区分を選ぶ（CTX-01）
   ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。#132 の結線まで `nil`
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
@@ -56,6 +63,7 @@ final class SessionCoordinator {
     recognizer: (any SpeechRecognizer)?,
     refiner: any LocalRefiner = LocalBasicRefiner(),
     refinementMode: RefinementMode,
+    showsRealtimePreview: Bool = false,
     styleResolver: AppStyleResolver = AppStyleResolver(),
     inserter: any SessionTextInserting,
     hud: HUDController,
@@ -70,6 +78,7 @@ final class SessionCoordinator {
     self.recognizer = recognizer
     self.refiner = refiner
     self.refinementMode = refinementMode
+    self.showsRealtimePreview = showsRealtimePreview
     self.styleResolver = styleResolver
     self.inserter = inserter
     self.hud = hud
@@ -209,12 +218,20 @@ final class SessionCoordinator {
     // 別のセッション・順序の古いイベントは捨てる（認識の契約の SessionID と順序番号で確かめる）
     var filter = RecognitionEventFilter()
     filter.begin(session)
+    // Realtime Preview の確定済み・暫定テキスト。セッションごとに作り直し、前の発話を残さない
+    var preview = TranscriptPreview()
     for await event in recognizer.recognize(forwarding.audio, session: session) {
       guard isActive(session) else { return }
       guard filter.accept(event) == nil else { continue }
       switch event.kind {
       case .partial, .confirmed:
-        // Realtime Preview（2.2節, AC-03）は別の作業で HUD に結線する
+        if showsRealtimePreview {
+          preview.apply(event.kind)
+          hud.updateTranscript(
+            HUDTranscript(
+              confirmedText: preview.confirmedText, provisionalText: preview.provisionalText),
+            for: session)
+        }
         continue
       case .completed(let value):
         text = value
