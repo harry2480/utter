@@ -1,72 +1,23 @@
-import AppKit
 import SwiftUI
-import UtterCore
-import UtterPersistence
 
 /// macOS アプリの起動部（Composition Root）。
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 録音・ホットキー・HUD・挿入は Phase 0 の判定後に、ここで本番実装と Stub を組み立てて結線する。
+///
+/// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、
+/// ここと `AppMenu` には1機能1行で並べるだけにする。複数の PR が同じ行を書き換えないようにするため。
 @main
 struct UtterApp: App {
-  @State private var historyModels: InputHistoryModelProvider
-  @State private var consentSettings: ConsentSettingsModel
-
-  init() {
-    let database = AppDatabaseProvider()
-    // 設定の保存先。履歴への記録を結線するときも同じ保存先を読む（無効化は設定を先に書いてから削除するため）
-    let settingsStore = AppSettingsStore(defaults: .standard)
-    _historyModels = State(
-      initialValue: InputHistoryModelProvider(database: database, settingsStore: settingsStore))
-    _consentSettings = State(
-      initialValue: ConsentSettingsModel(
-        controller: ConsentSettingsController(store: settingsStore)))
-  }
+  /// アプリが使う SQLite データベース。辞書・使用量・入力履歴で1つを共有する
+  @State private var database = AppDatabaseProvider()
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      MenuContent()
+      AppMenu()
     }
-
-    // 入力履歴（7章, AC-12）。MVP 外の先行実装で、履歴は既定で無効
-    Window("入力履歴", id: InputHistoryWindow.id) {
-      InputHistoryWindow(models: historyModels)
-    }
-    .defaultSize(width: 520, height: 480)
-    // 起動時・前回の状態の復元で開かない（履歴の本文を利用者が開くまで画面に出さない）
-    .defaultLaunchBehavior(.suppressed)
-    .restorationBehavior(.disabled)
-
-    Window("クラウド送信の同意", id: WindowID.consentSettings) {
-      ConsentSettingsView(model: consentSettings)
-    }
-    .windowResizability(.contentMinSize)
-  }
-}
-
-enum WindowID {
-  static let consentSettings = "consentSettings"
-}
-
-/// メニューバーのメニュー
-private struct MenuContent: View {
-  @Environment(\.openWindow) private var openWindow
-
-  var body: some View {
-    Button("入力履歴…") {
-      openWindow(id: InputHistoryWindow.id)
-      // メニューバー常駐（Dock に出ない）アプリは、開いたウインドウを前面に出すため自分を前面にする
-      NSApplication.shared.activate()
-    }
-    Button("クラウド送信の同意…") {
-      openWindow(id: WindowID.consentSettings)
-      // Dock に出ないアプリのため、開いた画面を前面に出す
-      NSApplication.shared.activate()
-    }
-    Divider()
-    Button("utter を終了") {
-      NSApplication.shared.terminate(nil)
-    }
-    .keyboardShortcut("q")
+    // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
+    InputHistoryScene(database: database)
+    ConsentSettingsScene()
   }
 }
