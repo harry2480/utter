@@ -22,6 +22,8 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
   # 自動更新（Sparkle 2）。Phase 0 #47（依存のライセンス確定）の判定待ちの先行実装で、既定で無効。
   # 版を上げるときは docs/ライセンス・依存関係.md の表を再確認し、Package.resolved も更新する
   Sparkle:
@@ -40,6 +42,7 @@ targets:
         buildPhase: resources
     dependencies:
       - package: UtterCore
+      - package: UtterPersistence
       - package: Sparkle
     settings:
       base:
