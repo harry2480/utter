@@ -15,32 +15,49 @@ struct UtterApp: App {
     openUsageStore: {
       MonthlyUsageStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
     })
+  @State private var consentSettings = ConsentSettingsModel(
+    controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      SettingsMenuButton()
-      Divider()
-      Button("utter を終了") {
-        NSApplication.shared.terminate(nil)
-      }
-      .keyboardShortcut("q")
+      MenuContent()
     }
     // 設定画面は1つの Settings シーンにまとめ、項目はタブで分ける（API キーなどの画面もタブとして足す）
     Settings {
       SettingsView(model: settings)
     }
+    Window("クラウド送信の同意", id: WindowID.consentSettings) {
+      ConsentSettingsView(model: consentSettings)
+    }
+    .windowResizability(.contentMinSize)
   }
 }
 
-/// 設定画面を開くメニュー項目。Dock に出ないアプリでは設定画面が前面に来ないため、先にアプリを前面にする
-private struct SettingsMenuButton: View {
+enum WindowID {
+  static let consentSettings = "consentSettings"
+}
+
+/// メニューバーのメニュー
+private struct MenuContent: View {
+  @Environment(\.openWindow) private var openWindow
   @Environment(\.openSettings) private var openSettings
 
   var body: some View {
+    // Dock に出ないアプリでは設定画面が前面に来ないため、先にアプリを前面にする
     Button("設定…") {
       NSApplication.shared.activate()
       openSettings()
     }
     .keyboardShortcut(",")
+    Button("クラウド送信の同意…") {
+      openWindow(id: WindowID.consentSettings)
+      // Dock に出ないアプリのため、開いた画面を前面に出す
+      NSApplication.shared.activate()
+    }
+    Divider()
+    Button("utter を終了") {
+      NSApplication.shared.terminate(nil)
+    }
+    .keyboardShortcut("q")
   }
 }
