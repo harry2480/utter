@@ -80,7 +80,7 @@ struct LocalBasicRefinerTests {
     let request = RefinementRequest(text: "えーと了解です", mode: .natural)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == "了解です。")
     #expect(outcome.source == .localFallback(.providerFailed(.timeout)))
