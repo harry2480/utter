@@ -1,106 +1,39 @@
-# Phase 追跡: PR マージ完成度
+# Phase 追跡
 
-各 Phase の実装完了判定基準：**前フェーズの全 Issue が Codex 再レビュー・修正・マージ完了**
+各 Phase の未実装の項目と対応する PR は、GitHub の追跡 Issue のチェックリストで管理する。この文書は入口と現状の要約だけを置く。
+使えない・既定で無効な項目は [既知の制限](既知の制限.md) にまとめる。
 
-## Phase 0 （現在）
+## 追跡 Issue
 
-### ✅ 完全完了（マージ可）
-- Issue #45（AppSettings）- PR #76
-- Issue #44（DictionaryStore）- PR #79
-- Issue #55（SharedResult）- PR #78
+| Phase | Issue | 状態 |
+|---|---|---|
+| Phase 1（録音・HUD・STT Worker・挿入） | #57 | 実装済み（閉じた）。既定の STT エンジンなどは Phase 0 の判定待ち |
+| Phase 2（Claude / ChatGPT・辞書・文体・費用と同意） | #58 | ChatGPT 連携が #50 の判定待ち |
+| Phase 3（最適化・障害復旧・署名と公証・配布） | #59 | 計測に基づく最適化・実際の配布・挿入互換性表の記入が残る |
+| Phase 4（Edit Mode・クラウド STT・履歴・Realtime Direct。MVP 外） | #60 | Edit Mode・Realtime Direct のセッションへの結線、クラウド STT が残る |
+| Phase i1（iOS 本体アプリ） | #61 | 実装済み（閉じた） |
+| Phase i2（カスタムキーボード） | #62 | 実装済み（閉じた） |
+| Phase i3（互換性・低メモリ・電力・実機継続利用） | #63 | 実機での検証待ち |
 
-### ⏳ 修正待ち
-- Issue #40（AudioBuffer）- PR #77：Codex 再レビュー待ち
+## Phase 0 / i0 の検証 Issue（人の作業）
 
-### ⏳ 検証待ち
-- Issue #41, #47-#63：検証ドキュメント完成・実機テスト待ち
+実機・権限ダイアログ・署名が要るため `loop:human` で扱う（[loop-engineering.md](loop-engineering.md)）。
 
----
+| 検証 | Issue | 手順 |
+|---|---|---|
+| Accessibility 挿入の成功率・Undo・クリップボード復元 | #41 | [Phase0検証-Accessibility挿入成功率.md](Phase0検証-Accessibility挿入成功率.md) |
+| ライセンス・依存関係・モデル配布・署名方式 | #47 | [ライセンス・依存関係.md](ライセンス・依存関係.md) |
+| SpeechAnalyzer の日本語・部分認識 | #48 | [Phase0検証-SpeechAnalyzer日本語認識.md](Phase0検証-SpeechAnalyzer日本語認識.md) |
+| WhisperKit のモデル選定・メモリ・安定性 | #49 | [Phase0検証-WhisperKitモデル選定.md](Phase0検証-WhisperKitモデル選定.md) |
+| Sign in with ChatGPT の登録条件 | #50 | [Phase0検証-ChatGPT登録条件.md](Phase0検証-ChatGPT登録条件.md) |
+| 修飾キー単独ショートカットと Esc 捕捉の権限 | #51 | [Phase0検証-修飾キー権限.md](Phase0検証-修飾キー権限.md) |
+| 速度・待機メモリ・バッテリー目標 | #52 | [Phase0検証-性能目標.md](Phase0検証-性能目標.md) |
+| キーボードから本体アプリへの導線と復帰 | #53 | [Phasei0検証-キーボード導線.md](Phasei0検証-キーボード導線.md) |
+| iOS の STT・メモリ・発熱と最低対応バージョン | #54 | [Phasei0検証-iOSSTT.md](Phasei0検証-iOSSTT.md) |
+| App Group・個人署名・キーボードのフルアクセス | #56 | [Phasei0検証-AppGroup権限.md](Phasei0検証-AppGroup権限.md) |
 
-## Phase 1 ブロッキング条件
+## マージの決まり
 
-**Phase 1 着手前に以下が必須：**
-- [ ] Phase 0 の全 PR (#76-#89) がマージ完了
-- [ ] Issue #40 が Codex 再レビュー・修正完了
-- [ ] Issue #41 が実機検証完了
-
-### Phase 1 PR 一覧（予定）
-- 録音・HUD・Instant/Realtime Preview（REC-01, REC-02, REC-06）
-- STT Worker（macOS）
-- 安全な挿入（INS-01, INS-02, INS-03, INS-04, INS-05, INS-07）
-- 設定 UI（ホットキー、スタイル選択）
-
----
-
-## Phase 2 ブロッキング条件
-
-**Phase 2 着手前：**
-- [ ] Phase 1 の全 PR がマージ完了
-- [ ] Accessibility 検証完了（#41）
-
-### Phase 2 PR 一覧（予定）
-- Claude / ChatGPT プロバイダー実装（AI-01, AI-06）
-- 辞書機能（TXT-03）
-- アプリ別文体・費用・同意管理（CTX-01, CTX-02, AI-05, AC-06）
-
----
-
-## Phase 3 ブロッキング条件
-
-**Phase 3 着手前：**
-- [ ] Phase 2 の全 PR がマージ完了
-
-### Phase 3 PR 一覧（予定）
-- 最適化（メモリ、バッテリー、レイテンシ）
-- 障害復旧（キャッシュ、Keychain、エラーハンドリング）
-- OSS ビルド・署名・公証
-
----
-
-## Phase 4 ブロッキング条件
-
-**Phase 4 着手前：**
-- [ ] Phase 3 の全 PR がマージ完了
-
-### Phase 4 PR 一覧（予定）
-- Edit Mode
-- クラウド STT（OpenAI Whisper）
-- 履歴機能
-- Realtime Direct（MVP 外）
-
----
-
-## iOS Phase（並行）
-
-### i0（技術検証）
-- [ ] App Group・キーボード権限・署名確定
-
-### i1（基本実装）
-- [ ] 本体アプリ（録音・STT・整形・結果保存）
-- [ ] キーボード拡張
-
-### i2（共有結果・UX）
-- [ ] IPC ハンドシェイク
-- [ ] キーボード → 本体導線
-
-### i3（互換性・最適化）
-手順: [Phasei3検証-実機継続利用.md](Phasei3検証-実機継続利用.md)（#63）
-
-- [ ] メモリ・電力測定
-- [ ] iOS バージョン互換性確認
-
----
-
-## マージチェックリスト（各 PR）
-
-### 対象
-- [ ] コード完成度（レビュー完了）
-- [ ] Codex レビュー完了・修正反映
-- [ ] テスト実行（100% パス）
-- [ ] CI パス（lint, build, test）
-- [ ] ドキュメント更新
-- [ ] PR 説明が要件定義を満たしている
-
-### マージ前の最終確認
-- [ ] 前フェーズの全 PR が既にマージ済み
-- [ ] ブロッキング Issue なし
+- マージはマージコミットに限り、squash しない（`scripts/merge-pr.sh`）
+- `scripts/verify.sh` と CI が通っていること
+- 本文・音声・秘密情報をログに出さず、同意のないクラウド送信経路を足さないこと（CLAUDE.md「プライバシー」）
