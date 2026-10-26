@@ -1,4 +1,5 @@
 import UtterCore
+import UtterText
 
 /// 自動挿入せず、コピー可能なプレビューへ退避した理由（INS-01〜03, AC-09）。
 enum InsertionPreviewCause: Hashable, Sendable {
@@ -12,6 +13,9 @@ enum InsertionPreviewCause: Hashable, Sendable {
   case insertionInProgress
   /// 挿入のタスクが取り消された。次の経路は試さず、文字列を失わないよう退避する
   case cancelled
+  /// Realtime Direct の逐次の書き込みを途中でやめた（範囲外の編集・フォーカスの移動など, AC-15）。
+  /// `wroteText` はそれまでに入力欄へ書き込んだテキストがあるか（あれば入力欄に残っている）
+  case realtimeDirectStopped(RealtimeDirectStopReason, wroteText: Bool)
   /// アプリの異常終了後の起動時に、一時音声から復旧した（7章, AC-10）。元の入力欄は変わっている可能性が高いため、挿入を試さない
   case recoveredAfterRestart
 }

@@ -11,6 +11,9 @@ struct AppMenu: View {
     Divider()
     SessionMenuItems()
     Divider()
+    #if DEBUG
+      RealtimeDirectDebugMenuItem()
+    #endif
     PermissionOnboardingMenuItem()
     ConsentSettingsMenuItem()
     Divider()

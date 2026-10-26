@@ -11,6 +11,10 @@ import SwiftUI
 @main
 struct UtterApp: App {
   @State private var composition = AppComposition()
+  #if DEBUG
+    /// Realtime Direct（AC-15, 実験機能）の実機確認用。Debug ビルドにだけ含める
+    @State private var realtimeDirectDebug = RealtimeDirectDebugRunner()
+  #endif
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
@@ -18,6 +22,9 @@ struct UtterApp: App {
         .environment(composition)
         // 録音ショートカットの登録（`AppComposition` が持つ）。メニューの表示に使う
         .environment(composition.shortcuts)
+        #if DEBUG
+          .environment(realtimeDirectDebug)
+        #endif
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
     PermissionOnboardingScene()

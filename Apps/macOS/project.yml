@@ -25,6 +25,8 @@ include:
     relativePaths: false
   - path: Specs/UtterSpeech.yml
     relativePaths: false
+  - path: Specs/UtterText.yml
+    relativePaths: false
   - path: Specs/UtterAI.yml
     relativePaths: false
   - path: Specs/UtterPersistence.yml

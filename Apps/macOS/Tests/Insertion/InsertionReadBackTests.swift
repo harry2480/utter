@@ -136,6 +136,8 @@ struct InsertionReadBackTests {
       InsertionPreviewCause.plan(.targetUnknown), .plan(.targetMissing), .plan(.targetChanged),
       .plan(.allRoutesFailed), .plan(.noAvailableRoute), .plan(.multilineInTerminal),
       .sensitiveInput([.secureField]), .accessibilityNotTrusted, .insertionInProgress, .cancelled,
+      .realtimeDirectStopped(.fieldChanged, wroteText: true),
+      .realtimeDirectStopped(.writeFailed, wroteText: false),
       .recoveredAfterRestart,
     ])
   func previewMessages(_ cause: InsertionPreviewCause) {
