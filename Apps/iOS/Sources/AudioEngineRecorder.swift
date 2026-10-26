@@ -11,7 +11,7 @@ import UtteriOSKit
 /// 録音を止めるかは割り込みの通知（`RecordingSignalObserver`）と `RecordingInterruptionPolicy` が決め、
 /// 作り直せなかったときだけ `onFailure` で知らせる。
 @MainActor
-final class AudioEngineRecorder: AudioRecorder {
+final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
   enum RecorderError: Error {
     /// 入力の形式を取得できない（マイクがない・使えない）
     case microphoneUnavailable
