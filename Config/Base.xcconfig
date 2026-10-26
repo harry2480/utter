@@ -3,14 +3,20 @@
 // （docs/ビルド・配布規約.md「署名と識別子」）。雛形は Local.xcconfig.example。
 // 既定値は署名なしビルド（scripts/verify.sh・CI）用のダミーで、このままでも署名なしならビルドできる。
 
-// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios になる
+// Bundle ID の接頭辞。macOS アプリは <接頭辞>.mac、iOS アプリは <接頭辞>.ios、キーボード拡張は <接頭辞>.ios.keyboard になる
 UTTER_BUNDLE_ID_PREFIX = invalid.utter
 DEVELOPMENT_TEAM =
 
-// iOS の App Group（#56 の判定待ち）。既定は未設定で、共有結果は iOS アプリの中にだけ保存し、キーボードとは共有しない。
-// 使うときは Local.xcconfig で両方を設定する（ID だけでは Entitlement が付かず、アプリ内保存に戻る）
+// App Group（Phase i0 #56 の判定待ち。既定は無効）。Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES と
+// UTTER_APP_GROUP_ID を設定したときだけ、本体アプリとキーボード拡張に App Group の Entitlement を付け、
+// 本体アプリは共有結果と本体アプリの状態を書き、拡張はフルアクセスを要求（RequestsOpenAccess）して読む。
+// 無効なら共有結果は iOS アプリの中にだけ保存し、拡張は「本体アプリでの共有が未設定」と表示する
+UTTER_APP_GROUP_ENABLED = NO
 UTTER_APP_GROUP_ID =
-UTTER_IOS_CODE_SIGN_ENTITLEMENTS =
+
+// キーボードから本体アプリを開く自アプリの URL スキーム（Phase i0 #53 の判定待ち。既定は空で無効）。
+// 空なら拡張は手動で切り替える案内だけを出す。本体アプリ側のスキームの登録は #53 の成立後に追加する
+UTTER_HOST_APP_URL_SCHEME =
 
 // iOS の STT エンジン（#54 の判定待ち）。既定は未設定で、録音はするが文字にはしない。
 // SpeechAnalyzer を試すときだけ Local.xcconfig で speechAnalyzer にする

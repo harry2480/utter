@@ -12,6 +12,21 @@ public enum SharedResultInsertionConfirmation: Hashable, Sendable {
   case confirmed
   /// 挿入を試みたが、入力欄に入ったかを確認できない
   case unknown
+
+  /// 挿入の前後でカーソルより前の文脈（`UITextDocumentProxy.documentContextBeforeInput`）を比べて、
+  /// 挿入した本文が入力欄に入ったかを判定する（iOS-IPC-03）。
+  ///
+  /// 文脈は入力欄によって一部しか取れない（現在の行だけ、末尾の数十文字だけなど）ため、
+  /// 挿入後の文脈が本文で終わるか、本文が挿入後の文脈で終わる（文脈が本文の末尾だけ）ときに確認できたとみなす。
+  /// 文脈が取れない・空・挿入の前後で変わらないときは確認できない。本文・文脈はこの判定にだけ使い、保存・記録しない。
+  public init(insertedText text: String, contextBefore: String?, contextAfter: String?) {
+    guard let contextAfter, !contextAfter.isEmpty, !text.isEmpty, contextAfter != contextBefore
+    else {
+      self = .unknown
+      return
+    }
+    self = contextAfter.hasSuffix(text) || text.hasSuffix(contextAfter) ? .confirmed : .unknown
+  }
 }
 
 /// 挿入前に画面へ出す内容（iOS-05, iAC-04）
@@ -79,6 +94,36 @@ public actor SharedResultInsertionCoordinator {
     self.store = store
     self.inserter = inserter
     self.now = now
+  }
+
+  /// キーボードの表示時に、不要な結果を整理してから、待つセッションを決める（iOS-04, iOS-06, iOS-IPC-05）。
+  ///
+  /// キーボードは本体アプリで録音したセッションを知らない（本体アプリへの移動・復帰は手動になりうる）ため、
+  /// 保存されている結果のうち作成時刻が最も新しいものを待つ。挿入済みの結果と、壊れた・読めない結果は除く。
+  /// 作成時刻が現在より後の結果（端末の時刻が戻った後）は、後から作られた正しい結果を隠さないよう除く。
+  /// 挿入先の確認は、プレビューと明示的な挿入操作で利用者が行う（iOS-06）。
+  /// - Returns: 待つセッション。結果がなければ `nil`
+  /// - Throws: 共有結果の一覧を読めない（共有コンテナに入れない）とき
+  public func latestSessionID() async throws -> SessionID? {
+    // 整理に失敗しても、残った結果は挿入時の判定で弾かれる。一覧を読めないことは下の一覧で投げる
+    let now = now()
+    _ = try? await store.cleanUp(at: now)
+    var latest: SharedResult?
+    for sessionID in try await store.storedSessionIDs() {
+      guard let result = try? await store.load(sessionID: sessionID), result.consumedAt == nil,
+        result.timeValidity(at: now) != .invalidTimestamp
+      else {
+        continue
+      }
+      // 作成時刻が同じなら、一覧の順序に左右されないようセッションIDの順で決める
+      if latest.map({
+        (result.createdAt, result.sessionID.rawValue.uuidString)
+          > ($0.createdAt, $0.sessionID.rawValue.uuidString)
+      }) ?? true {
+        latest = result
+      }
+    }
+    return latest?.sessionID
   }
 
   /// 待っているセッションの結果を、挿入前に表示する内容にする。期限切れの結果はこのとき削除する

@@ -2,9 +2,10 @@ import Foundation
 
 /// 録音・認識・整形に関わる本体アプリの状態（iAC-07）。本体アプリが OS の状態から作る。
 ///
-/// 秘密情報・本文は持たない。キーボード拡張では観測時刻から鮮度を判定し、古ければ使わない。
+/// 秘密情報・本文は持たない。本体アプリが App Group に残し（UtterPersistence の `HostAppStatusStore`）、
+/// キーボード拡張では観測時刻から鮮度を判定し、古ければ使わない。
 /// ネットワークは古くなりやすいため持たず、拡張側で観測する（`KeyboardEnvironment.network`）。
-public struct HostAppStatus: Hashable, Sendable {
+public struct HostAppStatus: Hashable, Sendable, Codable {
   /// 本体アプリがこの状態を観測した時刻。端末の再起動をまたいで判定するため実時刻で持つ
   public var observedAt: Date
   /// 拒否されている権限
@@ -34,15 +35,18 @@ public struct HostAppStatus: Hashable, Sendable {
 }
 
 /// 本体アプリが録音・認識に使う権限。
-public enum HostAppPermission: Hashable, Sendable, CaseIterable {
+public enum HostAppPermission: Hashable, Sendable, CaseIterable, Codable {
   case microphone
   /// 音声認識（使う STT が要求する場合）
   case speechRecognition
 }
 
 /// 端末内 STT モデルの取得状況。
-public enum SpeechModelAvailability: Hashable, Sendable {
+public enum SpeechModelAvailability: Hashable, Sendable, Codable {
   case ready
   /// 未取得（取得中・取得失敗を含む）。取得するまで認識できない
   case notDownloaded
+  /// 取得するモデルがない（STT エンジンが未設定、またはこの端末・言語では使えない）。
+  /// 本体アプリで取得しても解決しないため、モデルの案内を出さない
+  case notApplicable
 }

@@ -12,6 +12,8 @@ struct RecordingView: View {
   let speechEngine: SpeechEngineSelection
   /// 取得できるモデルがあるエンジンのときだけ
   let speechModel: SpeechModelSettingsModel?
+  /// キーボード拡張に本体アプリの状態を伝える。App Group を設定したときだけ（#56）
+  let hostAppStatus: HostAppStatusPublisher?
   @Environment(\.scenePhase) private var scenePhase
   @State private var isShowingSettings = false
 
@@ -38,11 +40,21 @@ struct RecordingView: View {
         consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings,
         speechEngine: speechEngine, speechModel: speechModel)
     }
-    .task { await model.prepareResults() }
+    .task {
+      await model.prepareResults()
+      // 起動時に本体アプリの状態を書く（iAC-07）
+      await hostAppStatus?.publish()
+    }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active {
         Task { await model.prepareResults() }
+        // 設定アプリで権限を変えて戻ったときを含め、前面に来るたびに書き直す（iAC-07）
+        Task { await hostAppStatus?.publish() }
       }
+    }
+    .onChange(of: speechModel?.availability) {
+      // モデルの取得状態が変わったら書き直す
+      Task { await hostAppStatus?.publish() }
     }
     .onChange(of: model.isRecording) { _, isRecording in
       // 話している間に自動ロックで録音が止まらないようにする。録音していないときは元に戻す
@@ -53,7 +65,11 @@ struct RecordingView: View {
   private var recordingSection: some View {
     Section {
       Button {
-        Task { await model.toggleRecording() }
+        Task {
+          await model.toggleRecording()
+          // 録音の開始で権限を求めた後の状態を書き直す
+          await hostAppStatus?.publish()
+        }
       } label: {
         Label(
           model.isRecording ? "録音を止める" : "録音を始める",
