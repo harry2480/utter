@@ -1,0 +1,8 @@
+# UtterText パッケージと、アプリ（UtterMac）からの依存。project.yml の include で読み込む
+packages:
+  UtterText:
+    path: ../../Packages/UtterText
+targets:
+  UtterMac:
+    dependencies:
+      - package: UtterText

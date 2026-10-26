@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import UtterAI
 import UtterCore
 import UtterPersistence
@@ -10,6 +11,7 @@ import UtterSpeech
 /// 入力履歴を `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
 /// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
 @MainActor
+@Observable
 final class AppComposition {
   let hud: HUDController
   let session: SessionCoordinator

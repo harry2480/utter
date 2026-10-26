@@ -1,121 +1,34 @@
-import AppKit
 import SwiftUI
-import UtterAI
-import UtterCore
-import UtterPersistence
 
 /// macOS アプリの起動部（Composition Root）。
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
 /// 整形（`SessionRefinementPipeline`）は API キーの画面と同じ `claudeAPIKeyStore`、入力履歴の画面と同じ `database` を使う（AC-12）。
+///
+/// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、
+/// ここと `AppMenu` には1機能1行で並べるだけにする。複数の PR が同じ行を書き換えないようにするため。
+/// アプリ全体で1つずつ持つ部品（`AppComposition`）は、ここで持って `.environment` で渡す。
 @main
 struct UtterApp: App {
   private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
+  /// アプリが使う SQLite データベース。辞書・使用量・入力履歴で1つを共有する
   private static let database = AppDatabaseProvider()
 
   @State private var composition = AppComposition(
     claudeAPIKeyStore: Self.claudeAPIKeyStore, database: Self.database)
-  @State private var claudeAPIKeySettings = APIKeySettingsModel(store: Self.claudeAPIKeyStore)
-  @State private var consentSettings = ConsentSettingsModel(
-    controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
-  @State private var dictionaryEditor = DictionaryEditorModel {
-    DictionaryStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
-  }
-  @State private var historyModels = InputHistoryModelProvider(
-    database: Self.database,
-    // 設定の保存先。履歴への記録も同じ保存先を読む（無効化は設定を先に書いてから削除するため）
-    settingsStore: AppSettingsStore(defaults: .standard))
-  @State private var settings = SettingsModel(
-    store: AppSettingsStore(defaults: .standard),
-    openUsageStore: {
-      MonthlyUsageStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
-    })
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      let session = composition.session
-      Text(composition.shortcuts.statusText)
-      Divider()
-      Button(Self.toggleTitle(session.phase)) {
-        session.toggle()
-      }
-      .disabled(!Self.canToggle(session.phase))
-      // Esc の捕捉（#149）が入るまで、キャンセルはメニューから行う（REC-01）
-      Button("キャンセル") {
-        session.cancel()
-      }
-      .disabled(!session.canCancel)
-      Divider()
-      SettingsMenuButton()
-      WindowMenuButton(title: "クラウド送信の同意…", id: WindowID.consentSettings)
-      WindowMenuButton(title: "辞書を編集…", id: WindowID.dictionary)
-      WindowMenuButton(title: "入力履歴…", id: InputHistoryWindow.id)
-      Divider()
-      Button("utter を終了") {
-        NSApplication.shared.terminate(nil)
-      }
-      .keyboardShortcut("q")
+      AppMenu()
+        .environment(composition)
+        // 録音ショートカットの登録（`AppComposition` が持つ）。メニューの表示に使う
+        .environment(composition.shortcuts)
     }
-    // 設定画面は1つの Settings シーンにまとめ、項目はタブで分ける（API キーなどの画面もタブとして足す）
-    Settings {
-      SettingsView(model: settings, apiKeyModel: claudeAPIKeySettings)
-    }
-    Window("クラウド送信の同意", id: WindowID.consentSettings) {
-      ConsentSettingsView(model: consentSettings)
-    }
-    .windowResizability(.contentMinSize)
-    Window("辞書", id: WindowID.dictionary) {
-      DictionaryEditorView(model: dictionaryEditor)
-    }
-    // 入力履歴（7章, AC-12）。MVP 外の先行実装で、履歴は既定で無効
-    Window("入力履歴", id: InputHistoryWindow.id) {
-      InputHistoryWindow(models: historyModels)
-    }
-    .defaultSize(width: 520, height: 480)
-    // 起動時・前回の状態の復元で開かない（履歴の本文を利用者が開くまで画面に出さない）
-    .defaultLaunchBehavior(.suppressed)
-    .restorationBehavior(.disabled)
-  }
-
-  private static func toggleTitle(_ phase: SessionPhase) -> String {
-    phase == .recording ? "録音を停止" : "録音を開始"
-  }
-
-  /// 処理中の開始操作は受け付けない（REC-06）
-  private static func canToggle(_ phase: SessionPhase) -> Bool {
-    phase == .idle || phase == .recording
-  }
-}
-
-/// 設定画面を開くメニュー項目。Dock に出ないアプリでは設定画面が前面に来ないため、先にアプリを前面にする
-private struct SettingsMenuButton: View {
-  @Environment(\.openSettings) private var openSettings
-
-  var body: some View {
-    Button("設定…") {
-      NSApplication.shared.activate()
-      openSettings()
-    }
-    .keyboardShortcut(",")
-  }
-}
-
-enum WindowID {
-  static let consentSettings = "consentSettings"
-  static let dictionary = "dictionary"
-}
-
-/// 別のウインドウを開くメニュー項目。Dock に出ないアプリのため、前面に出さないとウインドウがほかのアプリの後ろに開く
-private struct WindowMenuButton: View {
-  let title: String
-  let id: String
-  @Environment(\.openWindow) private var openWindow
-
-  var body: some View {
-    Button(title) {
-      openWindow(id: id)
-      NSApplication.shared.activate()
-    }
+    // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
+    SettingsScene(claudeAPIKeyStore: Self.claudeAPIKeyStore)
+    DictionaryEditorScene()
+    InputHistoryScene(database: Self.database)
+    ConsentSettingsScene()
   }
 }

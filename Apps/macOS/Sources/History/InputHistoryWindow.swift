@@ -7,8 +7,6 @@ import UtterPersistence
 ///
 /// 開くたびに設定と履歴を読み込み、閉じたら一覧の本文を手放す。状態はアプリ全体で1つを使い回す（`InputHistoryModelProvider`）。
 struct InputHistoryWindow: View {
-  static let id = "inputHistory"
-
   let models: InputHistoryModelProvider
   @State private var model: InputHistoryScreenModel?
   @State private var openFailed = false

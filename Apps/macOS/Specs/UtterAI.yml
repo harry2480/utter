@@ -1,0 +1,8 @@
+# UtterAI パッケージと、アプリ（UtterMac）からの依存。project.yml の include で読み込む
+packages:
+  UtterAI:
+    path: ../../Packages/UtterAI
+targets:
+  UtterMac:
+    dependencies:
+      - package: UtterAI
