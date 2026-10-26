@@ -13,7 +13,7 @@ macOS ネイティブの音声入力アプリ（OSS）と、共通基盤を使�
 ### コマンド一覧
 
 ```sh
-scripts/verify.sh        # swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → shellcheck
+scripts/verify.sh        # swift format lint → Swift Package build/test → アプリの署名なし xcodebuild build/test → shellcheck
 scripts/format.sh        # swift format で自動整形
 scripts/coverage.sh      # カバレッジ計測（coverage/*.lcov、CI で Codecov へ送信）
 scripts/merge-pr.sh [PR] # PR をマージコミットでマージしてブランチ削除（squash 禁止）
