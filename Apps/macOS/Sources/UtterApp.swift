@@ -16,6 +16,8 @@ struct UtterApp: App {
     MenuBarExtra("utter", systemImage: "mic") {
       AppMenu()
         .environment(composition)
+        // 録音ショートカットの登録（`AppComposition` が持つ）。メニューの表示に使う
+        .environment(composition.shortcuts)
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
     ConsentSettingsScene()
