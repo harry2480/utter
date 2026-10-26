@@ -1,0 +1,8 @@
+# アプリ（UtterMac）の Entitlement のファイルの指定（PERM-01）。project.yml の include で読み込む
+# Entitlement は Apps/macOS/UtterMac.entitlements の1ファイルにまとめ、機能ごとに要るキーをそこへ足す。
+# 機能ごとに別のファイルを指定すると、後から読んだ指定だけが使われ、ほかの Entitlement が黙って失われるため
+targets:
+  UtterMac:
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: UtterMac.entitlements
