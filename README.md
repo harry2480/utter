@@ -65,7 +65,7 @@ utter/
 ├── docs/                 # 要件定義・設計規約・検証結果
 ├── scripts/              # verify / format / Loop
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
-├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
+├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterSpeechWhisperKit / UtterAI / UtterText / UtterPersistence）
 ├── Apps/                 # macOS / iOS アプリ（現在は macOS のスケルトンのみ）
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
