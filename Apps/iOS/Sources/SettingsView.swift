@@ -2,8 +2,9 @@ import SwiftUI
 import UtterAI
 import UtteriOSKit
 
-/// 設定の入口（iOS-10）。音声認識・クラウド送信の同意・Claude API キーの画面へ移る。
+/// 設定の入口（iOS-10）。音声認識・整形と予算・クラウド送信の同意・Claude API キーの画面へ移る。
 struct SettingsView: View {
+  let refinementSettings: RefinementSettingsModel
   let consentSettings: ConsentSettingsModel
   let claudeAPIKeySettings: APIKeySettingsModel
   let speechEngine: SpeechEngineSelection
@@ -20,6 +21,9 @@ struct SettingsView: View {
           }
         }
         Section {
+          NavigationLink("整形と予算") {
+            RefinementSettingsView(model: refinementSettings)
+          }
           NavigationLink("クラウド送信の同意") {
             ConsentSettingsView(model: consentSettings)
           }

@@ -2,7 +2,8 @@
 import PackageDescription
 
 // iOS 本体アプリのうち、OS の API を使わずにテストできる部分（録音セッションの進行・割り込みの変換・結果の保存先の選択・
-// 同意・API キー・予算によるクラウド整形とローカル整形の振り分け・キーボード拡張が読む本体アプリの状態の組み立てと書き込み）。
+// 同意・API キー・予算によるクラウド整形とローカル整形の振り分け・整形と予算の設定の検証と保存・
+// キーボード拡張が読む本体アプリの状態の組み立てと書き込み）。
 // アプリ（Apps/iOS/Sources）は AVAudioSession / AVAudioEngine / UIKit のアダプターと画面だけを持ち、これをリンクする。
 // macOS でも `swift test` で検査できるよう macOS も宣言する（アプリとしては iOS 専用）。
 let package = Package(
