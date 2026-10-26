@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルドとユニットテスト → シェルスクリプト lint
+# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルドとユニットテスト → Release の署名設定の検査 → シェルスクリプト lint → ワークフロー lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
 # 新しいターゲットを作ったら「アプリの署名なしビルド・テスト」に追加する。
 set -euo pipefail
@@ -94,6 +94,9 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :XPCService:ServiceType' "$worker_inf
   exit 1
 fi
 
+echo "==> 配布用（Release）の署名設定の検査"
+scripts/check-release-config.sh
+
 echo "==> shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
   # Verification/ の計測スクリプトも対象にする（Swift のビルドは verify に含めない。各 README を参照）
@@ -101,6 +104,14 @@ if command -v shellcheck >/dev/null 2>&1; then
   shellcheck "${shell_scripts[@]}"
 else
   echo "shellcheck が見つからないためスキップします（brew install shellcheck）。"
+fi
+
+echo "==> actionlint"
+if command -v actionlint >/dev/null 2>&1; then
+  # .github/workflows/*.yml の構文・式・run のシェル（shellcheck があれば併用）を検査する
+  actionlint
+else
+  echo "actionlint が見つからないためスキップします（brew install actionlint）。"
 fi
 
 echo "すべての品質チェックに成功しました。"
