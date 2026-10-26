@@ -6,11 +6,14 @@ import UtterCore
 import UtterText
 
 /// Accessibility API による入力対象の取得と読み書き（INS-01, INS-02, INS-05）と、Realtime Direct の範囲の置き換え（AC-15）。
+/// Edit Mode の選択範囲の読み取り・選び直し（AC-14）も行う。
 ///
 /// AXInsertionProbe（#41）と同じ方法を使う。入力欄の値はメモリ上の比較にだけ使い、記録・表示しない。
 /// Accessibility が未許可なら、フォーカス中の要素は取れず（`nil`）、書き込みは送信前の失敗になる。
 @MainActor
-final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDirectFieldAccess {
+final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDirectFieldAccess,
+  EditFieldAccess
+{
   /// 応答しないアプリで固まらないように、問い合わせの待ち時間を短くする（秒）
   static let messagingTimeout: Float = 1.0
 
@@ -99,6 +102,27 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDire
     guard error == .success else { return .failedAfterSend }
     return setSelection(element, location: caretLocation, length: 0)
       ? .succeeded : .failedAfterSend
+  }
+
+  // MARK: EditFieldAccess（Edit Mode, AC-14）
+
+  func selectedText(of target: InsertionTargetID) -> String? {
+    registry.element(for: target).flatMap { string($0.element, Attribute.selectedText) }
+  }
+
+  func select(_ range: FieldSnapshot.Selection, in target: InsertionTargetID) -> Bool {
+    guard let element = registry.element(for: target)?.element,
+      isSettable(element, Attribute.selectedTextRange)
+    else { return false }
+    var cfRange = CFRange(location: range.location, length: range.length)
+    guard let value = AXValueCreate(.cfRange, &cfRange) else { return false }
+    return AXUIElementSetAttributeValue(
+      element, Attribute.selectedTextRange as CFString, value) == .success
+  }
+
+  func secureField(of target: InsertionTargetID) -> SensitiveSignal {
+    guard let element = registry.element(for: target)?.element else { return .unknown }
+    return secureFieldSignal(element)
   }
 
   // MARK: - AX

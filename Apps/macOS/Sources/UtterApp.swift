@@ -14,11 +14,14 @@ struct UtterApp: App {
   #if DEBUG
     /// Realtime Direct（AC-15, 実験機能）の実機確認用。Debug ビルドにだけ含める
     @State private var realtimeDirectDebug = RealtimeDirectDebugRunner()
+    /// Edit Mode（AC-14, v1.1）の Debug 用の組み立て。`EditModeFeature` で有効にしない限り作らず、メニューにも出さない
+    @State private var editMode: EditModeDebugController? =
+      EditModeFeature.isEnabled() ? EditModeDebugController.make() : nil
   #endif
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      AppMenu()
+      menu
         .environment(composition)
         // 録音ショートカットの登録（`AppComposition` が持つ）。メニューの表示に使う
         .environment(composition.shortcuts)
@@ -29,5 +32,13 @@ struct UtterApp: App {
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
     PermissionOnboardingScene()
     ConsentSettingsScene()
+  }
+
+  private var menu: AppMenu {
+    #if DEBUG
+      return AppMenu(editMode: editMode)
+    #else
+      return AppMenu()
+    #endif
   }
 }

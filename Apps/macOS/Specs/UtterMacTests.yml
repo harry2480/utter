@@ -9,6 +9,7 @@ targets:
       - path: Sources/Shortcut
       - path: Sources/Insertion
       - path: Sources/RealtimeDirect
+      - path: Sources/EditMode
       - path: Sources/Session
       # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
       - path: Sources/Recovery

@@ -51,9 +51,14 @@ final class InsertionPreviewPanel: NSObject, InsertionPreviewPresenting, NSWindo
   }
 
   func showPreview(text: String, cause: InsertionPreviewCause) {
+    showPreview(text: text, message: InsertionPreviewMessage.text(for: cause))
+  }
+
+  /// 理由の文言を指定して表示する（Edit Mode の退避でも使う, AC-14）。文言に文字列の中身を含めない
+  func showPreview(text: String, message: String) {
     let panel = makePanel()
     let view = InsertionPreviewView(
-      text: text, message: InsertionPreviewMessage.text(for: cause),
+      text: text, message: message,
       copy: { [weak self, weak panel] in
         guard let self, let panel else { return }
         self.copy(text, closing: panel)

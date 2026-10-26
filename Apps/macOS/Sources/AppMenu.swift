@@ -5,6 +5,11 @@ import SwiftUI
 ///
 /// 項目は機能のディレクトリに置き、ここには1機能1行で並べるだけにする。
 struct AppMenu: View {
+  #if DEBUG
+    /// Edit Mode の Debug 用の組み立て。`nil` のときは Edit Mode の項目を出さない
+    let editMode: EditModeDebugController?
+  #endif
+
   var body: some View {
     // 機能ごとの項目。1機能1行で、関係する機能の近くに足す
     ShortcutStatusMenuItem()
@@ -13,6 +18,7 @@ struct AppMenu: View {
     Divider()
     #if DEBUG
       RealtimeDirectDebugMenuItem()
+      EditModeMenuItem(editMode: editMode)
     #endif
     PermissionOnboardingMenuItem()
     ConsentSettingsMenuItem()
