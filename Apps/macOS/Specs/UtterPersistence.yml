@@ -1,0 +1,8 @@
+# UtterPersistence パッケージと、アプリ（UtterMac）からの依存。project.yml の include で読み込む
+packages:
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
+targets:
+  UtterMac:
+    dependencies:
+      - package: UtterPersistence
