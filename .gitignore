@@ -18,6 +18,8 @@ build/
 
 # 署名・秘密情報（コミットしない）
 *.p12
+# App Store Connect API キー（公証用）
+*.p8
 *.mobileprovision
 *.provisionprofile
 Local.xcconfig
