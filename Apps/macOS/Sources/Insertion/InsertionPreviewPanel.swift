@@ -26,6 +26,8 @@ enum InsertionPreviewMessage {
       "前の入力の途中だったため、自動で入力しませんでした。"
     case .cancelled:
       "入力が取り消されたため、自動で入力しませんでした。"
+    case .recoveredAfterRestart:
+      "前回の終了前に録音した音声から復旧しました。元の入力欄が変わっている可能性があるため、自動で入力しませんでした。"
     }
   }
 }

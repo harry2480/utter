@@ -12,6 +12,8 @@ enum InsertionPreviewCause: Hashable, Sendable {
   case insertionInProgress
   /// 挿入のタスクが取り消された。次の経路は試さず、文字列を失わないよう退避する
   case cancelled
+  /// アプリの異常終了後の起動時に、一時音声から復旧した（7章, AC-10）。元の入力欄は変わっている可能性が高いため、挿入を試さない
+  case recoveredAfterRestart
 }
 
 /// 1回の挿入の結末。
