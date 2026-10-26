@@ -8,7 +8,6 @@ import UtterSpeech
 ///
 /// 録音（`AVAudioEngineRecorder`）→ STT Worker → ローカル整形 → 挿入（`InsertionExecutor`）→ HUD を
 /// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
-/// `UtterApp` が1つだけ持ち、メニューの項目と画面へ `.environment` で渡す。
 @MainActor
 @Observable
 final class AppComposition {
