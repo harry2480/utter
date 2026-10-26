@@ -47,7 +47,7 @@ struct AcceptableRefinementEvaluationTests {
       localRefiner: LocalBasicRefiner())
 
     let outcome = try await router.refine(
-      sample.request, consent: .refinementGranted(), budget: nil,
+      sample.request, consent: { .refinementGranted() }, budget: nil,
       sensitivity: { .allowedInput })
 
     #expect(outcome == RefinementOutcome(text: sample.refined, source: .cloud))
