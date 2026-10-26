@@ -31,11 +31,13 @@ public struct EditRouter: Sendable {
   /// 編集できなかった結果を返す。
   ///
   /// - Parameters:
-  ///   - consent: `edit` を呼んだ時点の最新の同意状態。プロバイダーの送信先への選択テキストの送信の同意がなければ、
+  ///   - consent: 最新の同意状態を返す。プロバイダーの送信先への選択テキストの送信の同意がなければ、
   ///     プロバイダーを呼ばない（AC-06）。`request` を作ったときの送信先がプロバイダーの送信先と違う場合も、
   ///     別の送信先への同意で送らないよう、呼ばずに `.destinationMismatch` を返す。
-  ///     整形・音声・別の送信先への同意では送信しない
-  ///   - budget: 予算上限の設定（AI-04, AI-05）。扱いは `RefinementRouter.refine(_:consent:budget:)` と同じで、
+  ///     整形・音声・別の送信先への同意では送信しない。扱いは `RefinementRouter.refine(_:consent:budget:sensitivity:)`
+  ///     と同じで、予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。予約を待つ間に撤回された場合は、
+  ///     送信せずに予約を取り消す。同期的に呼ぶため、メインスレッドを待たずに返す（最新の同意状態を保持しておき、それを返すなど）
+  ///   - budget: 予算上限の設定（AI-04, AI-05）。扱いは `RefinementRouter.refine(_:consent:budget:sensitivity:)` と同じで、
   ///     上限を超えるならプロバイダーを呼ばずに `.providerFailed(.budgetExceeded)` を返す
   ///   - sensitivity: その時点の入力先（選択範囲のある入力先）で判定し直した結果（7章, AC-12）。
   ///     `allowsCloudTransmission` でなければプロバイダーを呼ばずに `.sensitiveInputSuppressed` を返す。
@@ -46,7 +48,7 @@ public struct EditRouter: Sendable {
   /// - Throws: 呼び出し元の Task がキャンセルされた場合
   public func edit(
     _ request: EditRequest,
-    consent: ConsentState,
+    consent: @Sendable () -> ConsentState,
     budget: RefinementBudget?,
     sensitivity: @Sendable () -> SensitiveInputDecision
   ) async throws(CancellationError) -> EditOutcome {
@@ -59,7 +61,7 @@ public struct EditRouter: Sendable {
     guard request.destination == provider.destination else {
       return EditOutcome(content: .notEdited(.destinationMismatch))
     }
-    guard consent.allows(.editSelection(provider.destination)) else {
+    guard consent().allows(.editSelection(provider.destination)) else {
       return EditOutcome(content: .notEdited(.consentNotGranted))
     }
     // 機密入力なら予約もしない
@@ -73,6 +75,11 @@ public struct EditRouter: Sendable {
       reservation = reserved
     case .failure(let error):
       return EditOutcome(content: .notEdited(.providerFailed(error)))
+    }
+    // 予約を待つ間に同意が撤回されたら、送信せずに予約を取り消す
+    if let budget, let reservation, !consent().allows(.editSelection(provider.destination)) {
+      await budget.guard.cancel(reservation)
+      return EditOutcome(content: .notEdited(.consentNotGranted))
     }
     // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
     if let budget, let reservation, !sensitivity().allowsCloudTransmission {
