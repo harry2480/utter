@@ -39,8 +39,8 @@ struct UtterApp: App {
         #endif
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
-    SettingsScene(claudeAPIKeyStore: Self.claudeAPIKeyStore)
-    DictionaryEditorScene()
+    SettingsScene(claudeAPIKeyStore: Self.claudeAPIKeyStore, database: Self.database)
+    DictionaryEditorScene(database: Self.database)
     InputHistoryScene(database: Self.database)
     PermissionOnboardingScene()
     ConsentSettingsScene()
