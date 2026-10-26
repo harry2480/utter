@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UtterCore
+import UtterPersistence
 
 /// macOS アプリの起動部（Composition Root）。
 ///
@@ -14,39 +15,55 @@ struct UtterApp: App {
       configuration: .phase0Pending, access: SystemPermissionAccess(defaults: defaults),
       defaults: defaults)
   }()
+  @State private var consentSettings = ConsentSettingsModel(
+    controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      OpenPermissionOnboardingButton()
-      Divider()
-      Button("utter を終了") {
-        NSApplication.shared.terminate(nil)
-      }
-      .keyboardShortcut("q")
+      MenuContent()
     }
 
-    Window("権限の設定", id: PermissionOnboardingWindow.id) {
+    Window("権限の設定", id: WindowID.permissionOnboarding) {
       PermissionOnboardingView(model: permissionOnboarding)
     }
     .windowResizability(.contentSize)
     // メニューから開いたときだけ出す。起動時・前回終了時の状態の復元では開かない
     .defaultLaunchBehavior(.suppressed)
     .restorationBehavior(.disabled)
+
+    Window("クラウド送信の同意", id: WindowID.consentSettings) {
+      ConsentSettingsView(model: consentSettings)
+    }
+    .windowResizability(.contentMinSize)
   }
 }
 
-private enum PermissionOnboardingWindow {
-  static let id = "permission-onboarding"
+enum WindowID {
+  static let permissionOnboarding = "permission-onboarding"
+  static let consentSettings = "consentSettings"
 }
 
-/// メニューから権限オンボーディングの画面を開く。メニューバー常駐のアプリは前面に来ないため、開くときに前面にする
-private struct OpenPermissionOnboardingButton: View {
+/// メニューバーのメニュー
+private struct MenuContent: View {
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     Button("権限の設定…") {
-      openWindow(id: PermissionOnboardingWindow.id)
-      NSApplication.shared.activate()
+      open(WindowID.permissionOnboarding)
     }
+    Button("クラウド送信の同意…") {
+      open(WindowID.consentSettings)
+    }
+    Divider()
+    Button("utter を終了") {
+      NSApplication.shared.terminate(nil)
+    }
+    .keyboardShortcut("q")
+  }
+
+  private func open(_ id: String) {
+    openWindow(id: id)
+    // Dock に出ないアプリのため、開いた画面を前面に出す
+    NSApplication.shared.activate()
   }
 }

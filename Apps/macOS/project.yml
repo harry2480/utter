@@ -19,6 +19,8 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -27,6 +29,7 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterPersistence
     # Hardened Runtime で録音するために要る（PERM-01）。権限を要求する機能の分だけ足す
     entitlements:
       path: Sources/UtterMac.entitlements
