@@ -18,6 +18,10 @@ targets:
       - path: Sources/HUD/HUDDisplayQueue.swift
       # 辞書の編集画面の状態（View を除く）
       - path: Sources/Dictionary/DictionaryEditorModel.swift
+      # 設定画面の状態（View を除く）
+      - path: Sources/Settings
+        excludes:
+          - "Views/**"
     dependencies:
       - package: UtterCore
       - package: UtterSpeech

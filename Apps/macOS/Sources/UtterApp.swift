@@ -4,6 +4,7 @@ import SwiftUI
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
+/// 整形の予算判定を結線するときは、`CloudCostBridge.makeBudgetGuard` に同じデータベースの `MonthlyUsageStore` を渡す（AI-05）。
 ///
 /// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、
 /// ここと `AppMenu` には1機能1行で並べるだけにする。複数の PR が同じ行を書き換えないようにするため。
@@ -34,11 +35,11 @@ struct UtterApp: App {
         #endif
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
+    SettingsScene(claudeAPIKeyStore: Self.claudeAPIKeyStore)
     DictionaryEditorScene()
     InputHistoryScene(database: database)
     PermissionOnboardingScene()
     ConsentSettingsScene()
-    ClaudeAPIKeySettingsScene(store: Self.claudeAPIKeyStore)
   }
 
   private var menu: AppMenu {

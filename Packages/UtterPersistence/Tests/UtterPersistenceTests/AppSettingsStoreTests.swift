@@ -43,6 +43,8 @@ struct AppSettingsStoreTests {
       refinementMode: .raw,
       refinementEngine: .cloudAI,
       appStyleOverrides: ["com.apple.terminal": .command],
+      siteIdentificationAllowed: true,
+      siteStyleOverrides: ["example.com": .technical],
       refinementModel: "model-a",
       monthlyBudget: MonthlyBudgetSetting(limitAmount: 5, currencyCode: "USD"),
       consentState: consentState,
