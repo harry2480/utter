@@ -16,6 +16,8 @@ enum InsertionPreviewCause: Hashable, Sendable {
   /// Realtime Direct の逐次の書き込みを途中でやめた（範囲外の編集・フォーカスの移動など, AC-15）。
   /// `wroteText` はそれまでに入力欄へ書き込んだテキストがあるか（あれば入力欄に残っている）
   case realtimeDirectStopped(RealtimeDirectStopReason, wroteText: Bool)
+  /// アプリの異常終了後の起動時に、一時音声から復旧した（7章, AC-10）。元の入力欄は変わっている可能性が高いため、挿入を試さない
+  case recoveredAfterRestart
 }
 
 /// 1回の挿入の結末。
@@ -165,6 +167,10 @@ final class InsertionExecutor {
         let (result, restore) = await attempt(route, text: prepared, target: target)
         attempts.append(result)
         clipboard = restore ?? clipboard
+        // 送る直前に取り消しを見て送らなかった場合は、残りの経路の有無にかかわらず取り消しとして退避する
+        if Task.isCancelled, !result.mayHaveInserted {
+          return showPreview(text, cause: .cancelled, attempts: attempts, clipboard: clipboard)
+        }
       }
       current = inspector.focusedTarget()
     }
@@ -180,8 +186,11 @@ final class InsertionExecutor {
     return sensitivePolicy.decide(context).reasons
   }
 
-  /// 今のフォーカス中の入力対象が `target` のままで、機密入力でないか。イベントを送る直前に確かめる（INS-01）
+  /// 今も送ってよいか。挿入のタスクが取り消されておらず、フォーカス中の入力対象が `target` のままで、機密入力でないか。
+  /// AX の書き込み・Cmd+V・キー入力（1文字ごと）を送る直前に確かめる（INS-01）。取り消しは別のスレッドから届きうるため、
+  /// 経路を試す前の確認だけでなく、送る直前にも見る
   private func isStillTargeting(_ target: InsertionTargetID) -> Bool {
+    guard !Task.isCancelled else { return false }
     guard let current = inspector.focusedTarget(), current.id == target else { return false }
     return sensitiveReasons(current).isEmpty
   }

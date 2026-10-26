@@ -9,6 +9,8 @@ public struct HUDState: Hashable, Sendable {
   private var phase: SessionPhase = .idle
   private var sessionID: SessionID?
   private var stopReason: RecordingStopReason?
+  /// 失敗の表示に添える理由。失敗の表示中だけ持つ
+  private var failureNotice: HUDNotice?
   /// 進行中のセッションがローカル整形へ退避した理由
   private var refinementFallback: RefinementFallbackNotice?
   /// 失敗の表示を終える時刻
@@ -23,17 +25,28 @@ public struct HUDState: Hashable, Sendable {
   }
 
   /// 状態機械の現在の状態を反映する。
-  public mutating func update(from machine: SessionStateMachine, at now: ContinuousClock.Instant) {
-    update(phase: machine.phase, activeSession: machine.activeSession, at: now)
+  /// - Parameter failureNotice: 失敗の表示に添える理由（`error` のときだけ使う）。`update(phase:activeSession:failureNotice:at:)` を参照
+  public mutating func update(
+    from machine: SessionStateMachine, failureNotice: HUDNotice? = nil,
+    at now: ContinuousClock.Instant
+  ) {
+    update(
+      phase: machine.phase, activeSession: machine.activeSession, failureNotice: failureNotice,
+      at: now)
   }
 
   /// セッションの状態を反映する。状態が変わるたびに呼ぶ（同じ状態で何度呼んでもよい）。
   ///
   /// 挿入中から待機に戻ったとき（正常完了）だけ、上限到達・退避の通知を `limitNoticeDisplayDuration` だけ残す。
   /// キャンセルや失敗表示の終了で待機に戻ったときは残さない。
+  ///
+  /// `failureNotice` は失敗の表示に添える理由で、録音の停止理由の通知より優先して表示する。
+  /// 失敗の表示に入ったときに渡した値を、失敗の表示を終えるまで保つ（表示中に `nil` で呼んでも消さない）。
+  /// `error` 以外では使わない。
   public mutating func update(
     phase newPhase: SessionPhase,
     activeSession: ActiveSession?,
+    failureNotice: HUDNotice? = nil,
     at now: ContinuousClock.Instant
   ) {
     let previousPhase = phase
@@ -49,6 +62,7 @@ public struct HUDState: Hashable, Sendable {
       }
       sessionID = nil
       stopReason = nil
+      self.failureNotice = nil
       refinementFallback = nil
       errorDismissDeadline = nil
       return
@@ -65,9 +79,13 @@ public struct HUDState: Hashable, Sendable {
     if case .error = newPhase {
       if isNewSession || errorDismissDeadline == nil {
         errorDismissDeadline = now.advanced(by: configuration.errorDisplayDuration)
+        self.failureNotice = failureNotice
+      } else if let failureNotice {
+        self.failureNotice = failureNotice
       }
     } else {
       errorDismissDeadline = nil
+      self.failureNotice = nil
     }
   }
 
@@ -92,10 +110,10 @@ public struct HUDState: Hashable, Sendable {
     return HUDContent(status: nil, notices: lingeringNotices)
   }
 
-  /// 進行中のセッションの通知。録音停止の通知、退避の通知の順に並べる。
+  /// 進行中のセッションの通知。録音停止の通知（失敗の表示中に失敗の理由があればそれに置き換える）、退避の通知の順に並べる。
   private var activeNotices: [HUDNotice] {
     var notices: [HUDNotice] = []
-    if let notice = stopReason.flatMap(HUDNotice.init(stopReason:)) {
+    if let notice = failureNotice ?? stopReason.flatMap(HUDNotice.init(stopReason:)) {
       notices.append(notice)
     }
     if let refinementFallback {

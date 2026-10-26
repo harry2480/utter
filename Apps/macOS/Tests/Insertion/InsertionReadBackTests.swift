@@ -138,6 +138,7 @@ struct InsertionReadBackTests {
       .sensitiveInput([.secureField]), .accessibilityNotTrusted, .insertionInProgress, .cancelled,
       .realtimeDirectStopped(.fieldChanged, wroteText: true),
       .realtimeDirectStopped(.writeFailed, wroteText: false),
+      .recoveredAfterRestart,
     ])
   func previewMessages(_ cause: InsertionPreviewCause) {
     #expect(!InsertionPreviewMessage.text(for: cause).isEmpty)

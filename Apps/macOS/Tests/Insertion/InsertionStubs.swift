@@ -109,6 +109,8 @@ final class StubFieldAccess: InsertionFieldAccess {
   let field: FakeTextField
   let target: InsertionTargetID
   let log: InsertionLog
+  /// 挿入前の値を読む間に起きること（取り消しなど）
+  var onSnapshot: (() -> Void)?
   /// 値の読み取り1回にかかる時間（応答の遅いアプリ）
   var readLatency: (clock: StubClock, duration: Duration)?
 
@@ -119,6 +121,7 @@ final class StubFieldAccess: InsertionFieldAccess {
   }
 
   func snapshot(of target: InsertionTargetID) -> FieldSnapshot {
+    onSnapshot?()
     guard target == self.target, field.readable else {
       return FieldSnapshot(value: nil, selection: nil)
     }
@@ -147,6 +150,8 @@ final class StubPasteboard: InsertionPasteboard {
   /// 退避の途中で他のアプリが書き換える
   var changesDuringCapture = false
   var writeSucceeds = true
+  /// 退避の間に起きること（取り消しなど）
+  var onCapture: (() -> Void)?
   private let log: InsertionLog
 
   init(contents: PasteboardSnapshot, log: InsertionLog) {
@@ -155,6 +160,7 @@ final class StubPasteboard: InsertionPasteboard {
   }
 
   func capture() -> PasteboardSnapshot {
+    onCapture?()
     if changesDuringCapture {
       simulateOtherAppCopy("other")
     }
