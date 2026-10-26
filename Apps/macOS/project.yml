@@ -16,26 +16,27 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
     ENABLE_USER_SCRIPT_SANDBOXING: "YES"
-packages:
-  UtterCore:
-    path: ../../Packages/UtterCore
-  UtterText:
-    path: ../../Packages/UtterText
-  UtterAI:
-    path: ../../Packages/UtterAI
-  UtterPersistence:
-    path: ../../Packages/UtterPersistence
+# パッケージ・依存・機能ごとの設定は Specs/ に1つずつ分け、ここには1件1エントリで並べるだけにする。
+# 複数の PR が同じ行に追記して衝突しないようにするため。新しいエントリは関係するエントリの近くに足す。
+# 配列（dependencies など）は読み込んだ順に後ろへ足され、辞書は統合される（XcodeGen の include）。
+# パスは relativePaths: false で、このファイルからの相対パスとして解釈する。
+include:
+  - path: Specs/UtterCore.yml
+    relativePaths: false
+  - path: Specs/UtterText.yml
+    relativePaths: false
+  - path: Specs/UtterAI.yml
+    relativePaths: false
+  - path: Specs/UtterPersistence.yml
+    relativePaths: false
+  - path: Specs/UtterMacTests.yml
+    relativePaths: false
 targets:
   UtterMac:
     type: application
     platform: macOS
     sources:
       - path: Sources
-    dependencies:
-      - package: UtterCore
-      - package: UtterText
-      - package: UtterAI
-      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter
@@ -50,22 +51,6 @@ targets:
         # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）。
         # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
         # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
-  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする
-  UtterMacTests:
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - path: Tests
-      - path: Sources/Insertion
-      - path: Sources/EditMode
-    dependencies:
-      - package: UtterCore
-      - package: UtterText
-      - package: UtterAI
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
-        GENERATE_INFOPLIST_FILE: "YES"
 schemes:
   UtterMac:
     build:
@@ -73,7 +58,3 @@ schemes:
         UtterMac: all
     run:
       config: Debug
-    test:
-      config: Debug
-      targets:
-        - UtterMacTests
