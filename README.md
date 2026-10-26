@@ -34,7 +34,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS / iOS Simulator）→ Release の署名設定の検査 → shellcheck → actionlint） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS は build/test、iOS Simulator は build）→ Release の署名設定の検査 → shellcheck → actionlint） |
 | `scripts/build-local.sh` | 自前ビルド（各自の Apple ID の開発用署名。秘密情報は不要） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
@@ -65,8 +65,8 @@ utter/
 ├── docs/                 # 要件定義・設計規約・検証結果
 ├── scripts/              # verify / format / Loop
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
-├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
-├── Apps/                 # macOS / iOS アプリ（現在はどちらもスケルトン）
+├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterSpeechWhisperKit / UtterAI / UtterText / UtterPersistence）
+├── Apps/                 # macOS / iOS アプリ（iOS は現在スケルトンのみ）
 ├── Extensions/           # iOS カスタムキーボード
 └── Workers/              # macOS XPC STT Worker
 ```

@@ -14,7 +14,7 @@ macOS ネイティブの音声入力アプリ（OSS）と、共通基盤を使�
 ### コマンド一覧
 
 ```sh
-scripts/verify.sh        # swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS / iOS Simulator）→ shellcheck
+scripts/verify.sh        # swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS build/test・iOS Simulator build）→ shellcheck
 scripts/format.sh        # swift format で自動整形
 scripts/coverage.sh      # カバレッジ計測（coverage/*.lcov、CI で Codecov へ送信）
 scripts/merge-pr.sh [PR] # PR をマージコミットでマージしてブランチ削除（squash 禁止）
@@ -36,7 +36,7 @@ Loopを使う場合は [docs/loop-engineering.md](docs/loop-engineering.md) の�
 
 ### 現在のフェーズ
 
-Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐するだけの macOS アプリターゲット（`Apps/macOS`）と、起動画面だけの iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き）のスケルトンがある。録音・ホットキー・HUD・挿入・STT などの機能は未結線で、キーボード拡張・STT Worker のターゲットはまだ存在しない。
+Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐する macOS アプリターゲット（`Apps/macOS`。XPC STT Worker `Workers/macOSSTT` を組み込む）と、起動画面だけの iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き）がある。iOS 側の録音・STT・整形などの機能は未結線で、キーボード拡張のターゲットはまだ存在しない。
 検証結果で要件定義11章・14章の判定基準に従って方針が変わるため、検証前の前提でコードを広げない。
 
 ### アーキテクチャ
