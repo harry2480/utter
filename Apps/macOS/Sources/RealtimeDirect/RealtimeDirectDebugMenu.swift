@@ -82,8 +82,8 @@
   }
 
   /// メニューバーの Debug 用の項目。
-  struct RealtimeDirectDebugMenu: View {
-    let runner: RealtimeDirectDebugRunner
+  struct RealtimeDirectDebugMenuItem: View {
+    @Environment(RealtimeDirectDebugRunner.self) private var runner
 
     var body: some View {
       Menu("Realtime Direct（Debug）") {
@@ -95,6 +95,7 @@
         Button("書き込みを取り消す") { runner.undo() }
           .disabled(runner.isRunning)
       }
+      Divider()
     }
   }
 #endif

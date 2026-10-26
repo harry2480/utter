@@ -1,0 +1,24 @@
+# アプリ（UtterMac）のユニットテストのターゲットと、スキームのテスト設定。project.yml の include で読み込む
+targets:
+  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする
+  UtterMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      - path: Sources/Insertion
+      - path: Sources/RealtimeDirect
+    dependencies:
+      - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterText
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  UtterMac:
+    test:
+      config: Debug
+      targets:
+        - UtterMacTests
