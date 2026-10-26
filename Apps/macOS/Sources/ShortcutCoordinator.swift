@@ -5,8 +5,8 @@ import UtterCore
 /// 録音ショートカットをアプリに結線する（REC-01, REC-02）。
 ///
 /// 押下・解放の解釈には `SessionCoordinator` の現在の状態を使い、セッション操作はそのまま `SessionCoordinator` へ渡す。
-/// ショートカット以外の要因（認識の完了・自動停止・メニューの操作など）で状態が変わったら、アプリが
-/// `sessionPhaseDidChange()` を呼ぶ（Esc の捕捉をセッション中だけ有効にするため）。
+/// ショートカット以外の要因でセッションの状態が変わったら `sessionPhaseDidChange()` を呼ぶ
+/// （Esc の捕捉をセッション中だけ有効にするため）。
 ///
 /// 修飾キー単独と Esc 捕捉（#51 の判定待ち）は既定で無効（`ShortcutCapabilities.keyCombinationsOnly`）。
 @MainActor
@@ -73,11 +73,6 @@ final class ShortcutCoordinator {
     GlobalShortcutStatusText.text(for: status)
   }
 
-  /// セッションの状態が変わるたびに呼ぶ。Esc の捕捉をセッション中だけ有効にする（REC-01）
-  func sessionPhaseDidChange() {
-    controller?.sessionPhaseDidChange()
-  }
-
   var escapeStatusText: String? {
     GlobalShortcutStatusText.text(for: escapeStatus)
   }
@@ -99,6 +94,11 @@ final class ShortcutCoordinator {
   /// 利用者がメニューで選んだときだけ権限を求める（PERM-01）。許可は定期的な確認で反映する
   func requestPermission(_ permission: EventTapPermission) {
     controller?.requestPermission(permission)
+  }
+
+  /// セッションの状態が、ショートカット以外の要因（認識の完了・自動停止・メニューの操作など）で変わったときに呼ぶ
+  func sessionPhaseDidChange() {
+    controller?.sessionPhaseDidChange()
   }
 
   private func syncStatus() {

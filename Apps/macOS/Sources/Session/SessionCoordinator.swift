@@ -402,12 +402,10 @@ final class SessionCoordinator {
   private func reflect(failureNotice: HUDNotice? = nil) {
     let previous = phase
     phase = machine.phase
+    if phase != previous { onPhaseChange?() }
     hud.update(from: machine, failureNotice: failureNotice)
     deadlineScheduler.schedule(at: machine.recordingDeadline) { [weak self] in
       self?.recordingDeadlineReached()
-    }
-    if phase != previous {
-      onPhaseChange?()
     }
   }
 

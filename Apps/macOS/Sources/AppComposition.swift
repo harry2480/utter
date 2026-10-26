@@ -39,7 +39,8 @@ final class AppComposition {
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })
     self.shortcuts = shortcuts
-    // 認識の完了・自動停止・メニューの操作など、ショートカット以外の要因による変化も Esc の捕捉に反映する（REC-01）
+    // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
+    // Esc の捕捉をセッション中だけ有効にする（REC-01）
     session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
   }
 

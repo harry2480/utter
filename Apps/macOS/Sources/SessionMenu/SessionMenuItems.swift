@@ -11,7 +11,7 @@ struct SessionMenuItems: View {
       session.toggle()
     }
     .disabled(!Self.canToggle(session.phase))
-    // Esc の捕捉（#51 の判定待ち）は既定で無効のため、キャンセルはメニューからも行える（REC-01）
+    // Esc の捕捉は #51 の判定まで既定で無効のため、キャンセルはメニューからも行える（REC-01）
     Button("キャンセル") {
       session.cancel()
     }

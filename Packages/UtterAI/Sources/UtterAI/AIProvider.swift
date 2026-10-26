@@ -10,6 +10,11 @@ public protocol AIProvider: Sendable {
   /// 実際の通信先と必ず一致させる。違うと、別の送信先への同意で送信してしまう
   var destination: CloudAIProviderKind { get }
 
+  /// トークン課金の送信先か（AI-04, AI-05）。`true` なら `RefinementRoute` は予算上限の設定なしでは作れない。
+  /// 送信先（`destination`）では課金方式を区別できないため、実装ごとに申告する。
+  /// 同じ `.chatGPT` でも OpenAI API キー方式（`OpenAIProvider`）は `true`、Sign in with ChatGPT は `false` にする
+  var isTokenBilled: Bool { get }
+
   /// STT テキストを整形して返す。応答の検証（空応答・保護対象など）は呼び出し側が行う。
   ///
   /// 同意と予算はここでは確認しない。アプリからは直接呼ばず、必ず `RefinementRouter` を通す（AC-06, AI-04）。
