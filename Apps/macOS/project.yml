@@ -16,29 +16,31 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
     ENABLE_USER_SCRIPT_SANDBOXING: "YES"
-packages:
-  UtterCore:
-    path: ../../Packages/UtterCore
-  UtterSpeech:
-    path: ../../Packages/UtterSpeech
-  UtterAI:
-    path: ../../Packages/UtterAI
-  UtterPersistence:
-    path: ../../Packages/UtterPersistence
+# パッケージ・依存・機能ごとの設定は Specs/ に1つずつ分け、ここには1件1エントリで並べるだけにする。
+# 複数の PR が同じ行に追記して衝突しないようにするため。新しいエントリは関係するエントリの近くに足す。
+# 配列（dependencies など）は読み込んだ順に後ろへ足され、辞書は統合される（XcodeGen の include）。
+# パスは relativePaths: false で、このファイルからの相対パスとして解釈する。
+include:
+  - path: Specs/UtterCore.yml
+    relativePaths: false
+  - path: Specs/UtterSpeech.yml
+    relativePaths: false
+  - path: Specs/UtterAI.yml
+    relativePaths: false
+  - path: Specs/UtterPersistence.yml
+    relativePaths: false
+  - path: Specs/UtterSTTWorker.yml
+    relativePaths: false
+  - path: Specs/Audio.yml
+    relativePaths: false
+  - path: Specs/UtterMacTests.yml
+    relativePaths: false
 targets:
   UtterMac:
     type: application
     platform: macOS
     sources:
       - path: Sources
-    dependencies:
-      - package: UtterCore
-      - package: UtterSpeech
-      - package: UtterAI
-      # 一時音声の保存と起動時の復旧（7章, AC-10）
-      - package: UtterPersistence
-      # XPC STT Worker を utter.app/Contents/XPCServices に組み込む
-      - target: UtterSTTWorker
     settings:
       base:
         PRODUCT_NAME: utter
@@ -51,53 +53,10 @@ targets:
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
         # 権限の用途説明と Entitlement は、その機能を実装する PR で追加する（PERM-01）
-        # マイク: 録音（REC-04）。初めて録音するときに OS がこの文言を添えて尋ねる
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。
+        # マイクの用途説明は録音の Specs/Audio.yml に置く
         # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
         # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
         # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
-  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする（TEST_HOST なし）
-  UtterMacTests:
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - path: Tests
-      - path: Sources/Shortcut
-      - path: Sources/Insertion
-      - path: Sources/Session
-      # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
-      - path: Sources/Recovery
-      # Session が使う型（TaskHUDRefreshScheduler）。パネルと画面は含めない
-      - path: Sources/HUD/TaskHUDRefreshScheduler.swift
-    dependencies:
-      - package: UtterCore
-      - package: UtterSpeech
-      - package: UtterAI
-      - package: UtterPersistence
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
-        GENERATE_INFOPLIST_FILE: "YES"
-  # XPC STT Worker（モデルのロード・推論・解放, 4章 / AC-10）。アプリに組み込み、アプリからだけ接続する
-  UtterSTTWorker:
-    type: xpc-service
-    platform: macOS
-    sources:
-      - path: ../../Workers/macOSSTT/Sources
-    dependencies:
-      - package: UtterSpeech
-    settings:
-      base:
-        PRODUCT_NAME: UtterSTTWorker
-        # アプリの Bundle ID に .stt-worker を付けたもの。アプリ側の XPCSTTWorkerConnector がこの名前で接続する
-        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.stt-worker
-        CODE_SIGN_STYLE: Automatic
-        MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
-        INFOPLIST_FILE: ../../Workers/macOSSTT/Info.plist
-        GENERATE_INFOPLIST_FILE: "NO"
-        SKIP_INSTALL: "YES"
-        # Entitlement はマイク・ネットワークなどを使わないため付けない（PERM-01）
 schemes:
   UtterMac:
     build:
@@ -105,7 +64,3 @@ schemes:
         UtterMac: all
     run:
       config: Debug
-    test:
-      config: Debug
-      targets:
-        - UtterMacTests

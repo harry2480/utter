@@ -1,0 +1,30 @@
+# アプリのユニットテストのターゲットと、スキーム UtterMac のテスト。project.yml の include で読み込む
+targets:
+  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする（TEST_HOST なし）
+  UtterMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      - path: Sources/Shortcut
+      - path: Sources/Insertion
+      - path: Sources/Session
+      # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
+      - path: Sources/Recovery
+      # Session が使う型（TaskHUDRefreshScheduler）。パネルと画面は含めない
+      - path: Sources/HUD/TaskHUDRefreshScheduler.swift
+    dependencies:
+      - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterAI
+      - package: UtterPersistence
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  UtterMac:
+    test:
+      config: Debug
+      targets:
+        - UtterMacTests

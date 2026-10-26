@@ -1,0 +1,9 @@
+# UtterPersistence パッケージと、アプリ（UtterMac）からの依存。project.yml の include で読み込む
+packages:
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
+targets:
+  UtterMac:
+    dependencies:
+      # 一時音声の保存と起動時の復旧（7章, AC-10）
+      - package: UtterPersistence

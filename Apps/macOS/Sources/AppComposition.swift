@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import UtterAI
 import UtterCore
 import UtterPersistence
@@ -11,6 +12,7 @@ import UtterSpeech
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
 @MainActor
+@Observable
 final class AppComposition {
   let hud: HUDController
   let session: SessionCoordinator
