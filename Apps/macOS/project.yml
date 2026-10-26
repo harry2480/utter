@@ -23,6 +23,8 @@ packages:
     path: ../../Packages/UtterSpeech
   UtterText:
     path: ../../Packages/UtterText
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -33,6 +35,7 @@ targets:
       - package: UtterCore
       - package: UtterSpeech
       - package: UtterText
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter
