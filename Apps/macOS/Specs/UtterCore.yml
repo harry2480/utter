@@ -1,0 +1,8 @@
+# UtterCore パッケージと、アプリ（UtterMac）からの依存。project.yml の include で読み込む
+packages:
+  UtterCore:
+    path: ../../Packages/UtterCore
+targets:
+  UtterMac:
+    dependencies:
+      - package: UtterCore
