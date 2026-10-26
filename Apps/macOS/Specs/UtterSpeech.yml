@@ -1,0 +1,8 @@
+# UtterSpeech パッケージと、アプリ（UtterMac）からの依存。project.yml の include で読み込む
+packages:
+  UtterSpeech:
+    path: ../../Packages/UtterSpeech
+targets:
+  UtterMac:
+    dependencies:
+      - package: UtterSpeech
