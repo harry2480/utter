@@ -22,6 +22,7 @@ struct AppMenu: View {
     #endif
     PermissionOnboardingMenuItem()
     DictionaryEditorMenuItem()
+    InputHistoryMenuItem()
     ConsentSettingsMenuItem()
     Divider()
     QuitMenuItem()
