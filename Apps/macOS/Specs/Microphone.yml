@@ -1,0 +1,7 @@
+# マイクの権限の用途説明（PERM-01）。project.yml の include で読み込む
+targets:
+  UtterMac:
+    settings:
+      base:
+        # マイク: 録音（REC-04）。初めて録音するときに OS がこの文言を添えて尋ねる
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。
