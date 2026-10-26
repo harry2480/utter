@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import UtterAI
 import UtterCore
 import UtterSpeech
@@ -9,6 +10,7 @@ import UtterSpeech
 /// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
 /// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
 @MainActor
+@Observable
 final class AppComposition {
   let hud: HUDController
   let session: SessionCoordinator
