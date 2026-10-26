@@ -68,11 +68,11 @@ private struct SpeechModelSection: View {
       }
       .font(.caption).foregroundStyle(.secondary)
     }
-    .task {
-      // OS が取得中の間は、終わった・失敗したことが分かるよう数秒おきに確かめ直す（ネットワークは使わない）。
-      // タブを離れる・設定画面を閉じると止まる
+    // OS が取得中の間は、終わった・失敗したことが分かるよう数秒おきに確かめ直す（ネットワークは使わない）。
+    // 取得のボタンを押して取得中になったときにも始め直す。タブを離れる・設定画面を閉じると止まる
+    .task(id: model.needsStatusPolling) {
       await model.refresh()
-      while model.availability == .downloading || model.isInstalling {
+      while model.needsStatusPolling {
         try? await Task.sleep(for: .seconds(3))
         if Task.isCancelled { return }
         await model.refresh()
@@ -82,6 +82,11 @@ private struct SpeechModelSection: View {
 }
 
 extension SpeechModelSettingsModel {
+  /// 取得の終わりを待って状態を確かめ直すか（取得の要求中か、OS が取得中）
+  fileprivate var needsStatusPolling: Bool {
+    availability == .downloading || isInstalling
+  }
+
   fileprivate var statusLabel: String {
     if isInstalling { return "取得中" }
     switch availability {
