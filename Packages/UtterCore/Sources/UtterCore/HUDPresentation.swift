@@ -1,7 +1,9 @@
 /// HUD に表示する文言と表示の種類（REC-03, REC-05, 4.1節）。
 ///
-/// `HUDContent`（状態と通知の区分）だけから組み立てるため、発話本文・認識結果・API キー・トークン・
-/// エラー詳細を含まない。画面（Apps）はこの値をそのまま描画し、文言を独自に作らない。
+/// 文言は `HUDContent`（状態と通知の区分）だけから組み立てるため、API キー・トークン・エラー詳細を含まない。
+/// 発話本文を持つのは Realtime Preview（2.2節, AC-03）の `transcript` だけで、録音中・認識中に限る。
+/// `transcript` は VoiceOver の読み上げ（`accessibilityLabel` / `announcement`）と `description` に含めない。
+/// 画面（Apps）はこの値をそのまま描画し、文言を独自に作らない。
 public struct HUDPresentation: Hashable, Sendable {
   /// 表示の種類。画面はアイコンと色を選ぶのに使う
   public let indicator: HUDIndicator
@@ -9,9 +11,18 @@ public struct HUDPresentation: Hashable, Sendable {
   public let title: String
   /// 2行目以降に1件ずつ出す通知の文言。`HUDContent.notices` の順（録音停止または失敗の理由、整形の退避）
   public let messages: [String]
+  /// Realtime Preview の確定済み・暫定テキスト。録音中・認識中で、表示する文字があるときだけ持つ
+  public let transcript: HUDTranscript?
 
   /// 状態も通知もない内容では `nil`（何も表示しない）。
-  public init?(_ content: HUDContent) {
+  /// - Parameter transcript: Realtime Preview の認識テキスト。録音中・認識中のときだけ使い、それ以外の段階では捨てる
+  public init?(_ content: HUDContent, transcript: HUDTranscript? = nil) {
+    switch content.status {
+    case .recording, .recognizing:
+      self.transcript = transcript.flatMap { $0.isEmpty ? nil : $0 }
+    case .refining, .inserting, .failed, nil:
+      self.transcript = nil
+    }
     let texts = content.notices.map(Self.text(for:))
     if let status = content.status {
       indicator = HUDIndicator(status)
@@ -52,12 +63,18 @@ public struct HUDPresentation: Hashable, Sendable {
 
   /// 直前の表示から続けて表示するときに読み上げを依頼する文言。依頼しないときは `nil`。
   ///
-  /// 失敗は `announcement` のとおり読み上げる。それ以外は、直前の表示になかった通知があるときだけ読み上げる
-  /// （段階が変わるたびに同じ通知を読み直さない。整形中→挿入中→通知だけを残す、の間に退避の通知を繰り返さない）。
+  /// 表示の種類と文言が同じで `transcript` だけが変わったときは `nil`（Realtime Preview の更新のたびに
+  /// 同じ通知を読み上げ直さない）。それ以外で、失敗は `announcement` のとおり読み上げる。失敗以外は、直前の表示に
+  /// なかった通知があるときだけ読み上げる（段階が変わるたびに同じ通知を読み直さない。整形中→挿入中→通知だけを
+  /// 残す、の間に退避の通知を繰り返さない）。
   /// - Parameter previous: 直前に表示していた内容。隠していた後に表示するときは `nil`
   public func announcement(after previous: HUDPresentation?) -> String? {
     guard let announcement else { return nil }
-    guard indicator != .failure, let previous else { return announcement }
+    guard let previous else { return announcement }
+    if previous.indicator == indicator, previous.title == title, previous.messages == messages {
+      return nil
+    }
+    guard indicator != .failure else { return announcement }
     return Set(noticeTexts).isSubset(of: previous.noticeTexts) ? nil : announcement
   }
 
@@ -119,6 +136,18 @@ public struct HUDPresentation: Hashable, Sendable {
     case .systemSleep: "Mac がスリープした"
     case .microphoneAccessRevoked: "マイクの使用許可が取り消された"
     }
+  }
+}
+
+// Realtime Preview の認識テキストをログに出さないよう、文字列表現とリフレクションでは `transcript` の文字数だけを出す。
+extension HUDPresentation: CustomStringConvertible, CustomReflectable {
+  public var description: String {
+    "HUDPresentation(indicator: \(indicator), title: \(title), messages: \(messages), "
+      + "transcript: \(transcript.map(String.init(describing:)) ?? "nil"))"
+  }
+
+  public var customMirror: Mirror {
+    Mirror(self, children: ["description": description])
   }
 }
 

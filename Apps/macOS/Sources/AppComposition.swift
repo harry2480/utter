@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import UtterAI
@@ -10,12 +11,22 @@ import UtterSpeech
 /// 録音（`AVAudioEngineRecorder`）→ STT Worker → 整形（`SessionRefinementPipeline`）→ 挿入（`InsertionExecutor`）→ HUD と
 /// 入力履歴を `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
 /// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
+/// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
+/// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
+/// 復旧した音声の整形はローカルだけで行い、整形モードは設定画面の保存値を使う（起動時はクラウドへ送らない）。
+/// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
+/// 端末の状態（メモリ圧迫・低電力モード・電源）は起動から終了まで監視し、STT Worker へ送る（`DeviceResourceMonitoring`, 6章, AC-11）。
 @MainActor
 @Observable
 final class AppComposition {
   let hud: HUDController
   let session: SessionCoordinator
   let shortcuts: ShortcutCoordinator
+  /// 起動時の復旧。一時音声の保存先を作れなければ `nil`（保存も復旧もしない）
+  let launchRecovery: LaunchAudioRecovery?
+  /// 端末の状態の監視（6章, AC-11）。録音・認識の有無に関わらず動かす。
+  /// STT Worker の認識器を作らないとき（エンジンが未選択、接続先の Bundle ID が取れない）は、送り先がないため監視もしない（`nil`）
+  let resourceMonitoring: DeviceResourceMonitoring?
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
@@ -25,7 +36,8 @@ final class AppComposition {
       presenter: HUDPanelPresenter(),
       scheduler: TaskHUDRefreshScheduler()
     )
-    let insertion = InsertionExecutor.system(preview: InsertionPreviewPanel())
+    let preview = InsertionPreviewPanel()
+    let insertion = InsertionExecutor.system(preview: preview)
     let engine = Self.selectedEngine()
     // エンジンが選ばれていなければ STT Worker を作らない（SessionCoordinator が「音声認識が設定されていません」を表示する）
     let recognizer = engine.flatMap { STTWorkerComposition.makeRecognizer(engine: $0) }
@@ -33,20 +45,54 @@ final class AppComposition {
     let openDatabase: @MainActor @Sendable () async throws -> UtterDatabase = {
       try await database.database()
     }
+    let audioQueue = TemporaryAudioStoreQueue.applicationStore().map(TemporaryAudioStoreQueue.init)
     let session = SessionCoordinator(
       recorder: AVAudioEngineRecorder(),
       recognizer: recognizer,
       refiner: SessionRefinementPipeline(
         settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase),
+      showsRealtimePreview: Self.showsRealtimePreview(),
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       history: InputHistoryRecorder.standard(database: openDatabase),
       hud: hud,
-      deadlineScheduler: TaskHUDRefreshScheduler())
+      deadlineScheduler: TaskHUDRefreshScheduler(),
+      audioRetention: audioQueue.map(TemporaryAudioRetention.init),
+      recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init))
     self.hud = hud
     self.session = session
-    shortcuts = ShortcutCoordinator(
+    let resourceMonitoring = recognizer.flatMap {
+      STTWorkerComposition.makeResourceMonitoring(for: $0)
+    }
+    self.resourceMonitoring = resourceMonitoring
+    resourceMonitoring?.start()
+    Self.stopAtTermination(resourceMonitoring)
+    let launchRecovery = audioQueue.map {
+      LaunchAudioRecovery(
+        queue: $0, recognizer: recognizer,
+        refinementMode: RefinementMode(settingsStore.load().refinementMode),
+        prompt: AudioRecoveryAlert(), preview: preview, gate: session)
+    }
+    self.launchRecovery = launchRecovery
+    // セッションの保存より先に整理と候補の取得をキューに積む（起動後に録音した音声を候補に含めない）
+    launchRecovery?.start()
+    let shortcuts = ShortcutCoordinator(
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })
+    self.shortcuts = shortcuts
+    // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
+    // Esc の捕捉をセッション中だけ有効にする（REC-01）
+    session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
+  }
+
+  /// アプリの終了時に端末の状態の監視をやめる（通知の登録を残さない）
+  private static func stopAtTermination(_ monitoring: DeviceResourceMonitoring?) {
+    guard let monitoring else { return }
+    // アプリの終了まで登録したままにするため、戻り値（登録の解除に使う）は持たない
+    _ = NotificationCenter.default.addObserver(
+      forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { monitoring.stop() }
+    }
   }
 
   /// 使う STT エンジン。既定のエンジンは Phase 0 の判定（11章）待ちのため、構成で明示的に選ばない限り `nil`。
@@ -60,6 +106,18 @@ final class AppComposition {
       }
     #endif
     return STTWorkerComposition.selectedEngine
+  }
+
+  /// 入力モードが Realtime Preview か（2.2節）。入力モードの設定（#130）を結線するまでは、MVP 標準の Instant を使う。
+  ///
+  /// Debug ビルドに限り起動引数で選べる: `-UtterDebugInputMode realtimePreview`（`instant` は既定と同じ）
+  private static func showsRealtimePreview() -> Bool {
+    #if DEBUG
+      if debugArgument("UtterDebugInputMode") == "realtimePreview" {
+        return true
+      }
+    #endif
+    return false
   }
 
   #if DEBUG

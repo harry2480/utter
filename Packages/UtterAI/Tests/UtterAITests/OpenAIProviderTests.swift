@@ -148,6 +148,16 @@ struct OpenAIProviderTests {
       promptBuilder: RefinementPromptBuilder(makeNonce: { "n0nce" }))
   }
 
+  @Test("AI-04: API キー方式はトークン課金のため、予算上限の設定なしでは送信先にできない")
+  func requiresBudgetForRoute() {
+    let provider = provider(StubTransport(.response(status: 200, body: Self.successBody)))
+
+    #expect(provider.isTokenBilled)
+    #expect(throws: RefinementRouteError.budgetRequired) {
+      try RefinementRoute(provider: provider, budget: nil)
+    }
+  }
+
   @Test("AI-01: Responses API へ1回送信し、ストリームの整形結果と使用量を返す")
   func returnsTextAndUsage() async throws {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))

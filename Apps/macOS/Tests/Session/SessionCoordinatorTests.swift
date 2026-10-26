@@ -26,7 +26,8 @@ struct SessionCoordinatorTests {
     recorder: StubAudioRecorder = StubAudioRecorder(),
     recognizer: (any SpeechRecognizer)? = StubSpeechRecognizer(steps: [.confirmed("こんにちは")]),
     mode: RefinementMode = .raw,
-    configuration: SessionConfiguration = SessionConfiguration()
+    configuration: SessionConfiguration = SessionConfiguration(),
+    recovery: (any SessionRecognitionRecovering)? = nil
   ) -> SessionCoordinator {
     let clock = clock
     let store = AppSettingsStore(defaults: suite.defaults)
@@ -47,6 +48,7 @@ struct SessionCoordinatorTests {
       hud: hud,
       deadlineScheduler: deadlineScheduler,
       audioRetention: retention,
+      recognitionRecovery: recovery,
       now: { clock.now })
   }
 
@@ -83,8 +85,27 @@ struct SessionCoordinatorTests {
         if case .begin(let id) = event { return id }
         return nil
       })
-    #expect(retention.events == [.begin(id), .end(id, completed: true)])
+    // 録音が止まったことを伝えてから（一時音声の保存）、終わりを伝える（削除）
+    #expect(retention.events == [.begin(id), .finishRecording(id), .end(id, completed: true)])
     #expect(await eventually { retention.appendedSampleCount == 1_600 })
+  }
+
+  @Test("REC-01: 状態が変わるたびに onPhaseChange で知らせる（Esc の捕捉をセッション中だけ有効にするため）")
+  func notifiesPhaseChanges() async {
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder)
+    let log = PhaseLog()
+    session.onPhaseChange = { [weak session] in
+      if let session { log.phases.append(session.phase) }
+    }
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    session.toggle()
+    #expect(await eventually { session.phase == .idle })
+
+    #expect(log.phases == [.recording, .recognizing, .refining, .inserting, .idle])
   }
 
   @Test("AI-03, CTX-01: Local Basic は録音開始時の前面アプリのスタイル区分で整形する")
@@ -179,7 +200,7 @@ struct SessionCoordinatorTests {
         if case .begin(let id) = event { return id }
         return nil
       })
-    #expect(retention.events == [.begin(id), .end(id, completed: false)])
+    #expect(retention.lifecycle == [.begin(id), .end(id, completed: false)])
   }
 
   @Test("7章: STT 未設定で録音しなかったセッションは、一時音声の差し込み口に伝えない")
@@ -467,4 +488,155 @@ struct SessionCoordinatorTests {
     #expect(insertedTexts.isEmpty)
     #expect(session.phase == .error(.recording))
   }
+
+  // MARK: STT Worker の異常終了からの再処理（7章, AC-10）
+
+  @Test("AC-10: 認識中に Worker が異常終了したら、録音全体で同じセッションID のまま認識し直して挿入する")
+  func recognizesAgainAfterTerminationWhileRecognizing() async throws {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let recovery = StubRecognitionRecovery(answer: true)
+    let session = coordinator(recorder: recorder, recognizer: recognizer, recovery: recovery)
+
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    session.toggle()
+    #expect(await eventually { recognizer.isAudioFinished(0) })
+    recognizer.send(.failed(.engineFailed), to: 0)
+
+    #expect(await eventually { recognizer.runCount == 2 })
+    #expect(session.phase == .recognizing)
+    #expect(recovery.questions == [.engineFailed])
+    let id = try #require(recognizer.session(of: 0))
+    #expect(recognizer.session(of: 1) == id)
+    #expect(await eventually { recognizer.isAudioFinished(1) })
+    #expect(recognizer.sampleCount(of: 1) == 1_600)
+    recognizer.send(.completed("やり直した結果"), to: 1)
+
+    #expect(await eventually { session.phase == .idle })
+    #expect(insertedTexts == ["やり直した結果"])
+    #expect(retention.events == [.begin(id), .finishRecording(id), .end(id, completed: true)])
+  }
+
+  @Test("AC-10: 録音中に Worker が異常終了しても録音を続け、停止後に録音全体で認識し直す")
+  func keepsRecordingAfterTerminationWhileRecording() async {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let recovery = StubRecognitionRecovery(answer: true)
+    let session = coordinator(recorder: recorder, recognizer: recognizer, recovery: recovery)
+
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    #expect(await eventually { recognizer.sampleCount(of: 0) == 1_600 })
+    recognizer.send(.failed(.engineFailed), to: 0)
+    #expect(
+      await eventually { recognizer.isTerminated(0) && recovery.questions == [.engineFailed] })
+
+    // 録音は止まらず、利用者の停止を待つ
+    for _ in 0..<100 { await Task.yield() }
+    #expect(session.phase == .recording)
+    #expect(recorder.isRecording)
+    recorder.feed([Float](repeating: 0.2, count: 800))
+    session.toggle()
+
+    #expect(await eventually { recognizer.runCount == 2 })
+    #expect(await eventually { recognizer.isAudioFinished(1) })
+    #expect(recognizer.sampleCount(of: 1) == 2_400)
+    recognizer.send(.completed("全体"), to: 1)
+    #expect(await eventually { session.phase == .idle })
+    #expect(insertedTexts == ["全体"])
+  }
+
+  @Test("AC-10: 異常終了でない失敗（やり直さない判断）では、認識し直さずに失敗を表示し、一時音声を手放す")
+  func failsWithoutRecognizingAgain() async throws {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let recovery = StubRecognitionRecovery(answer: false)
+    let session = coordinator(recorder: recorder, recognizer: recognizer, recovery: recovery)
+
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    recognizer.send(.failed(.resourceLimited), to: 0)
+
+    #expect(await eventually { session.phase == .error(.recognition) })
+    #expect(await eventually { !recorder.isRecording })
+    #expect(recovery.questions == [.resourceLimited])
+    #expect(recognizer.runCount == 1)
+    let id = try #require(recognizer.session(of: 0))
+    #expect(retention.lifecycle == [.begin(id), .end(id, completed: false)])
+  }
+
+  @Test("AC-10: 認識し直しても失敗したら、もう一度はやり直さずに失敗を表示する")
+  func failsWhenRecognitionAgainFails() async throws {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let recovery = StubRecognitionRecovery(answer: true)
+    let session = coordinator(recorder: recorder, recognizer: recognizer, recovery: recovery)
+
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    session.toggle()
+    recognizer.send(.failed(.engineFailed), to: 0)
+    #expect(await eventually { recognizer.runCount == 2 })
+    recognizer.send(.failed(.engineFailed), to: 1)
+
+    #expect(await eventually { session.phase == .error(.recognition) })
+    #expect(recognizer.runCount == 2)
+    #expect(recovery.questions == [.engineFailed])
+    #expect(insertedTexts.isEmpty)
+    let id = try #require(recognizer.session(of: 0))
+    #expect(retention.lifecycle == [.begin(id), .end(id, completed: false)])
+  }
+
+  @Test("AC-10, REC-01: 認識し直している間にキャンセルしたら、結果が届いても挿入しない")
+  func cancelWhileRecognizingAgain() async {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let session = coordinator(
+      recorder: recorder, recognizer: recognizer,
+      recovery: StubRecognitionRecovery(answer: true))
+
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    session.toggle()
+    recognizer.send(.failed(.engineFailed), to: 0)
+    #expect(await eventually { recognizer.runCount == 2 })
+    session.cancel()
+
+    #expect(session.phase == .idle)
+    #expect(await eventually { recognizer.isTerminated(1) })
+    recognizer.send(.completed("捨てる"), to: 1)
+    for _ in 0..<100 { await Task.yield() }
+    #expect(insertedTexts.isEmpty)
+    #expect(session.phase == .idle)
+  }
+
+  @Test("AC-10, REC-06: 起動時の復旧で止めている間は開始操作を無視し、解いたら受け付ける")
+  func ignoresStartWhileSuspended() async {
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder)
+
+    #expect(session.suspendIfIdle())
+    #expect(!session.suspendIfIdle())
+    session.toggle()
+    #expect(session.phase == .idle)
+    #expect(inserter.recordCount == 0)
+
+    session.resume()
+    session.toggle()
+    #expect(session.phase == .recording)
+    // 録音中は止められない
+    #expect(!session.suspendIfIdle())
+    session.cancel()
+  }
+}
+
+/// `onPhaseChange` で受け取った状態の記録
+@MainActor
+private final class PhaseLog {
+  var phases: [SessionPhase] = []
 }

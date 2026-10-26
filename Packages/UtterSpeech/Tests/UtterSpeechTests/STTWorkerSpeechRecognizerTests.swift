@@ -161,9 +161,30 @@ struct STTWorkerSpeechRecognizerTests {
     #expect(events.map(\.kind) == [.partial("あし"), .failed(.engineFailed)])
     #expect(events.map(\.sequence) == [0, 1])
     #expect(await terminations.next() == STTWorkerTermination(session: session, canRestart: true))
+    #expect(
+      await recognizer.termination(of: session)
+        == STTWorkerTermination(session: session, canRestart: true))
+    #expect(await recognizer.termination(of: SessionID()) == nil)
     #expect(await recognizer.state == .idle)
     #expect(await recognizer.consecutiveFailures == 1)
     #expect(connector.connections.first?.isInvalidated == true)
+    sleeper.resumeAll()
+  }
+
+  @Test("AC-10: 受け手が異常終了の失敗を受け取った時点で、異常終了したセッションとして答えられる")
+  func answersTerminationWhenFailureArrives() async {
+    let connector = makeConnector(hangs: true)
+    let recognizer = makeRecognizer(connector, restartLimit: 0)
+    let session = SessionID()
+
+    let events = await terminateMidSession(recognizer, connector, session: session)
+
+    // onTermination を待たずに問い合わせる
+    #expect(events.last?.kind == .failed(.engineFailed))
+    #expect(
+      await recognizer.termination(of: session)
+        == STTWorkerTermination(session: session, canRestart: false))
+    _ = await terminations.next()
     sleeper.resumeAll()
   }
 
@@ -223,12 +244,14 @@ struct STTWorkerSpeechRecognizerTests {
   func failsWhenWorkerUnavailable() async {
     let connector = makeConnector(failure: .unavailable)
     let recognizer = makeRecognizer(connector, restartLimit: 0)
+    let session = SessionID()
 
-    let events = await collect(recognizer)
+    let events = await collect(recognizer, session: session)
 
     #expect(events.map(\.kind) == [.failed(.engineFailed)])
     #expect(await recognizer.consecutiveFailures == 1)
     #expect(await recognizer.state == .restartLimitReached)
+    #expect(await recognizer.termination(of: session) == nil)
     let notified = Task { await terminations.next() }
     for _ in 0..<100 { await Task.yield() }
     notified.cancel()

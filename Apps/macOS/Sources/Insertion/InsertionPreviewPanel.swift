@@ -26,6 +26,12 @@ enum InsertionPreviewMessage {
       "前の入力の途中だったため、自動で入力しませんでした。"
     case .cancelled:
       "入力が取り消されたため、自動で入力しませんでした。"
+    case .realtimeDirectStopped(_, wroteText: true):
+      "入力欄が変更された、またはフォーカスが移ったなどのため、途中から自動で入力しませんでした。途中までは入力欄に入っています。全体をコピーできます。"
+    case .realtimeDirectStopped(_, wroteText: false):
+      "入力欄が変更された、またはフォーカスが移ったなどのため、自動で入力しませんでした。"
+    case .recoveredAfterRestart:
+      "前回の終了前に録音した音声から復旧しました。元の入力欄が変わっている可能性があるため、自動で入力しませんでした。"
     }
   }
 }
@@ -45,9 +51,14 @@ final class InsertionPreviewPanel: NSObject, InsertionPreviewPresenting, NSWindo
   }
 
   func showPreview(text: String, cause: InsertionPreviewCause) {
+    showPreview(text: text, message: InsertionPreviewMessage.text(for: cause))
+  }
+
+  /// 理由の文言を指定して表示する（Edit Mode の退避でも使う, AC-14）。文言に文字列の中身を含めない
+  func showPreview(text: String, message: String) {
     let panel = makePanel()
     let view = InsertionPreviewView(
-      text: text, message: InsertionPreviewMessage.text(for: cause),
+      text: text, message: message,
       copy: { [weak self, weak panel] in
         guard let self, let panel else { return }
         self.copy(text, closing: panel)
