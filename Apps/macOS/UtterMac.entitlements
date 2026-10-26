@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS アプリ（UtterMac）の Entitlement。今ある機能が使うものだけを置く（PERM-01）。
+  App Sandbox は使わない（他アプリへの AX 操作のため。docs/ビルド・配布規約.md「署名と識別子」）。
+  Release は Hardened Runtime を有効にするため、マイク（録音）を使う PR で
+  com.apple.security.device.audio-input を true で追加する。
+-->
+<plist version="1.0">
+<dict/>
+</plist>
