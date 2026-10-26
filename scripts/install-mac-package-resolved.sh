@@ -4,7 +4,7 @@
 # 依存の版を固定するファイル（docs/ビルド・配布規約.md「依存」）をプロジェクトの外に置き、生成のたびに写す。
 # Apps/macOS/project.yml の postGenCommand から呼ばれる（xcodegen generate のあとに自動で動く）。
 #
-# 依存の版を変えたとき: project.yml を直して xcodegen generate → xcodebuild -resolvePackageDependencies で
+# 依存の版を変えたとき: Apps/macOS/Specs/Sparkle.yml を直して xcodegen generate → xcodebuild -resolvePackageDependencies で
 # 中の Package.resolved を更新し、scripts/install-mac-package-resolved.sh --update で Apps/macOS/ へ書き戻してコミットする。
 set -euo pipefail
 
