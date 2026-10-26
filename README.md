@@ -34,7 +34,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild → Release の署名設定の検査 → shellcheck → actionlint） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild build/test → Release の署名設定の検査 → shellcheck → actionlint） |
 | `scripts/build-local.sh` | 自前ビルド（各自の Apple ID の開発用署名。秘密情報は不要） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |

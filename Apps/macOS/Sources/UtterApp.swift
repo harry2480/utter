@@ -30,6 +30,7 @@ struct UtterApp: App {
         #endif
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
+    DictionaryEditorScene()
     PermissionOnboardingScene()
     ConsentSettingsScene()
   }

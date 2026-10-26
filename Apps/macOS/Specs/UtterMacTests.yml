@@ -16,6 +16,8 @@ targets:
       # Session が使う型（TaskHUDRefreshScheduler）と、表示の依頼のまとめ（HUDDisplayQueue）。パネルと画面は含めない
       - path: Sources/HUD/TaskHUDRefreshScheduler.swift
       - path: Sources/HUD/HUDDisplayQueue.swift
+      # 辞書の編集画面の状態（View を除く）
+      - path: Sources/Dictionary/DictionaryEditorModel.swift
     dependencies:
       - package: UtterCore
       - package: UtterSpeech

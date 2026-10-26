@@ -21,6 +21,7 @@ struct AppMenu: View {
       EditModeMenuItem(editMode: editMode)
     #endif
     PermissionOnboardingMenuItem()
+    DictionaryEditorMenuItem()
     ConsentSettingsMenuItem()
     Divider()
     QuitMenuItem()
