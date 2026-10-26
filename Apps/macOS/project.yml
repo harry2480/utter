@@ -23,6 +23,8 @@ packages:
     path: ../../Packages/UtterSpeech
   UtterAI:
     path: ../../Packages/UtterAI
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -35,6 +37,7 @@ targets:
       - package: UtterAI
       # XPC STT Worker を utter.app/Contents/XPCServices に組み込む
       - target: UtterSTTWorker
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UtterCore
+import UtterPersistence
 
 /// macOS アプリの起動部（Composition Root）。
 ///
@@ -9,36 +10,62 @@ import UtterCore
 @main
 struct UtterApp: App {
   @State private var composition = AppComposition()
+  @State private var consentSettings = ConsentSettingsModel(
+    controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      let session = composition.session
-      let shortcuts = composition.shortcuts
-      Text(shortcuts.statusText)
-      if let escapeText = shortcuts.escapeStatusText {
-        Text(escapeText)
-      }
-      ForEach(shortcuts.missingPermissions, id: \.self) { permission in
-        Button(GlobalShortcutStatusText.requestTitle(for: permission)) {
-          shortcuts.requestPermission(permission)
-        }
-      }
-      Divider()
-      Button(Self.toggleTitle(session.phase)) {
-        session.toggle()
-      }
-      .disabled(!Self.canToggle(session.phase))
-      // Esc の捕捉（#51 の判定待ち）は既定で無効のため、キャンセルはメニューからも行える（REC-01）
-      Button("キャンセル") {
-        session.cancel()
-      }
-      .disabled(!session.canCancel)
-      Divider()
-      Button("utter を終了") {
-        NSApplication.shared.terminate(nil)
-      }
-      .keyboardShortcut("q")
+      MenuContent(composition: composition)
     }
+    Window("クラウド送信の同意", id: WindowID.consentSettings) {
+      ConsentSettingsView(model: consentSettings)
+    }
+    .windowResizability(.contentMinSize)
+  }
+}
+
+enum WindowID {
+  static let consentSettings = "consentSettings"
+}
+
+/// メニューバーのメニュー
+private struct MenuContent: View {
+  let composition: AppComposition
+  @Environment(\.openWindow) private var openWindow
+
+  var body: some View {
+    let session = composition.session
+    let shortcuts = composition.shortcuts
+    Text(shortcuts.statusText)
+    if let escapeText = shortcuts.escapeStatusText {
+      Text(escapeText)
+    }
+    ForEach(shortcuts.missingPermissions, id: \.self) { permission in
+      Button(GlobalShortcutStatusText.requestTitle(for: permission)) {
+        shortcuts.requestPermission(permission)
+      }
+    }
+    Divider()
+    Button(Self.toggleTitle(session.phase)) {
+      session.toggle()
+    }
+    .disabled(!Self.canToggle(session.phase))
+    // Esc の捕捉（#51 の判定待ち）は既定で無効のため、キャンセルはメニューからも行える（REC-01）
+    Button("キャンセル") {
+      session.cancel()
+    }
+    .disabled(!session.canCancel)
+    Divider()
+    Button("クラウド送信の同意…") {
+      openWindow(id: WindowID.consentSettings)
+      // Dock に出ないアプリのため、開いた画面を前面に出す
+      NSApplication.shared.activate()
+    }
+    Divider()
+    Button("utter を終了") {
+      NSApplication.shared.terminate(nil)
+    }
+    .keyboardShortcut("q")
   }
 
   private static func toggleTitle(_ phase: SessionPhase) -> String {

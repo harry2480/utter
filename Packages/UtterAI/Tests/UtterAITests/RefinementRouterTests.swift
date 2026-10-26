@@ -37,7 +37,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome == RefinementOutcome(text: "明日の会議は10時からです。", source: .cloud, usage: usage))
@@ -51,7 +51,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == "明日の会議は10時からです。")
     #expect(outcome.source == .cloud)
@@ -65,7 +65,7 @@ struct RefinementRouterTests {
     let raw = RefinementRequest(text: "えーと明日の会議", mode: .raw)
 
     let outcome = try await router.refine(
-      raw, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      raw, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
     #expect(outcome == RefinementOutcome(text: "えーと明日の会議", source: .raw))
@@ -77,7 +77,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: ConsentState(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { ConsentState() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
     #expect(
@@ -94,7 +94,7 @@ struct RefinementRouterTests {
       provider: stub, localRefiner: FixedLocalRefiner(text: "ローカル整形"))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome
@@ -107,7 +107,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(
       outcome
@@ -122,7 +122,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == request.text)
     #expect(outcome.fallbackReason == .validationFailed(.empty))
@@ -136,7 +136,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      question, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      question, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.text == question.text)
     #expect(outcome.fallbackReason == .validationFailed(.questionAnswered))
@@ -150,7 +150,7 @@ struct RefinementRouterTests {
     let start = clock.now
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(clock.now - start < .seconds(30))
     #expect(outcome.text == request.text)
@@ -165,7 +165,7 @@ struct RefinementRouterTests {
     let start = clock.now
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(clock.now - start < .seconds(2))
     #expect(outcome.fallbackReason == .providerFailed(.timeout))
@@ -178,7 +178,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub, timeout: .seconds(30))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
   }
@@ -192,7 +192,7 @@ struct RefinementRouterTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+      request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 1)
     #expect(outcome.fallbackReason != nil)
@@ -206,7 +206,7 @@ struct RefinementRouterTests {
     let request = request
     let task = Task {
       try await router.refine(
-        request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+        request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
     }
     while await stub.callCount == 0 {
       await Task.yield()
@@ -229,7 +229,7 @@ struct RefinementRouterTests {
     let start = clock.now
     let task = Task {
       try await router.refine(
-        request, consent: .refinementGranted(), budget: nil, sensitivity: { .allowedInput })
+        request, consent: { .refinementGranted() }, budget: nil, sensitivity: { .allowedInput })
     }
     try await Task.sleep(for: .milliseconds(20))
 
@@ -251,7 +251,7 @@ struct RefinementRouterTests {
     let task = Task {
       withUnsafeCurrentTask { $0?.cancel() }
       return try await router.refine(
-        request, consent: consent, budget: nil, sensitivity: { .allowedInput })
+        request, consent: { consent }, budget: nil, sensitivity: { .allowedInput })
     }
 
     await #expect(throws: CancellationError.self) {

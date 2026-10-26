@@ -50,7 +50,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard),
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
@@ -65,7 +65,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
@@ -81,7 +81,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: ConsentState(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { ConsentState() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: { .allowedInput })
 
     #expect(await stub.callCount == 0)
@@ -100,7 +100,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .fail(error)))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: { .allowedInput })
 
     #expect(outcome.fallbackReason == .providerFailed(error))
@@ -119,7 +119,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .fail(error)))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: { .allowedInput })
 
     #expect(outcome.fallbackReason == .providerFailed(error))
@@ -135,7 +135,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard),
       sensitivity: { .allowedInput })
 
     #expect(outcome.fallbackReason != nil)
@@ -149,7 +149,7 @@ struct RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: StubAIProvider(behavior: .echo))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
@@ -171,7 +171,7 @@ struct RefinementRouterBudgetTests {
     let budget = budget(budgetGuard, expected: 30)
     let task = Task {
       try await router.refine(
-        request, consent: .refinementGranted(), budget: budget, sensitivity: { .allowedInput })
+        request, consent: { .refinementGranted() }, budget: budget, sensitivity: { .allowedInput })
     }
     while await stub.callCount == 0 {
       await Task.yield()
@@ -196,7 +196,7 @@ extension RefinementRouterBudgetTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: { .secureFieldInput })
 
     #expect(await stub.callCount == 0)
@@ -216,7 +216,7 @@ extension RefinementRouterBudgetTests {
     let calls = Mutex(0)
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: {
         let count = calls.withLock { count in
           count += 1
@@ -236,6 +236,35 @@ extension RefinementRouterBudgetTests {
       model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
   }
 
+  @Test("AC-06: 予約を待つ間に同意が撤回されたら、送信せずに予約を取り消す")
+  func cancelsReservationWhenConsentRevoked() async throws {
+    let budgetGuard = try makeGuard(spent: 70)
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    // 予約の前の確認では同意があり、予約を待った後の確認から撤回済みにする
+    let calls = Mutex(0)
+    let consent: @Sendable () -> ConsentState = {
+      let count = calls.withLock { count in
+        count += 1
+        return count
+      }
+      return count == 1 ? .refinementGranted() : ConsentState()
+    }
+
+    let outcome = try await router.refine(
+      request, consent: consent, budget: budget(budgetGuard, expected: 30),
+      sensitivity: { .allowedInput })
+
+    #expect(calls.withLock { $0 } == 2)
+    #expect(await stub.callCount == 0)
+    #expect(
+      outcome == RefinementOutcome(text: request.text, source: .localFallback(.consentNotGranted)))
+    #expect(await budgetGuard.ledger.spent(in: october) == 70)
+    // 予約が取り消されていれば、もう一度同じ見込み費用を予約できる
+    _ = try await budgetGuard.reserve(
+      model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
+  }
+
   @Test("AC-12: 予約できなければ、予約の後の判定はせずに予算超過として退避する")
   func reevaluatesOnlyAfterReservation() async throws {
     let budgetGuard = try makeGuard(spent: 90)
@@ -245,7 +274,7 @@ extension RefinementRouterBudgetTests {
 
     // 2回目の判定を予約の前に行う実装なら、退避の理由が機密入力になる
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(), budget: budget(budgetGuard, expected: 30),
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard, expected: 30),
       sensitivity: {
         let count = calls.withLock { count in
           count += 1
@@ -269,7 +298,7 @@ extension RefinementRouterBudgetTests {
     let calls = Mutex(0)
     let task = Task {
       try await router.refine(
-        request, consent: .refinementGranted(), budget: budget,
+        request, consent: { .refinementGranted() }, budget: budget,
         sensitivity: {
           let count = calls.withLock { count in
             count += 1
