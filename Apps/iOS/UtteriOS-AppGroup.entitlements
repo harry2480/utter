@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Config/Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES のときだけ付ける（#56 の判定待ち。既定では使わない。Apps/iOS/project.yml） -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(UTTER_APP_GROUP_ID)</string>
+	</array>
+</dict>
+</plist>

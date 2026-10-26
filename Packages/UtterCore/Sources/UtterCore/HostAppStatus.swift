@@ -46,4 +46,7 @@ public enum SpeechModelAvailability: Hashable, Sendable, Codable {
   case ready
   /// 未取得（取得中・取得失敗を含む）。取得するまで認識できない
   case notDownloaded
+  /// 取得するモデルがない（STT エンジンが未設定、またはこの端末・言語では使えない）。
+  /// 本体アプリで取得しても解決しないため、モデルの案内を出さない
+  case notApplicable
 }

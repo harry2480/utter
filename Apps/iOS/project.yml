@@ -21,8 +21,15 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterSpeech:
+    path: ../../Packages/UtterSpeech
+  UtterAI:
+    path: ../../Packages/UtterAI
   UtterPersistence:
     path: ../../Packages/UtterPersistence
+  # 録音セッションの進行・割り込みの変換・結果の保存先の選択・クラウド整形の結線（OS の API を使わずにテストする部分）
+  UtteriOSKit:
+    path: UtteriOSKit
 targets:
   UtteriOS:
     type: application
@@ -31,6 +38,10 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterAI
+      - package: UtterPersistence
+      - package: UtteriOSKit
       - target: UtterKeyboard
         embed: true
     settings:
@@ -44,12 +55,25 @@ targets:
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: "YES"
+        # 自動生成に足す独自のキー（App Group ID）だけを置く
+        INFOPLIST_FILE: Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: utter
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        # 権限の用途説明（マイク・音声認識など）・App Group・Entitlement は、その機能を実装する PR で追加する（PERM-01）。
-        # App Group は無料署名で使えるかの判定（#56）待ちで、共有結果を書き込む実装の PR で本体アプリにも追加する
+        # 権限の用途説明（PERM-01）。音声認識の権限は SpeechAnalyzer を選んだとき（UTTER_IOS_STT_ENGINE）だけ求める。
+        # SpeechAnalyzer に要るかは未確認で、Verification/iOSSTTProbe と同じく求めてから使う（不要と分かれば外す）
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 話した内容を文字にするため、録音中だけマイクを使います。音声は保存・送信しません。
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: 話した内容を端末内で文字にするため、音声認識を使います。音声は端末の外に送りません。
+        # App Group は無料署名で使えるかの判定（#56）待ちのため既定では使わない。キーボード拡張と同じく
+        # Config/Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES と UTTER_APP_GROUP_ID を設定したときだけ有効にする。
+        # 無効なら Entitlement を付けず、Info.plist の App Group ID を空にする（共有結果・本体アプリの状態を書かない）
+        CODE_SIGN_ENTITLEMENTS: $(UTTER_IOS_ENTITLEMENTS_$(UTTER_APP_GROUP_ENABLED))
+        UTTER_IOS_ENTITLEMENTS_YES: UtteriOS-AppGroup.entitlements
+        UTTER_IOS_ENTITLEMENTS_NO: ""
+        UTTER_IOS_APP_GROUP_ID: $(UTTER_IOS_APP_GROUP_ID_$(UTTER_APP_GROUP_ENABLED))
+        UTTER_IOS_APP_GROUP_ID_YES: $(UTTER_APP_GROUP_ID)
+        UTTER_IOS_APP_GROUP_ID_NO: ""
   # カスタムキーボード（Extensions/iOSKeyboard）。UtterCore と UtterPersistence だけに依存する（iAC-08）。
   # UtterSpeech・UtterAI をリンクせず、マイク・STT モデル・クラウド認証トークンを持たない
   UtterKeyboard:

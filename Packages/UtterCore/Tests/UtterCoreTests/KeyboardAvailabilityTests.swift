@@ -175,6 +175,8 @@ struct KeyboardAvailabilityTests {
       (.ready, .online, true, []),
       (.ready, .offline, true, [.cloudRefinementOffline]),
       (.ready, .unknown, true, []),
+      (.notApplicable, .online, false, []),
+      (.notApplicable, .offline, true, [.cloudRefinementOffline]),
       (.notDownloaded, .online, false, [.speechModelNotDownloaded]),
       (.notDownloaded, .online, true, [.speechModelNotDownloaded]),
       (.notDownloaded, .unknown, true, [.speechModelNotDownloaded]),
