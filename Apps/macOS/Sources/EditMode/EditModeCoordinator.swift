@@ -208,12 +208,13 @@ final class EditModeCoordinator {
     }
     let outcome: EditOutcome
     do {
-      // `EditRouter` は同期的に判定を求めるため、送る直前にここで判定した値を渡す。Router は予約を待った後にも判定を求めるが、
-      // 入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の変化はここでの判定までしか反映しない
+      // `EditRouter` は同期的に同意と判定を求めるため、送る直前にここで読んだ値を渡す。Router は予約を待った後にも求めるが、
+      // 同意と入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の変化はここまでしか反映しない
+      let consentState = consent()
       let decision = sensitiveDecision(
         secureField: field.secureField(of: edit.target), app: edit.app)
       outcome = try await router.edit(
-        request, consent: consent(), budget: budget(), sensitivity: { decision })
+        request, consent: { consentState }, budget: budget(), sensitivity: { decision })
     } catch {
       return .superseded
     }
