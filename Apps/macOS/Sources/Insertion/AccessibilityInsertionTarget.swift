@@ -3,13 +3,15 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Foundation
 import UtterCore
+import UtterText
 
-/// Accessibility API による入力対象の取得と読み書き（INS-01, INS-02, INS-05）。Edit Mode の選択範囲の読み取り・選び直し（AC-14）も行う。
+/// Accessibility API による入力対象の取得と読み書き（INS-01, INS-02, INS-05）と、Realtime Direct の範囲の置き換え（AC-15）。
+/// Edit Mode の選択範囲の読み取り・選び直し（AC-14）も行う。
 ///
 /// AXInsertionProbe（#41）と同じ方法を使う。入力欄の値はメモリ上の比較にだけ使い、記録・表示しない。
 /// Accessibility が未許可なら、フォーカス中の要素は取れず（`nil`）、書き込みは送信前の失敗になる。
 @MainActor
-final class AccessibilityInsertionTarget: InsertionTargetInspector, InsertionFieldAccess,
+final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDirectFieldAccess,
   EditFieldAccess
 {
   /// 応答しないアプリで固まらないように、問い合わせの待ち時間を短くする（秒）
@@ -76,6 +78,30 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, InsertionFie
     let error = AXUIElementSetAttributeValue(
       element, Attribute.selectedText as CFString, text as CFString)
     return error == .success ? .succeeded : .failedAfterSend
+  }
+
+  // MARK: RealtimeDirectFieldAccess
+
+  func replace(
+    _ range: UTF16TextRange, with replacement: String, caretLocation: Int,
+    in target: InsertionTargetID
+  ) -> InsertionResponse {
+    guard let element = registry.element(for: target)?.element,
+      isSettable(element, Attribute.selectedTextRange),
+      isSettable(element, Attribute.selectedText)
+    else { return .rejectedBeforeSend }
+    // 範囲を選択してから選択中のテキストを置き換える。値全体（AXValue）の書き換えと違い、アプリ標準の Undo に載りやすい
+    // 成功を返しても範囲を変えないアプリでは、今のカーソル位置へ書き込んでしまうため、選択できたことを読み戻して確かめる
+    guard setSelection(element, location: range.location, length: range.length),
+      selection(element) == FieldSnapshot.Selection(location: range.location, length: range.length)
+    else {
+      return .rejectedBeforeSend
+    }
+    let error = AXUIElementSetAttributeValue(
+      element, Attribute.selectedText as CFString, replacement as CFString)
+    guard error == .success else { return .failedAfterSend }
+    return setSelection(element, location: caretLocation, length: 0)
+      ? .succeeded : .failedAfterSend
   }
 
   // MARK: EditFieldAccess（Edit Mode, AC-14）
@@ -159,6 +185,13 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, InsertionFie
       return nil
     }
     return FieldSnapshot.Selection(location: range.location, length: range.length)
+  }
+
+  private func setSelection(_ element: AXUIElement, location: Int, length: Int) -> Bool {
+    var range = CFRange(location: location, length: length)
+    guard let value = AXValueCreate(.cfRange, &range) else { return false }
+    return AXUIElementSetAttributeValue(element, Attribute.selectedTextRange as CFString, value)
+      == .success
   }
 
   private func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool {

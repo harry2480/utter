@@ -12,9 +12,15 @@ struct AppMenu: View {
 
   var body: some View {
     // 機能ごとの項目。1機能1行で、関係する機能の近くに足す
+    ShortcutStatusMenuItem()
+    Divider()
+    SessionMenuItems()
+    Divider()
     #if DEBUG
+      RealtimeDirectDebugMenuItem()
       EditModeMenuItem(editMode: editMode)
     #endif
+    PermissionOnboardingMenuItem()
     ConsentSettingsMenuItem()
     Divider()
     QuitMenuItem()
