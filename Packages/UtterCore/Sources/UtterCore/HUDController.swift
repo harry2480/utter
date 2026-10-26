@@ -20,6 +20,9 @@ public protocol HUDRefreshScheduling: AnyObject {
 /// `HUDPresenting` に表示・非表示を依頼し、通知を消す時刻と失敗の表示を終える時刻に `HUDRefreshScheduling` で更新を予約する。
 /// 失敗の表示時間が過ぎたら `onErrorDisplayExpired` を1回呼ぶ。受け取った側は
 /// `SessionStateMachine.dismissError()` を呼んで `update(from:)` で反映する（反映するまで失敗を表示し続ける）。
+///
+/// 入力モードが Realtime Preview なら、認識のイベントのたびに `updateTranscript(_:for:)` で認識テキストを渡す（2.2節, AC-03）。
+/// 認識テキストは渡したセッションの録音中・認識中だけ表示し、別のセッションになるか他の段階へ進んだら捨てる。
 @MainActor
 public final class HUDController {
   public private(set) var state: HUDState
@@ -33,6 +36,12 @@ public final class HUDController {
   private let now: @MainActor () -> ContinuousClock.Instant
   /// `onErrorDisplayExpired` を呼び終えた失敗の表示期限
   private var expiredErrorDeadline: ContinuousClock.Instant?
+  /// 表示中のセッション
+  private var sessionID: SessionID?
+  /// 認識テキストを表示する段階（録音中・認識中）か
+  private var showsTranscript = false
+  /// 表示中のセッションの Realtime Preview の認識テキスト
+  private var transcript: HUDTranscript?
 
   /// - Parameters:
   ///   - now: 現在時刻。テストでは固定・手動で進める時刻を渡す
@@ -61,12 +70,28 @@ public final class HUDController {
   ) {
     state.update(
       phase: phase, activeSession: activeSession, failureNotice: failureNotice, at: now())
+    // 前のセッションの発話と、録音中・認識中を過ぎた後の認識テキストを残さない
+    showsTranscript = phase == .recording || phase == .recognizing
+    if activeSession?.id != sessionID || !showsTranscript {
+      transcript = nil
+    }
+    sessionID = activeSession?.id
+    refresh()
+  }
+
+  /// Realtime Preview の認識テキストを反映する（2.2節, AC-03）。
+  ///
+  /// `session` が表示中のセッションでなければ（キャンセル済み・別のセッション）、録音中・認識中でなければ何もしない。
+  /// 入力モードが Instant なら呼ばない。
+  public func updateTranscript(_ transcript: HUDTranscript?, for session: SessionID) {
+    guard session == sessionID, showsTranscript else { return }
+    self.transcript = transcript
     refresh()
   }
 
   private func refresh() {
     let now = now()
-    let next = state.content(at: now).flatMap(HUDPresentation.init)
+    let next = state.content(at: now).flatMap { HUDPresentation($0, transcript: transcript) }
     if next != presentation {
       presentation = next
       if let next {

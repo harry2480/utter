@@ -58,6 +58,8 @@ targets:
         # 権限の用途説明と Entitlement は、その機能を実装する PR で追加する（PERM-01）
         # マイクの用途説明は Specs/Microphone.yml に置く
         # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
+        # 修飾キー単独（入力監視）と Esc 捕捉（アクセシビリティ）は #51 の判定待ちで既定で無効。
+        # どちらも Info.plist の用途説明キーはなく、メニューの文言で用途を示し、利用者の操作でだけ要求する
         # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
         # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
         # Entitlement は UtterMac.entitlements に足す。Release は Hardened Runtime のため、

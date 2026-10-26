@@ -78,6 +78,24 @@ struct SessionCoordinatorTests {
     #expect(await eventually { retention.appendedSampleCount == 1_600 })
   }
 
+  @Test("REC-01: 状態が変わるたびに onPhaseChange で知らせる（Esc の捕捉をセッション中だけ有効にするため）")
+  func notifiesPhaseChanges() async {
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder)
+    let log = PhaseLog()
+    session.onPhaseChange = { [weak session] in
+      if let session { log.phases.append(session.phase) }
+    }
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    session.toggle()
+    #expect(await eventually { session.phase == .idle })
+
+    #expect(log.phases == [.recording, .recognizing, .refining, .inserting, .idle])
+  }
+
   @Test("AI-03, CTX-01: Local Basic は録音開始時の前面アプリのスタイル区分で整形する")
   func refinesWithLocalBasic() async {
     let text = "えーと、ls -la を実行して"
@@ -578,4 +596,10 @@ struct SessionCoordinatorTests {
     #expect(!session.suspendIfIdle())
     session.cancel()
   }
+}
+
+/// `onPhaseChange` で受け取った状態の記録
+@MainActor
+private final class PhaseLog {
+  var phases: [SessionPhase] = []
 }

@@ -11,8 +11,9 @@ targets:
       - path: Sources/Session
       # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
       - path: Sources/Recovery
-      # Session が使う型（TaskHUDRefreshScheduler）。パネルと画面は含めない
+      # Session が使う型（TaskHUDRefreshScheduler）と、表示の依頼のまとめ（HUDDisplayQueue）。パネルと画面は含めない
       - path: Sources/HUD/TaskHUDRefreshScheduler.swift
+      - path: Sources/HUD/HUDDisplayQueue.swift
     dependencies:
       - package: UtterCore
       - package: UtterSpeech

@@ -5,5 +5,4 @@ packages:
 targets:
   UtterMac:
     dependencies:
-      # 一時音声の保存と起動時の復旧（7章, AC-10）
       - package: UtterPersistence

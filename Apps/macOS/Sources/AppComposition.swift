@@ -11,6 +11,7 @@ import UtterSpeech
 /// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
+/// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
 @MainActor
 @Observable
 final class AppComposition {
@@ -36,6 +37,7 @@ final class AppComposition {
       recorder: AVAudioEngineRecorder(),
       recognizer: recognizer,
       refinementMode: refinementMode,
+      showsRealtimePreview: Self.showsRealtimePreview(),
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       hud: hud,
       deadlineScheduler: TaskHUDRefreshScheduler(),
@@ -43,16 +45,21 @@ final class AppComposition {
       recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init))
     self.hud = hud
     self.session = session
-    launchRecovery = audioQueue.map {
+    let launchRecovery = audioQueue.map {
       LaunchAudioRecovery(
         queue: $0, recognizer: recognizer, refinementMode: refinementMode,
         prompt: AudioRecoveryAlert(), preview: preview, gate: session)
     }
+    self.launchRecovery = launchRecovery
     // セッションの保存より先に整理と候補の取得をキューに積む（起動後に録音した音声を候補に含めない）
     launchRecovery?.start()
-    shortcuts = ShortcutCoordinator(
+    let shortcuts = ShortcutCoordinator(
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })
+    self.shortcuts = shortcuts
+    // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
+    // Esc の捕捉をセッション中だけ有効にする（REC-01）
+    session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
   }
 
   /// 使う STT エンジン。既定のエンジンは Phase 0 の判定（11章）待ちのため、構成で明示的に選ばない限り `nil`。
@@ -80,6 +87,18 @@ final class AppComposition {
       }
     #endif
     return .raw
+  }
+
+  /// 入力モードが Realtime Preview か（2.2節）。入力モードの設定（#130）を結線するまでは、MVP 標準の Instant を使う。
+  ///
+  /// Debug ビルドに限り起動引数で選べる: `-UtterDebugInputMode realtimePreview`（`instant` は既定と同じ）
+  private static func showsRealtimePreview() -> Bool {
+    #if DEBUG
+      if debugArgument("UtterDebugInputMode") == "realtimePreview" {
+        return true
+      }
+    #endif
+    return false
   }
 
   #if DEBUG
