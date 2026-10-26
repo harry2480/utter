@@ -20,6 +20,7 @@ struct RefinementRouterTests {
   private struct UncooperativeProvider: AIProvider {
     let delay: Duration
     var destination: CloudAIProviderKind { .claude }
+    var isTokenBilled: Bool { true }
 
     func refine(_ request: RefinementRequest) async throws(AIProviderError) -> RefinementResponse {
       let delay = delay

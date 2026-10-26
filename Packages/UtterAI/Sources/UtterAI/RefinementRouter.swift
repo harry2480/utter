@@ -95,15 +95,22 @@ public struct RefinementRouter: Sendable {
       }
       throw CancellationError()
     }
-    // 予約を待つ間に同意が撤回されたら、送信せずに予約を取り消す
-    if let budget, let reservation, !consent().allows(.textRefinement(provider.destination)) {
-      await budget.guard.cancel(reservation)
-      return fallback(request, reason: .consentNotGranted)
-    }
-    // 予約を待つ間に入力先が機密入力へ変わったら、送信せずに予約を取り消す
-    if let budget, let reservation, !sensitivity().allowsCloudTransmission {
-      await budget.guard.cancel(reservation)
-      return fallback(request, reason: .sensitiveInputSuppressed)
+    // 予約を待つ間に同意が撤回されたか、入力先が機密入力へ変わったら、送信せずに予約を取り消す
+    if let budget, let reservation {
+      var reason: RefinementFallbackReason?
+      if !consent().allows(.textRefinement(provider.destination)) {
+        reason = .consentNotGranted
+      } else if !sensitivity().allowsCloudTransmission {
+        reason = .sensitiveInputSuppressed
+      }
+      if let reason {
+        await budget.guard.cancel(reservation)
+        // 取り消しを待つ間にキャンセルされたら、退避の結果を返さない
+        if Task.isCancelled {
+          throw CancellationError()
+        }
+        return fallback(request, reason: reason)
+      }
     }
 
     let result = await requestWithTimeout(request)

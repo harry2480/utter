@@ -16,6 +16,8 @@ public actor StubAIProvider: AIProvider {
   }
 
   public nonisolated let destination: CloudAIProviderKind
+  /// Claude の送信先として振る舞うときだけ、トークン課金の送信先として申告する
+  public nonisolated var isTokenBilled: Bool { destination == .claude }
   public private(set) var behavior: Behavior
   /// 振る舞いを返すまでの遅延
   public private(set) var delay: Duration
