@@ -295,7 +295,7 @@ iOS 専用の数値目標（p50/p95、ピークメモリ、10分連続使用時�
 
 | 手順 | 自動で確認していること | テスト・検査 |
 |---|---|---|
-| 3-1 | 同意がない・撤回した状態では、AI プロバイダーと HTTP 送信を呼ばない（Stub の呼び出し回数が0） | `RefinementRouterTests`「AC-06: 同意がオフのときはプロバイダーを呼ばずローカル結果を返す」、`ClaudeProviderTests`「AC-06: 同意がなければ RefinementRouter は送信しない」、`RefinementRouterBudgetTests`「AC-06: 同意がないときは予約も送信もしない」、`ConsentStateTests`、`EditSessionTests`（AC-06） |
+| 3-1 | 同意がない・撤回した状態では、AI プロバイダーと HTTP 送信を呼ばない（Stub の呼び出し回数が0） | `RefinementRouterTests`「AC-06: 同意がオフのときはプロバイダーを呼ばずローカル結果を返す」、`ClaudeProviderTests`「AC-06: 同意がなければ RefinementRouter は送信しない」、`RefinementRouterBudgetTests`「AC-06: 同意がないときは予約も送信もしない」「AC-06: 予約を待つ間に同意が撤回されたら、送信せずに予約を取り消す」、`ConsentStateTests`、`EditSessionTests`（AC-06） |
 | 3-2 | 送信する入力が整形対象の文字列・整形モード・スタイル区分・辞書語だけ | `RefinementRequestTests`（CTX-03）、`RefinementPromptBuilderTests`（CTX-03） |
 | 3-4 | 本文・API キーを持つ型の `String(describing:)`・`String(reflecting:)`・`Mirror` の子要素に、本文・キー・辞書語が出ない | `ClaudeProviderTests`「AI-06: 文字列表現に API キーを含めない」、`RefinementRequestTests`（CTX-03 の文字列表現、AI-06 の応答）、`RefinementPromptBuilderTests`「TXT-04: 文字列表現とリフレクションに発話と辞書語を含めない」、`RefinementRouterTests`「AC-16: 結果の文字列表現に本文を含めない」、`RecognitionEventTests`（認識イベントと音声チャンク）、`SharedResultTests`「iOS-IPC-01: 文字列表現とリフレクションに本文を含めない」 |
 | 3-4 | 上記に加えて `dump` の出力にも本文が出ない | `StubAIProviderTests`「iAC-10: 振る舞いの文字列表現とリフレクションに応答の本文を含めない」、`SharedResultInsertionCoordinatorTests`「iOS-05, iAC-10: プレビューの文字列表現とリフレクションに本文を出さない」 |
