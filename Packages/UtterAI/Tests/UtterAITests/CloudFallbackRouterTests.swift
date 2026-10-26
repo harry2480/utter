@@ -414,6 +414,23 @@ struct CloudFallbackRouterTests {
     _ = try RefinementRoute(provider: StubAIProvider(destination: .chatGPT), budget: nil)
   }
 
+  /// `.chatGPT` を送信先とする、トークン課金のプロバイダー（OpenAI API キー方式に相当）
+  private struct TokenBilledProvider: AIProvider {
+    var destination: CloudAIProviderKind { .chatGPT }
+    var isTokenBilled: Bool { true }
+
+    func refine(_ request: RefinementRequest) async throws(AIProviderError) -> RefinementResponse {
+      RefinementResponse(text: request.text)
+    }
+  }
+
+  @Test("AI-04: トークン課金の送信先は、送信先の種類によらず予算上限の設定なしでは作れない")
+  func requiresBudgetForTokenBilledProvider() throws {
+    #expect(throws: RefinementRouteError.budgetRequired) {
+      try RefinementRoute(provider: TokenBilledProvider(), budget: nil)
+    }
+  }
+
   @Test("AC-16: 上限時間が正でなければ作れない")
   func rejectsNonPositiveTimeout() {
     #expect(throws: RefinementRouterError.nonPositiveTimeout) {
