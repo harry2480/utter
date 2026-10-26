@@ -121,6 +121,8 @@ struct AppSettingsTests {
       refinementMode: .structured,
       refinementEngine: .cloudAI,
       appStyleOverrides: ["com.apple.terminal": .command, "com.microsoft.word": .document],
+      siteIdentificationAllowed: true,
+      siteStyleOverrides: ["mail.example.com": .polite],
       refinementModel: "model-a",
       priceTable: try priceTable(),
       monthlyBudget: budget,
@@ -682,6 +684,87 @@ struct AppSettingsTests {
     #expect(try decode(#""settings""#) == AppSettings())
   }
 
+  // MARK: - サイト別のスタイル（CTX-02）
+
+  @Test("CTX-02: サイト単位の識別は既定で許可せず、サイト別の上書きもない")
+  func siteIdentificationIsDisabledByDefault() {
+    let settings = AppSettings()
+
+    #expect(!settings.siteIdentificationAllowed)
+    #expect(settings.siteStyleOverrides.isEmpty)
+    #expect(!settings.contextStyleResolver.site.needsSiteHost)
+  }
+
+  @Test("CTX-02: サイト別の上書きのキーはホスト名に正規化し、正規化できないキーは除く")
+  func siteOverridesAreNormalized() {
+    var settings = AppSettings(
+      siteStyleOverrides: [
+        "WWW.Example.com.": .polite, "example.com:8080": .technical, "": .concise,
+      ])
+    #expect(settings.siteStyleOverrides == ["example.com": .polite])
+
+    settings.siteStyleOverrides["Docs.Example.com"] = .document
+    #expect(settings.siteStyleOverrides["docs.example.com"] == .document)
+    #expect(settings.siteStyleOverrides["Docs.Example.com"] == nil)
+  }
+
+  @Test("CTX-02: 許可があるときだけサイト別の上書きをアプリ別より優先する")
+  func contextStyleResolverUsesSiteOverridesOnlyWhenAllowed() throws {
+    let host = try #require(SiteHost(host: "mail.example.com"))
+    var settings = AppSettings(
+      appStyleOverrides: ["com.apple.Safari": .document],
+      siteStyleOverrides: ["mail.example.com": .polite])
+
+    #expect(
+      settings.contextStyleResolver.style(forBundleID: "com.apple.safari", siteHost: host)
+        == .document)
+
+    settings.siteIdentificationAllowed = true
+    #expect(
+      settings.contextStyleResolver.style(forBundleID: "com.apple.safari", siteHost: host)
+        == .polite)
+    // 既定の対応表はアプリ別の上書きの下に残る（CTX-01）
+    #expect(settings.contextStyleResolver.style(forBundleID: "com.apple.mail") == .polite)
+  }
+
+  @Test("CTX-02: サイト別の項目がない版 2 の保存値は、許可なし・上書きなしで読む")
+  func version2WithoutSiteFieldsUsesDefaults() throws {
+    let settings = try decode(#"{"version": 2, "historyEnabled": true}"#)
+
+    #expect(settings.historyEnabled)
+    #expect(!settings.siteIdentificationAllowed)
+    #expect(settings.siteStyleOverrides.isEmpty)
+  }
+
+  @Test("CTX-02: 読めない許可は未許可に倒し、読めない・正規化できない上書きだけを除く")
+  func corruptedSiteFieldsRevertPerEntry() throws {
+    let settings = try decode(
+      """
+      {
+        "version": 2,
+        "siteIdentificationAllowed": "yes",
+        "siteStyleOverrides": {
+          "Example.com": {"polite": {}},
+          "bad host": {"concise": {}},
+          "docs.example.com": {"unknownStyle": {}}
+        }
+      }
+      """)
+
+    #expect(!settings.siteIdentificationAllowed)
+    #expect(settings.siteStyleOverrides == ["example.com": .polite])
+  }
+
+  @Test("CTX-02: 版 1 の保存値にサイト別の項目があっても読まない")
+  func version1IgnoresSiteFields() throws {
+    let settings = try decode(
+      #"{"version": 1, "siteIdentificationAllowed": true, "siteStyleOverrides": {"example.com": {"polite": {}}}}"#
+    )
+
+    #expect(!settings.siteIdentificationAllowed)
+    #expect(settings.siteStyleOverrides.isEmpty)
+  }
+
   // MARK: - 秘密情報
 
   @Test("AC-06, 7章: 保存する項目は決まったものだけで、API キー・トークンを入れる項目を持たない")
@@ -695,7 +778,8 @@ struct AppSettingsTests {
     #expect(
       Set(object.keys) == [
         "version", "maxRecordingDuration", "recordingTrigger", "recordingShortcut", "inputMode",
-        "refinementMode", "refinementEngine", "appStyleOverrides", "refinementModel",
+        "refinementMode", "refinementEngine", "appStyleOverrides", "siteIdentificationAllowed",
+        "siteStyleOverrides", "refinementModel",
         "priceTable", "monthlyBudget", "consentState", "historyEnabled", "modelRetentionMode",
         "performanceRetentionAllowed", "excludedApps",
       ])
