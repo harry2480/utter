@@ -27,7 +27,7 @@ include:
     relativePaths: false
   - path: Specs/UtterPersistence.yml
     relativePaths: false
-  - path: Specs/ClaudeAPIKeySettings.yml
+  - path: Specs/Entitlements.yml
     relativePaths: false
 targets:
   UtterMac:
