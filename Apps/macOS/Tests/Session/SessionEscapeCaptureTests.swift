@@ -32,7 +32,7 @@ struct SessionEscapeCaptureTests {
     let session = SessionCoordinator(
       recorder: recorder,
       recognizer: recognizer,
-      refinementMode: .raw,
+      refiner: StubSessionRefiner(),
       inserter: inserter,
       hud: hud,
       deadlineScheduler: deadlineScheduler,
@@ -142,7 +142,7 @@ struct SessionEscapeCaptureTests {
   @Test("REC-01: 状態が変わったときだけ onPhaseChange を呼ぶ")
   func phaseChangeNotifiedOnlyOnChange() async {
     let session = SessionCoordinator(
-      recorder: recorder, recognizer: recognizer, refinementMode: .raw, inserter: inserter,
+      recorder: recorder, recognizer: recognizer, refiner: StubSessionRefiner(), inserter: inserter,
       hud: hud, deadlineScheduler: deadlineScheduler, now: { [clock] in clock.now })
     var phases: [SessionPhase] = []
     session.onPhaseChange = { [weak session] in phases.append(session?.phase ?? .idle) }

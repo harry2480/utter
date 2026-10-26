@@ -52,6 +52,18 @@ final class StubScheduler: HUDRefreshScheduling, SessionDeadlineScheduling {
   }
 }
 
+/// 認識したテキストを変えずに返す整形（Raw 相当）。整形の選択を扱わないテストで使う
+@MainActor
+final class StubSessionRefiner: SessionRefining {
+  func refine(
+    _ transcript: String,
+    frontmostApp: String?,
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+  ) async throws(CancellationError) -> SessionRefinementResult {
+    SessionRefinementResult(text: transcript, route: .localOnly(.rawMode))
+  }
+}
+
 /// 入力対象の記録と挿入を記録する。`holdsInsertion` なら `resumeInsertion()` まで挿入を終えない。
 @MainActor
 final class StubSessionInserter: SessionTextInserting {
@@ -83,6 +95,16 @@ final class StubSessionInserter: SessionTextInserting {
   func resumeInsertion() {
     pending?.resume()
     pending = nil
+  }
+
+  /// 今の入力先の状態。既定は機密入力でない入力欄
+  var sensitiveContext = SensitiveInputContext(
+    secureField: .off, secureEventInput: .off, app: "com.example.editor")
+  private(set) var sensitiveContextRequests = 0
+
+  func sensitiveInputContext(for target: RecordedInsertionTarget) -> SensitiveInputContext {
+    sensitiveContextRequests += 1
+    return sensitiveContext
   }
 }
 

@@ -14,8 +14,7 @@ struct SettingsScene: Scene {
   /// 「API キー」タブの状態（AC-12）
   @State private var apiKeyModel: APIKeySettingsModel
 
-  /// - Parameter claudeAPIKeyStore: Claude API キーの保存先。
-  ///   Claude 整形の `ClaudeProvider(apiKeyStore:)` と同じものを渡す
+  /// - Parameter claudeAPIKeyStore: Claude API キーの保存先。整形（`SessionRefinementPipeline`）と同じものを渡す
   init(claudeAPIKeyStore: any APIKeyStore) {
     _apiKeyModel = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
   }

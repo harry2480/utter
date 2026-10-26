@@ -1,6 +1,7 @@
 import Testing
 import UtterAI
 import UtterCore
+import UtterPersistence
 import UtterSpeech
 
 /// 録音 → 認識 → 整形 → 挿入 → HUD の調停（REC-01〜06, INS-01, AC-02, AC-09）。録音・認識・挿入・HUD は Stub に置き換える。
@@ -13,8 +14,10 @@ struct SessionCoordinatorTests {
   let inserter = StubSessionInserter()
   let retention = StubAudioRetention()
   let hud: HUDController
+  private let suite: TestDefaults
 
-  init() {
+  init() throws {
+    suite = try TestDefaults()
     let clock = clock
     hud = HUDController(presenter: presenter, scheduler: hudScheduler, now: { clock.now })
   }
@@ -27,11 +30,20 @@ struct SessionCoordinatorTests {
     recovery: (any SessionRecognitionRecovering)? = nil
   ) -> SessionCoordinator {
     let clock = clock
+    let store = AppSettingsStore(defaults: suite.defaults)
+    // 整形は既定の Local Basic（送信しない）で、整形モードだけを変える
+    try? store.save(AppSettings(refinementMode: RefinementModeSetting(mode)))
+    let database = try? UtterDatabase.inMemory()
     return SessionCoordinator(
       configuration: configuration,
       recorder: recorder,
       recognizer: recognizer,
-      refinementMode: mode,
+      refiner: SessionRefinementPipeline(
+        settingsStore: store, apiKeyStore: StubAPIKeyStore(),
+        database: {
+          guard let database else { throw CancellationError() }
+          return database
+        }),
       inserter: inserter,
       hud: hud,
       deadlineScheduler: deadlineScheduler,

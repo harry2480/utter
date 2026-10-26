@@ -24,7 +24,7 @@ struct SessionRealtimePreviewTests {
     return SessionCoordinator(
       recorder: recorder,
       recognizer: recognizer,
-      refinementMode: .raw,
+      refiner: StubSessionRefiner(),
       showsRealtimePreview: realtimePreview,
       inserter: inserter,
       hud: hud,

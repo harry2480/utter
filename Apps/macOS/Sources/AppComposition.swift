@@ -8,10 +8,12 @@ import UtterSpeech
 
 /// アプリ全体で1つずつ持つ部品の組み立て（Composition Root）。
 ///
-/// 録音（`AVAudioEngineRecorder`）→ STT Worker → ローカル整形 → 挿入（`InsertionExecutor`）→ HUD を
-/// `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// 録音（`AVAudioEngineRecorder`）→ STT Worker → 整形（`SessionRefinementPipeline`）→ 挿入（`InsertionExecutor`）→ HUD と
+/// 入力履歴を `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
+/// 復旧した音声の整形はローカルだけで行い、整形モードは設定画面の保存値を使う（起動時はクラウドへ送らない）。
 /// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
 /// 端末の状態（メモリ圧迫・低電力モード・電源）は起動から終了まで監視し、STT Worker へ送る（`DeviceResourceMonitoring`, 6章, AC-11）。
 @MainActor
@@ -26,7 +28,10 @@ final class AppComposition {
   /// STT Worker の認識器を作らないとき（エンジンが未選択、接続先の Bundle ID が取れない）は、送り先がないため監視もしない（`nil`）
   let resourceMonitoring: DeviceResourceMonitoring?
 
-  init() {
+  /// - Parameters:
+  ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
+  ///   - database: 辞書・推定費用の累計・入力履歴のデータベース（入力履歴の画面と同じもの）
+  init(claudeAPIKeyStore: any APIKeyStore, database: AppDatabaseProvider) {
     let hud = HUDController(
       presenter: HUDPanelPresenter(),
       scheduler: TaskHUDRefreshScheduler()
@@ -36,14 +41,19 @@ final class AppComposition {
     let engine = Self.selectedEngine()
     // エンジンが選ばれていなければ STT Worker を作らない（SessionCoordinator が「音声認識が設定されていません」を表示する）
     let recognizer = engine.flatMap { STTWorkerComposition.makeRecognizer(engine: $0) }
-    let refinementMode = Self.refinementMode()
+    let settingsStore = AppSettingsStore(defaults: .standard)
+    let openDatabase: @MainActor @Sendable () async throws -> UtterDatabase = {
+      try await database.database()
+    }
     let audioQueue = TemporaryAudioStoreQueue.applicationStore().map(TemporaryAudioStoreQueue.init)
     let session = SessionCoordinator(
       recorder: AVAudioEngineRecorder(),
       recognizer: recognizer,
-      refinementMode: refinementMode,
+      refiner: SessionRefinementPipeline(
+        settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase),
       showsRealtimePreview: Self.showsRealtimePreview(),
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
+      history: InputHistoryRecorder.standard(database: openDatabase),
       hud: hud,
       deadlineScheduler: TaskHUDRefreshScheduler(),
       audioRetention: audioQueue.map(TemporaryAudioRetention.init),
@@ -58,7 +68,8 @@ final class AppComposition {
     Self.stopAtTermination(resourceMonitoring)
     let launchRecovery = audioQueue.map {
       LaunchAudioRecovery(
-        queue: $0, recognizer: recognizer, refinementMode: refinementMode,
+        queue: $0, recognizer: recognizer,
+        refinementMode: RefinementMode(settingsStore.load().refinementMode),
         prompt: AudioRecoveryAlert(), preview: preview, gate: session)
     }
     self.launchRecovery = launchRecovery
@@ -95,20 +106,6 @@ final class AppComposition {
       }
     #endif
     return STTWorkerComposition.selectedEngine
-  }
-
-  /// 整形モード（TXT-01）。設定（版2設定）が入るまでは、STT の結果を変えない Raw を使う。
-  ///
-  /// Debug ビルドに限り起動引数で選べる: `-UtterDebugRefinementMode natural`（`raw` / `natural` / `structured`）
-  private static func refinementMode() -> RefinementMode {
-    #if DEBUG
-      switch debugArgument("UtterDebugRefinementMode") {
-      case "natural": return .natural
-      case "structured": return .structured
-      default: break
-      }
-    #endif
-    return .raw
   }
 
   /// 入力モードが Realtime Preview か（2.2節）。入力モードの設定（#130）を結線するまでは、MVP 標準の Instant を使う。

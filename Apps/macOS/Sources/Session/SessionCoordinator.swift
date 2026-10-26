@@ -10,7 +10,9 @@ import UtterSpeech
 ///
 /// - 音声認識のエンジンが選ばれていない（`recognizer == nil`）なら、マイクを開かずに「音声認識が設定されていません」の失敗を表示する
 /// - 録音開始時に入力対象（とスタイル区分の判定に使う前面アプリ）を記録し、挿入はその対象に対して確かめる（INS-01）
-/// - 整形はローカル（Raw / Local Basic, AI-03）だけで、ネットワークに出ない（AC-02）
+/// - 整形は `SessionRefining`（本番は `SessionRefinementPipeline`）に任せる。設定・同意・API キー・予算がそろい、
+///   入力先が機密入力でないときだけクラウドへ送り、それ以外はローカル整形（Raw / Local Basic, AI-03）にする
+/// - 挿入を終えたら、履歴が有効で機密入力でないときだけ入力履歴に保存する（7章, AC-12）
 /// - 最大録音時間・音声バッファの上限・割り込みで録音を止めたら、それまでの音声を処理して HUD で知らせる（REC-05, iOS-PERF-03）
 /// - キャンセルは録音〜整形中と失敗の表示中だけ受け付ける。挿入が始まったら取り消さない（REC-01）
 /// - 処理中の開始操作は無視する（REC-06）
@@ -32,11 +34,11 @@ final class SessionCoordinator {
   @ObservationIgnored private var machine: SessionStateMachine
   @ObservationIgnored private let recorder: any AudioRecorder
   @ObservationIgnored private let recognizer: (any SpeechRecognizer)?
-  @ObservationIgnored private let refiner: any LocalRefiner
-  @ObservationIgnored private let refinementMode: RefinementMode
+  @ObservationIgnored private let refiner: any SessionRefining
+  @ObservationIgnored private let refinementReporter: (any SessionRefinementReporting)?
   @ObservationIgnored private let showsRealtimePreview: Bool
-  @ObservationIgnored private let styleResolver: AppStyleResolver
   @ObservationIgnored private let inserter: any SessionTextInserting
+  @ObservationIgnored private let history: (any SessionHistoryRecording)?
   @ObservationIgnored private let hud: HUDController
   @ObservationIgnored private let deadlineScheduler: any SessionDeadlineScheduling
   @ObservationIgnored private let interruptionPolicy: RecordingInterruptionPolicy
@@ -53,11 +55,11 @@ final class SessionCoordinator {
 
   /// - Parameters:
   ///   - recognizer: 音声認識。エンジンが選ばれていなければ `nil`（Phase 0 の判定待ちで既定のエンジンを持たない）
-  ///   - refiner: ローカルの整形（AI-03）。クラウド整形はここに渡さない
-  ///   - refinementMode: 整形モード（TXT-01）
+  ///   - refiner: 整形（TXT-01, AI-01, AI-03）。録音開始時の前面アプリをスタイル区分の判定に渡す（CTX-01）
+  ///   - refinementReporter: 整形の経路を知らせる差し込み口（AC-16）。#133 の結線まで `nil`
   ///   - showsRealtimePreview: 入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）。
   ///     入力モードの設定（#130）を結線するまでは構成値で選ぶ
-  ///   - styleResolver: 録音開始時の前面アプリからスタイル区分を選ぶ（CTX-01）
+  ///   - history: 入力履歴への保存（7章, AC-12）。`nil` なら保存しない
   ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。`nil` なら保存しない
   ///   - recognitionRecovery: 失敗した認識を録音音声でやり直すかの判断（7章, AC-10）。`nil`、または `audioRetention` が
   ///     `nil` ならやり直さない
@@ -66,11 +68,11 @@ final class SessionCoordinator {
     configuration: SessionConfiguration = SessionConfiguration(),
     recorder: any AudioRecorder,
     recognizer: (any SpeechRecognizer)?,
-    refiner: any LocalRefiner = LocalBasicRefiner(),
-    refinementMode: RefinementMode,
+    refiner: any SessionRefining,
+    refinementReporter: (any SessionRefinementReporting)? = nil,
     showsRealtimePreview: Bool = false,
-    styleResolver: AppStyleResolver = AppStyleResolver(),
     inserter: any SessionTextInserting,
+    history: (any SessionHistoryRecording)? = nil,
     hud: HUDController,
     deadlineScheduler: any SessionDeadlineScheduling,
     interruptionPolicy: RecordingInterruptionPolicy = RecordingInterruptionPolicy(),
@@ -83,10 +85,10 @@ final class SessionCoordinator {
     self.recorder = recorder
     self.recognizer = recognizer
     self.refiner = refiner
-    self.refinementMode = refinementMode
+    self.refinementReporter = refinementReporter
     self.showsRealtimePreview = showsRealtimePreview
-    self.styleResolver = styleResolver
     self.inserter = inserter
+    self.history = history
     self.hud = hud
     self.deadlineScheduler = deadlineScheduler
     self.interruptionPolicy = interruptionPolicy
@@ -305,19 +307,35 @@ final class SessionCoordinator {
     }
     guard apply(.recognitionCompleted, session: session) else { return }
 
-    // 整形（ローカルのみ。ネットワークに出ない, AC-02）
-    let style = styleResolver.style(forBundleID: target.app)
-    let refined = refiner.refine(RefinementRequest(text: text, mode: refinementMode, style: style))
+    // 整形。クラウドへ送るかは整形側が設定・同意・API キー・予算・入力先で決め、送れなければローカル整形にする
+    let inserter = inserter
+    let sensitivity: @MainActor @Sendable () -> SensitiveInputContext = {
+      inserter.sensitiveInputContext(for: target)
+    }
+    let refined: SessionRefinementResult
+    do throws(CancellationError) {
+      refined = try await refiner.refine(
+        text, frontmostApp: target.app, sensitivity: sensitivity)
+    } catch {
+      return
+    }
+    guard isActive(session) else { return }
+    refinementReporter?.refinementFinished(refined.route, session: session)
     guard apply(.refinementCompleted, session: session) else { return }
 
     // 挿入。自動挿入できなければ挿入側がプレビューへ退避する（文字列を失わない, AC-09）。
     // 挿入は始まったら取り消さないため、退避した場合も完了として待機へ戻る
-    _ = await inserter.insert(refined, into: target)
+    let report = await inserter.insert(refined.text, into: target)
     guard apply(.insertionCompleted, session: session) else { return }
+    // 待機に戻ったため、以降に次のセッションが始まりうる。次のセッションのタスクを消さないよう先に外す
+    runTask = nil
+    // 入力先へ挿入したときだけ履歴に保存する（プレビューへの退避・空の本文は保存しない）
+    if case .finished = report.outcome {
+      await history?.record(refined.text, session: session, sensitivity: sensitivity)
+    }
     // 録音のチャンクをすべて差し込み口に渡し終えてから終わりを伝える
     await forwarding.task.value
     endRetention(session, completed: true)
-    runTask = nil
   }
 
   /// 録音のチャンクを一時音声の差し込み口に渡しながら、音声認識へ流す。録音が止まったら差し込み口に伝える。

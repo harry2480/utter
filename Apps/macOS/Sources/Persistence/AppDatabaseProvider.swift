@@ -4,7 +4,7 @@ import UtterPersistence
 /// アプリが使う SQLite データベース（辞書・使用量・任意の入力履歴, 3章, 7章）を1つだけ開いて共有する。
 ///
 /// 起動時には開かず、最初に使う画面が求めたときにメインスレッド以外で開く。開けなかったときは次に求められたときに開き直す。
-/// 保存先は `AppDatabaseLocation`（辞書の編集画面と同じファイル）。
+/// 保存先は辞書・使用量と同じ `AppDatabaseLocation`（`~/Library/Application Support/utter/utter.sqlite`）。
 @MainActor
 final class AppDatabaseProvider {
   private var opening: Task<UtterDatabase, any Error>?

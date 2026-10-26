@@ -4,16 +4,19 @@ import SwiftUI
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
-/// 整形の予算判定を結線するときは、`CloudCostBridge.makeBudgetGuard` に同じデータベースの `MonthlyUsageStore` を渡す（AI-05）。
+/// 整形（`SessionRefinementPipeline`）は API キーの画面と同じ `claudeAPIKeyStore`、入力履歴の画面と同じ `database` を使う（AC-12）。
 ///
 /// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、
 /// ここと `AppMenu` には1機能1行で並べるだけにする。複数の PR が同じ行を書き換えないようにするため。
 /// アプリ全体で1つずつ持つ部品（`AppComposition`）は、ここで持って `.environment` で渡す。
 @main
 struct UtterApp: App {
-  @State private var composition = AppComposition()
+  private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
   /// アプリが使う SQLite データベース。辞書・使用量・入力履歴で1つを共有する
-  @State private var database = AppDatabaseProvider()
+  private static let database = AppDatabaseProvider()
+
+  @State private var composition = AppComposition(
+    claudeAPIKeyStore: Self.claudeAPIKeyStore, database: Self.database)
   #if DEBUG
     /// Realtime Direct（AC-15, 実験機能）の実機確認用。Debug ビルドにだけ含める
     @State private var realtimeDirectDebug = RealtimeDirectDebugRunner()
@@ -21,8 +24,6 @@ struct UtterApp: App {
     @State private var editMode: EditModeDebugController? =
       EditModeFeature.isEnabled() ? EditModeDebugController.make() : nil
   #endif
-  /// Claude 整形を結線するときは、同じ `claudeAPIKeyStore` を `ClaudeProvider(apiKeyStore:)` に渡す（AC-12）。
-  private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
@@ -37,7 +38,7 @@ struct UtterApp: App {
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
     SettingsScene(claudeAPIKeyStore: Self.claudeAPIKeyStore)
     DictionaryEditorScene()
-    InputHistoryScene(database: database)
+    InputHistoryScene(database: Self.database)
     PermissionOnboardingScene()
     ConsentSettingsScene()
   }

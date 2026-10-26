@@ -8,7 +8,7 @@ struct InputHistoryScene: Scene {
   @State private var models: InputHistoryModelProvider
 
   init(database: AppDatabaseProvider) {
-    // 設定の保存先。履歴への記録を結線するときも同じ保存先を読む（無効化は設定を先に書いてから削除するため）
+    // 設定の保存先。履歴への記録も同じ保存先を読む（無効化は設定を先に書いてから削除するため）
     let settingsStore = AppSettingsStore(defaults: .standard)
     _models = State(
       initialValue: InputHistoryModelProvider(database: database, settingsStore: settingsStore))
