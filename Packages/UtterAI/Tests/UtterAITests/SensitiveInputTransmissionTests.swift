@@ -49,7 +49,7 @@ struct SensitiveInputTransmissionTests {
       let request = request(mode)
 
       let outcome = try await router(transport).refine(
-        request, consent: .refinementGranted(), budget: nil, sensitivity: { decision })
+        request, consent: { .refinementGranted() }, budget: nil, sensitivity: { decision })
 
       #expect(transport.requests.withLock { $0.isEmpty })
       #expect(
@@ -67,7 +67,7 @@ struct SensitiveInputTransmissionTests {
       SensitiveInputContext(secureField: .off, secureEventInput: .off, app: Self.editor))
 
     let outcome = try await router(transport).refine(
-      request(.natural), consent: .refinementGranted(), budget: nil, sensitivity: { decision })
+      request(.natural), consent: { .refinementGranted() }, budget: nil, sensitivity: { decision })
 
     #expect(transport.requests.withLock { $0.map(\.url?.host) } == ["api.anthropic.com"])
     #expect(outcome.source == .cloud)
@@ -79,7 +79,7 @@ struct SensitiveInputTransmissionTests {
     let calls = Mutex(0)
 
     let outcome = try await router(transport).refine(
-      request(.raw), consent: .refinementGranted(), budget: nil,
+      request(.raw), consent: { .refinementGranted() }, budget: nil,
       sensitivity: {
         calls.withLock { $0 += 1 }
         return .secureFieldInput
@@ -95,7 +95,7 @@ struct SensitiveInputTransmissionTests {
     let transport = transport()
 
     let outcome = try await router(transport).refine(
-      request(.natural), consent: ConsentState(), budget: nil,
+      request(.natural), consent: { ConsentState() }, budget: nil,
       sensitivity: { .secureFieldInput })
 
     #expect(transport.requests.withLock { $0.isEmpty })
@@ -109,7 +109,7 @@ struct SensitiveInputTransmissionTests {
     let router = try RefinementRouter(provider: stub)
 
     let outcome = try await router.refine(
-      request(.natural), consent: .refinementGranted(), budget: nil,
+      request(.natural), consent: { .refinementGranted() }, budget: nil,
       sensitivity: {
         calls.withLock { $0 += 1 }
         return .allowedInput

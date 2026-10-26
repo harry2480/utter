@@ -19,6 +19,8 @@ settings:
 packages:
   UtterCore:
     path: ../../Packages/UtterCore
+  UtterPersistence:
+    path: ../../Packages/UtterPersistence
 targets:
   UtterMac:
     type: application
@@ -27,6 +29,7 @@ targets:
       - path: Sources
     dependencies:
       - package: UtterCore
+      - package: UtterPersistence
     settings:
       base:
         PRODUCT_NAME: utter
