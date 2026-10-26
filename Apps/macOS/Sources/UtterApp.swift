@@ -20,6 +20,8 @@ struct UtterApp: App {
     @State private var editMode: EditModeDebugController? =
       EditModeFeature.isEnabled() ? EditModeDebugController.make() : nil
   #endif
+  /// Claude 整形を結線するときは、同じ `claudeAPIKeyStore` を `ClaudeProvider(apiKeyStore:)` に渡す（AC-12）。
+  private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
@@ -36,6 +38,7 @@ struct UtterApp: App {
     InputHistoryScene(database: database)
     PermissionOnboardingScene()
     ConsentSettingsScene()
+    ClaudeAPIKeySettingsScene(store: Self.claudeAPIKeyStore)
   }
 
   private var menu: AppMenu {

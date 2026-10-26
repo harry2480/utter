@@ -23,6 +23,7 @@ struct AppMenu: View {
     PermissionOnboardingMenuItem()
     DictionaryEditorMenuItem()
     InputHistoryMenuItem()
+    ClaudeAPIKeySettingsMenuItem()
     ConsentSettingsMenuItem()
     Divider()
     QuitMenuItem()
