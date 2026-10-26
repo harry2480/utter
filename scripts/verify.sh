@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド
-#   → iOS 最低バージョンの一致 → iOS Simulator 向けの署名なしビルド（Package と Apps/iOS・キーボード拡張）→ シェルスクリプト lint
+# 品質チェック: format lint → ログ出力の検査 → Swift Package の build/test → アプリの署名なしビルド → Release の署名設定の検査
+#   → iOS 最低バージョンの一致 → iOS Simulator 向けの署名なしビルド（Package と Apps/iOS・キーボード拡張）→ シェルスクリプト lint → ワークフロー lint
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
 # 新しいターゲットを作ったら「アプリの署名なしビルド」に追加する。
 set -euo pipefail
@@ -65,6 +65,9 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$mac_info_plist")" != 
   echo "macOS アプリの Info.plist に LSUIElement = YES がありません。" >&2
   exit 1
 fi
+
+echo "==> 配布用（Release）の署名設定の検査"
+scripts/check-release-config.sh
 
 echo "==> iOS の最低バージョンの一致（Package.swift と Apps/iOS/project.yml）"
 # 仮置きの値（#54 で確定）を変えるときに、片方だけ直して食い違わないようにする。
@@ -189,6 +192,14 @@ if command -v shellcheck >/dev/null 2>&1; then
   shellcheck "${shell_scripts[@]}"
 else
   echo "shellcheck が見つからないためスキップします（brew install shellcheck）。"
+fi
+
+echo "==> actionlint"
+if command -v actionlint >/dev/null 2>&1; then
+  # .github/workflows/*.yml の構文・式・run のシェル（shellcheck があれば併用）を検査する
+  actionlint
+else
+  echo "actionlint が見つからないためスキップします（brew install actionlint）。"
 fi
 
 echo "すべての品質チェックに成功しました。"
