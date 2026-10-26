@@ -1,62 +1,23 @@
-import AppKit
 import SwiftUI
-import UtterAI
-import UtterCore
-import UtterPersistence
 
 /// macOS アプリの起動部（Composition Root）。
 ///
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 録音・ホットキー・HUD・挿入は Phase 0 の判定後に、ここで本番実装と Stub を組み立てて結線する。
-/// Claude 整形を結線するときは、同じ `claudeAPIKeyStore` を `ClaudeProvider(apiKeyStore:)` に渡す（AC-12）。
+///
+/// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、
+/// ここと `AppMenu` には1機能1行で並べるだけにする。複数の PR が同じ行を書き換えないようにするため。
 @main
 struct UtterApp: App {
+  /// Claude 整形を結線するときは、同じ `claudeAPIKeyStore` を `ClaudeProvider(apiKeyStore:)` に渡す（AC-12）。
   private static let claudeAPIKeyStore = KeychainAPIKeyStore.claude()
-
-  @State private var claudeAPIKeySettings = APIKeySettingsModel(store: Self.claudeAPIKeyStore)
-  @State private var consentSettings = ConsentSettingsModel(
-    controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
 
   var body: some Scene {
     MenuBarExtra("utter", systemImage: "mic") {
-      MenuContent()
+      AppMenu()
     }
-    Window("クラウド送信の同意", id: WindowID.consentSettings) {
-      ConsentSettingsView(model: consentSettings)
-    }
-    .windowResizability(.contentMinSize)
-    Settings {
-      ClaudeAPIKeySettingsView(model: claudeAPIKeySettings)
-    }
-  }
-}
-
-enum WindowID {
-  static let consentSettings = "consentSettings"
-}
-
-/// メニューバーのメニュー
-///
-/// Dock に出ないアプリでは開いた画面が前面に来ないため、画面を開く項目ではアプリを前面にする。
-private struct MenuContent: View {
-  @Environment(\.openWindow) private var openWindow
-  @Environment(\.openSettings) private var openSettings
-
-  var body: some View {
-    Button("設定…") {
-      NSApplication.shared.activate()
-      openSettings()
-    }
-    .keyboardShortcut(",")
-    Button("クラウド送信の同意…") {
-      openWindow(id: WindowID.consentSettings)
-      // Dock に出ないアプリのため、開いた画面を前面に出す
-      NSApplication.shared.activate()
-    }
-    Divider()
-    Button("utter を終了") {
-      NSApplication.shared.terminate(nil)
-    }
-    .keyboardShortcut("q")
+    // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
+    ConsentSettingsScene()
+    ClaudeAPIKeySettingsScene(store: Self.claudeAPIKeyStore)
   }
 }
