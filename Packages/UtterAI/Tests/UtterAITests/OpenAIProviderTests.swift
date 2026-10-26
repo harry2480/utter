@@ -541,7 +541,7 @@ struct OpenAIProviderTests {
       provider: provider(HangingTransport(entered: signal)), timeout: .milliseconds(50))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT), budget: nil,
+      request, consent: { .refinementGranted(.chatGPT) }, budget: nil,
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.providerFailed(.timeout)))
@@ -630,7 +630,7 @@ struct OpenAIProviderTests {
       provider: provider(StubTransport(.response(status: 200, body: body))))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT), budget: nil,
+      request, consent: { .refinementGranted(.chatGPT) }, budget: nil,
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.validationFailed(.empty)))
@@ -643,7 +643,7 @@ struct OpenAIProviderTests {
       provider: provider(StubTransport(.response(status: 200, body: Self.successBody))))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT), budget: nil,
+      request, consent: { .refinementGranted(.chatGPT) }, budget: nil,
       sensitivity: { .allowedInput })
 
     #expect(outcome.source == .cloud)
@@ -675,7 +675,7 @@ struct OpenAIProviderTests {
     let router = try RefinementRouter(provider: provider(transport))
 
     let outcome = try await router.refine(
-      request, consent: consent, budget: nil, sensitivity: { .allowedInput })
+      request, consent: { consent }, budget: nil, sensitivity: { .allowedInput })
 
     #expect(outcome.source == .localFallback(.consentNotGranted))
     #expect(transport.requests.withLock { $0.isEmpty })
@@ -734,7 +734,7 @@ struct OpenAIProviderTests {
     let router = try RefinementRouter(provider: provider(StubTransport(reply)))
 
     let outcome = try await router.refine(
-      request, consent: .refinementGranted(.chatGPT),
+      request, consent: { .refinementGranted(.chatGPT) },
       budget: RefinementBudget(
         guard: budgetGuard, model: "m",
         expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), month: october),
