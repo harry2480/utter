@@ -4,10 +4,9 @@ import UtterCore
 
 /// 録音ショートカットをアプリに結線する（REC-01, REC-02）。
 ///
-/// 録音（セッションの状態機械）はまだ結線していないため、セッション操作は最後の操作として表示するだけにする。
-/// 現在の状態は「開始で録音中、停止・キャンセルで待機」とみなす仮のもので、録音を結線する PR で
-/// `SessionStateMachine` の `phase` に置き換える。そのとき、ショートカット以外の要因で状態が変わったら
-/// `GlobalShortcutController.sessionPhaseDidChange()` を呼ぶ（Esc の捕捉をセッション中だけ有効にするため）。
+/// 押下・解放の解釈には `SessionCoordinator` の現在の状態を使い、セッション操作はそのまま `SessionCoordinator` へ渡す。
+/// ショートカット以外の要因でセッションの状態が変わったら `sessionPhaseDidChange()` を呼ぶ
+/// （Esc の捕捉をセッション中だけ有効にするため）。
 ///
 /// 修飾キー単独と Esc 捕捉（#51 の判定待ち）は既定で無効（`ShortcutCapabilities.keyCombinationsOnly`）。
 @MainActor
@@ -15,9 +14,7 @@ import UtterCore
 final class ShortcutCoordinator {
   private(set) var status: GlobalShortcutStatus = .unassigned
   private(set) var escapeStatus: EscapeCaptureStatus = .off
-  private(set) var lastCommand: ShortcutCommand?
 
-  @ObservationIgnored private var phase: SessionPhase = .idle
   @ObservationIgnored private var controller: GlobalShortcutController?
   @ObservationIgnored private var resetObservers: [any NSObjectProtocol] = []
   @ObservationIgnored private var permissionTimer: Timer?
@@ -26,15 +23,21 @@ final class ShortcutCoordinator {
   /// CGPreflightListenEventAccess・AXIsProcessTrusted は軽い呼び出しで、イベントタップを使う機能が有効なときだけ動かす）
   private static let permissionCheckInterval: TimeInterval = 5
 
-  init() {
+  /// - Parameters:
+  ///   - currentPhase: セッションの現在の状態
+  ///   - perform: 実行するセッション操作
+  init(
+    currentPhase: @escaping @MainActor () -> SessionPhase,
+    perform: @escaping @MainActor (ShortcutCommand) -> Void
+  ) {
     let controller = GlobalShortcutController(
       registrar: CarbonHotKeyRegistrar(),
       tapFactory: CGKeyEventTapFactory(),
       permissions: SystemEventTapPermissions(),
       capabilities: Self.capabilities(),
       systemShortcuts: SystemShortcuts.loadEnabledBindings,
-      currentPhase: { [weak self] in self?.phase ?? .idle },
-      perform: { [weak self] command in self?.handle(command) }
+      currentPhase: currentPhase,
+      perform: perform
     )
     self.controller = controller
     controller.onStatusChange = { [weak self] in self?.syncStatus() }
@@ -93,18 +96,15 @@ final class ShortcutCoordinator {
     controller?.requestPermission(permission)
   }
 
+  /// セッションの状態が、ショートカット以外の要因（認識の完了・自動停止・メニューの操作など）で変わったときに呼ぶ
+  func sessionPhaseDidChange() {
+    controller?.sessionPhaseDidChange()
+  }
+
   private func syncStatus() {
     guard let controller else { return }
     status = controller.status
     escapeStatus = controller.escapeStatus
-  }
-
-  private func handle(_ command: ShortcutCommand) {
-    lastCommand = command
-    switch command {
-    case .startRecording: phase = .recording
-    case .stopRecording, .cancelSession: phase = .idle
-    }
   }
 
   /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。

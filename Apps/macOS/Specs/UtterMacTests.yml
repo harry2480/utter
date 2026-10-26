@@ -1,15 +1,20 @@
 # アプリのユニットテストのターゲット（UtterMacTests）と、UtterMac のスキームでのテスト実行。project.yml の include で読み込む
 targets:
-  # アプリの純粋なロジック（Sources/Shortcut）のユニットテスト。
-  # アプリを起動しないよう、テスト対象のソースをテストバンドルに直接含める（TEST_HOST なし）
+  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする（TEST_HOST なし）
   UtterMacTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Sources/Shortcut
       - path: Tests
+      - path: Sources/Shortcut
+      - path: Sources/Insertion
+      - path: Sources/Session
+      # Session が使う型（TaskHUDRefreshScheduler）。パネルと画面は含めない
+      - path: Sources/HUD/TaskHUDRefreshScheduler.swift
     dependencies:
       - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterAI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(UTTER_BUNDLE_ID_PREFIX).mac.tests

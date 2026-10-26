@@ -23,7 +23,15 @@ settings:
 include:
   - path: Specs/UtterCore.yml
     relativePaths: false
+  - path: Specs/UtterSpeech.yml
+    relativePaths: false
+  - path: Specs/UtterAI.yml
+    relativePaths: false
   - path: Specs/UtterPersistence.yml
+    relativePaths: false
+  - path: Specs/Microphone.yml
+    relativePaths: false
+  - path: Specs/UtterSTTWorker.yml
     relativePaths: false
   - path: Specs/UtterMacTests.yml
     relativePaths: false
@@ -47,10 +55,13 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: utter
         # メニューバー常駐で Dock に出さない
         INFOPLIST_KEY_LSUIElement: "YES"
-        # 権限の用途説明（マイク・Accessibility など）と Entitlement は、その機能を実装する PR で追加する（PERM-01）。
-        # グローバルショートカット（RegisterEventHotKey）は権限を要求しない。
+        # 権限の用途説明と Entitlement は、その機能を実装する PR で追加する（PERM-01）
+        # マイクの用途説明は Specs/Microphone.yml に置く
+        # グローバルショートカット（RegisterEventHotKey）は権限を要求しない
         # 修飾キー単独（入力監視）と Esc 捕捉（アクセシビリティ）は #51 の判定待ちで既定で無効。
         # どちらも Info.plist の用途説明キーはなく、メニューの文言で用途を示し、利用者の操作でだけ要求する
+        # 挿入（Sources/Insertion）が使う Accessibility とイベント送信には、Info.plist の用途説明キーも Entitlement もない
+        # （App Sandbox を使わないため。許可はシステム設定のアクセシビリティで行う）
         # Entitlement は UtterMac.entitlements に足す。Release は Hardened Runtime のため、
         # マイクを使うなら com.apple.security.device.audio-input が要る（scripts/check-release-config.sh が確かめる）
         CODE_SIGN_ENTITLEMENTS: UtterMac.entitlements

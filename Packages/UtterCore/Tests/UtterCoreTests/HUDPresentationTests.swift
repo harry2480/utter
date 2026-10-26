@@ -37,6 +37,26 @@ struct HUDPresentationTests {
   }
 
   @Test(
+    "REC-03, REC-04: 失敗の理由を2行目に出し、読み上げる",
+    arguments: [
+      (
+        HUDNotice.speechRecognitionNotConfigured, SessionFailure.recognition, "認識に失敗しました",
+        "音声認識が設定されていません"
+      ),
+      (.microphoneAccessDenied, .recording, "録音に失敗しました", "マイクの使用が許可されていません"),
+    ])
+  func failureReasonText(
+    notice: HUDNotice, failure: SessionFailure, title: String, text: String
+  ) throws {
+    let presentation = try #require(
+      HUDPresentation(HUDContent(status: .failed(failure), notice: notice)))
+    #expect(presentation.indicator == .failure)
+    #expect(presentation.title == title)
+    #expect(presentation.message == text)
+    #expect(presentation.announcement == "\(title)。\(text)")
+  }
+
+  @Test(
     "REC-05: 上限到達・割り込みの通知を文言にする",
     arguments: [
       (HUDNotice.maxRecordingDurationReached, "最大録音時間に達したため、録音を停止しました"),

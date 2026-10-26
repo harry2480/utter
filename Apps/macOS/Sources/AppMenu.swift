@@ -9,10 +9,8 @@ struct AppMenu: View {
     // 機能ごとの項目。1機能1行で、関係する機能の近くに足す
     ShortcutStatusMenuItem()
     Divider()
-    #if DEBUG
-      HUDDemoMenuItem()
-      Divider()
-    #endif
+    SessionMenuItems()
+    Divider()
     ConsentSettingsMenuItem()
     Divider()
     QuitMenuItem()
