@@ -11,6 +11,7 @@ struct AppMenu: View {
     Divider()
     SessionMenuItems()
     Divider()
+    PermissionOnboardingMenuItem()
     ConsentSettingsMenuItem()
     Divider()
     QuitMenuItem()

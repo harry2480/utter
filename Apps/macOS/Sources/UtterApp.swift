@@ -20,6 +20,7 @@ struct UtterApp: App {
         .environment(composition.shortcuts)
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
+    PermissionOnboardingScene()
     ConsentSettingsScene()
   }
 }
