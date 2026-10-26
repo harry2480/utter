@@ -2,7 +2,7 @@
 ///
 /// クラウド STT（#60 の先行実装）の失敗は、呼び出し側が通知や対処（同意・認証の再設定、ローカル STT での再認識）を
 /// 分けられるよう、原因ごとに別のケースにする（AI-06 と同じ分け方）。
-public enum SpeechRecognitionError: Error, Hashable, Sendable, CaseIterable {
+public enum SpeechRecognitionError: Error, Hashable, Sendable, CaseIterable, Codable {
   /// モデルが未取得、またはロードできない
   case modelUnavailable
   /// 音声の形式（サンプリング周波数など）に対応していない

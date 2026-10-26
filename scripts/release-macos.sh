@@ -13,8 +13,13 @@
 #   ASC_API_ISSUER_ID        API キーの Issuer ID
 # 任意:
 #   UTTER_KEYCHAIN_PATH      Developer ID 証明書を入れたキーチェーン（CI の一時キーチェーン。未指定なら既定の検索リスト）
+# 自動更新（Sparkle 2。Phase 0 #47 の判定待ちの先行実装）。4つすべて指定するか、すべて省くか（省けば自動更新なしでビルドする）:
+#   UTTER_SPARKLE_FEED_URL             appcast の URL（https）。アプリの Info.plist に入る
+#   UTTER_SPARKLE_PUBLIC_ED_KEY        EdDSA 公開鍵（generate_keys が表示する Base64）。アプリの Info.plist に入る
+#   UTTER_SPARKLE_DOWNLOAD_URL_PREFIX  zip を置く URL の接頭辞（https、末尾は /）。appcast の enclosure に使う
+#   SPARKLE_ED_PRIVATE_KEY_PATH        EdDSA 秘密鍵（generate_keys -x で書き出したもの）のファイルのパス
 #
-# 成果物: build/release/ に utter-<版>.zip、utter-<版>.dmg、SHA256SUMS.txt
+# 成果物: build/release/ に utter-<版>.zip、utter-<版>.dmg、SHA256SUMS.txt（自動更新ありなら appcast.xml も）
 # set -x は使わない（パスや ID がログに残るのを避ける）。
 set -euo pipefail
 
@@ -45,10 +50,41 @@ if [[ ! -f "$ASC_API_KEY_PATH" ]]; then
   exit 1
 fi
 
+# 自動更新（Sparkle）は 4 つの値がそろったときだけ有効にする。一部だけなら設定漏れとして止める
+sparkle_names=(UTTER_SPARKLE_FEED_URL UTTER_SPARKLE_PUBLIC_ED_KEY UTTER_SPARKLE_DOWNLOAD_URL_PREFIX SPARKLE_ED_PRIVATE_KEY_PATH)
+sparkle_missing=()
+for name in "${sparkle_names[@]}"; do
+  if [[ -z "${!name:-}" ]]; then
+    sparkle_missing+=("$name")
+  fi
+done
+sparkle_enabled=false
+if ((${#sparkle_missing[@]} == 0)); then
+  sparkle_enabled=true
+  if [[ ! "$UTTER_SPARKLE_FEED_URL" =~ ^https://[^/]+/ ]] || [[ ! "$UTTER_SPARKLE_DOWNLOAD_URL_PREFIX" =~ ^https://[^/]+/.*/$ ]]; then
+    echo "UTTER_SPARKLE_FEED_URL と UTTER_SPARKLE_DOWNLOAD_URL_PREFIX は https の URL にしてください（接頭辞の末尾は /）。" >&2
+    exit 1
+  fi
+  if [[ ! -f "$SPARKLE_ED_PRIVATE_KEY_PATH" ]]; then
+    echo "SPARKLE_ED_PRIVATE_KEY_PATH のファイルがありません。" >&2
+    exit 1
+  fi
+  # アプリは Base64 の 32 バイトでない公開鍵では Sparkle を起動しない（UtterCore の SoftwareUpdateConfiguration）
+  if [[ "$(printf '%s' "$UTTER_SPARKLE_PUBLIC_ED_KEY" | base64 -D 2>/dev/null | wc -c | tr -d ' ')" != "32" ]]; then
+    echo "UTTER_SPARKLE_PUBLIC_ED_KEY が Base64 の 32 バイト（ed25519 公開鍵）ではありません。" >&2
+    exit 1
+  fi
+elif ((${#sparkle_missing[@]} < ${#sparkle_names[@]})); then
+  echo "自動更新の設定が一部だけです。次も指定するか、すべて省いてください: ${sparkle_missing[*]}" >&2
+  exit 1
+fi
+
 # CFBundleShortVersionString は数字と . だけ（プレリリースの接尾辞はタグと Release 名にだけ残す）
 marketing_version="${UTTER_VERSION%%-*}"
 out_dir="build/release"
 archive="$out_dir/utter.xcarchive"
+# Swift Package の取得先。Sparkle の sign_update をここから使う
+source_packages="$out_dir/SourcePackages"
 export_dir="$out_dir/export"
 app="$export_dir/utter.app"
 zip_name="utter-$UTTER_VERSION.zip"
@@ -96,13 +132,28 @@ echo "==> プロジェクトを生成"
 xcodegen generate --spec Apps/macOS/project.yml --quiet
 scripts/check-release-config.sh
 
+sparkle_settings=()
+if [[ "$sparkle_enabled" == true ]]; then
+  echo "自動更新（Sparkle）: 有効"
+  sparkle_settings=(
+    UTTER_SPARKLE_FEED_URL="$UTTER_SPARKLE_FEED_URL"
+    UTTER_SPARKLE_PUBLIC_ED_KEY="$UTTER_SPARKLE_PUBLIC_ED_KEY"
+  )
+else
+  echo "自動更新（Sparkle）: 無効（設定なし）"
+fi
+
 echo "==> アーカイブ（Release、Developer ID で手動署名）"
+# 依存の版はコミットした Package.resolved のとおりにする（解決し直さない）
 xcodebuild \
   -project Apps/macOS/Utter.xcodeproj \
   -scheme UtterMac \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -archivePath "$archive" \
+  -clonedSourcePackagesDirPath "$source_packages" \
+  -disableAutomaticPackageResolution \
+  ${sparkle_settings[@]+"${sparkle_settings[@]}"} \
   DEVELOPMENT_TEAM="$UTTER_TEAM_ID" \
   UTTER_BUNDLE_ID_PREFIX="$UTTER_BUNDLE_ID_PREFIX" \
   CODE_SIGN_STYLE=Manual \
@@ -155,6 +206,11 @@ if ! grep -q '^Timestamp=' <<<"$signature_info"; then
   exit 1
 fi
 info_plist="$app/Contents/Info.plist"
+# 同梱する依存のライセンス表示（Sparkle）が入っているか（バイナリ配布時の義務）
+if [[ ! -f "$app/Contents/Resources/Licenses/Sparkle-LICENSE.txt" ]]; then
+  echo "アプリに Sparkle のライセンス表示（Contents/Resources/Licenses/Sparkle-LICENSE.txt）がありません。" >&2
+  exit 1
+fi
 signed_entitlements="$out_dir/signed.entitlements"
 # Entitlement がない署名ではファイルが作られないため、そのときは「どれも無効」として扱う
 codesign -d --entitlements "$signed_entitlements" --xml "$app" 2>/dev/null || true
@@ -198,7 +254,60 @@ xcrun stapler staple "$out_dir/$dmg_name"
 xcrun stapler validate "$out_dir/$dmg_name"
 spctl --assess --type open --context context:primary-signature --verbose=2 "$out_dir/$dmg_name"
 
-echo "==> SHA-256"
-(cd "$out_dir" && shasum -a 256 "$zip_name" "$dmg_name" >SHA256SUMS.txt && cat SHA256SUMS.txt)
+outputs=("$zip_name" "$dmg_name")
+if [[ "$sparkle_enabled" == true ]]; then
+  echo "==> 自動更新: Info.plist の確認・zip の EdDSA 署名・appcast.xml"
+  # ビルド設定がアプリに入ったか（入っていないと、署名した更新をアプリが検証できない）
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$info_plist")" != "$UTTER_SPARKLE_FEED_URL" ]] ||
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$info_plist")" != "$UTTER_SPARKLE_PUBLIC_ED_KEY" ]]; then
+    echo "アプリの Info.plist の SUFeedURL / SUPublicEDKey が指定した値と違います。" >&2
+    exit 1
+  fi
+  sign_update="$source_packages/artifacts/sparkle/Sparkle/bin/sign_update"
+  if [[ ! -x "$sign_update" ]]; then
+    echo "Sparkle の sign_update が見つかりません: $sign_update" >&2
+    exit 1
+  fi
+  # -p で署名（Base64、公開してよい値）だけを出す。属性の書き方は版で変わりうるため、enclosure はここで組み立てる
+  ed_signature="$("$sign_update" --ed-key-file "$SPARKLE_ED_PRIVATE_KEY_PATH" -p "$out_dir/$zip_name")"
+  if [[ ! "$ed_signature" =~ ^[A-Za-z0-9+/]+=*$ ]]; then
+    echo "sign_update の出力が想定と違います。" >&2
+    exit 1
+  fi
+  zip_length="$(stat -f %z "$out_dir/$zip_name")"
+  # 署名をアプリに入れる公開鍵で検証する。秘密鍵と食い違ったまま配ると、その版はどの更新も受け付けなくなる
+  if ! xcrun swift scripts/verify-ed25519-signature.swift \
+    "$UTTER_SPARKLE_PUBLIC_ED_KEY" "$ed_signature" "$out_dir/$zip_name"; then
+    echo "zip の EdDSA 署名が UTTER_SPARKLE_PUBLIC_ED_KEY で検証できません（秘密鍵と公開鍵が対になっていない）。" >&2
+    exit 1
+  fi
+  # 版はアプリの Info.plist から読む（Sparkle は CFBundleVersion を sparkle:version と比べる）
+  bundle_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info_plist")"
+  short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$info_plist")"
+  minimum_system_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$info_plist")"
+  pub_date="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+  # 最新版の 1 項目だけの appcast。Release に添付し、releases/latest/download/appcast.xml から配る
+  cat >"$out_dir/appcast.xml" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>utter</title>
+    <item>
+      <title>utter $UTTER_VERSION</title>
+      <pubDate>$pub_date</pubDate>
+      <sparkle:version>$bundle_version</sparkle:version>
+      <sparkle:shortVersionString>$short_version</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>$minimum_system_version</sparkle:minimumSystemVersion>
+      <enclosure url="$UTTER_SPARKLE_DOWNLOAD_URL_PREFIX$zip_name" length="$zip_length" type="application/octet-stream" sparkle:edSignature="$ed_signature"/>
+    </item>
+  </channel>
+</rss>
+XML
+  xmllint --noout "$out_dir/appcast.xml"
+  outputs+=(appcast.xml)
+fi
 
-echo "完了: $out_dir/$zip_name, $out_dir/$dmg_name, $out_dir/SHA256SUMS.txt"
+echo "==> SHA-256"
+(cd "$out_dir" && shasum -a 256 "${outputs[@]}" >SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+echo "完了: $out_dir に ${outputs[*]} と SHA256SUMS.txt"

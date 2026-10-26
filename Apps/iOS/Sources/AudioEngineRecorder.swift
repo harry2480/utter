@@ -14,7 +14,7 @@ import UtteriOSKit
 /// 音声認識の権限は、それを使うエンジン（`SpeechEngineSelection.requestsSpeechRecognitionPermission`）のときだけ、
 /// マイクの許可の後に求める（PERM-01）。
 @MainActor
-final class AudioEngineRecorder: AudioRecorder {
+final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
   enum RecorderError: Error {
     /// 入力の形式を取得できない（マイクがない・使えない）
     case microphoneUnavailable

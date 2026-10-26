@@ -401,7 +401,7 @@ struct RecordingSessionModelTests {
     await model.startRecording()
     recorder.emit(seconds: 1)
     model.stopRecording()
-    // 待機に戻った後に一覧を読み直すため、一覧に出るまで待つ
+    // 保存後の一覧の読み直しは待機に戻った後に終わることがあるため、一覧に載るまで待つ
     #expect(await waitUntil { model.phase == .idle && !model.rescueList.items.isEmpty })
     let sessionID = try #require(model.rescueList.items.first?.sessionID)
 

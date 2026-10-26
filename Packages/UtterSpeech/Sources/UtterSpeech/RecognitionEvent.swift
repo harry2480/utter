@@ -4,8 +4,8 @@ import UtterCore
 ///
 /// どのセッションの何番目のイベントかを持ち、受け手はキャンセル済みのセッションや
 /// 順序の古いイベントを `RecognitionEventFilter` で破棄する。
-public struct RecognitionEvent: Hashable, Sendable {
-  public enum Kind: Hashable, Sendable {
+public struct RecognitionEvent: Hashable, Sendable, Codable {
+  public enum Kind: Hashable, Sendable, Codable {
     /// 暫定の認識結果。後から変わりうる。値は確定済みテキストの後に続く部分で、全体ではない
     case partial(String)
     /// 確定した認識結果の一部。受け手は区切りを足さずに連結するため、必要な空白は値に含める。

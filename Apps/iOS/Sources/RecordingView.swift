@@ -7,11 +7,11 @@ import UtteriOSKit
 /// 録音の開始・停止・状態と、結果の確認・コピー（iOS-04, iOS-07）。進行の判断は `RecordingSessionModel` が持つ。
 struct RecordingView: View {
   let model: RecordingSessionModel
+  let consentSettings: ConsentSettingsModel
+  let claudeAPIKeySettings: APIKeySettingsModel
   let speechEngine: SpeechEngineSelection
   /// 取得できるモデルがあるエンジンのときだけ
   let speechModel: SpeechModelSettingsModel?
-  let consentSettings: ConsentSettingsModel
-  let claudeAPIKeySettings: APIKeySettingsModel
   /// キーボード拡張に本体アプリの状態を伝える。App Group を設定したときだけ（#56）
   let hostAppStatus: HostAppStatusPublisher?
   @Environment(\.scenePhase) private var scenePhase
@@ -37,8 +37,8 @@ struct RecordingView: View {
     }
     .sheet(isPresented: $isShowingSettings) {
       SettingsView(
-        speechEngine: speechEngine, speechModel: speechModel,
-        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings)
+        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings,
+        speechEngine: speechEngine, speechModel: speechModel)
     }
     .task {
       await model.prepareResults()

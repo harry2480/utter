@@ -22,7 +22,7 @@ final class TemporaryDirectory {
 
 /// 録音の代わり。テストからチャンクや失敗を流せる
 @MainActor
-final class FakeRecorder: AudioRecorder {
+final class FakeRecorder: UtteriOSKit.AudioRecorder {
   struct StartFailure: Error {}
 
   let sampleRate = 16_000

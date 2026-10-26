@@ -4,6 +4,8 @@ import UtterSpeech
 ///
 /// AVAudioSession / AVAudioEngine を使う実装は Apps/iOS に置く。音声はチャンクとして渡すだけで、
 /// ファイル・ログには出さない。割り込みの通知は実装が受けず、`RecordingSystemSignal` として別に届ける。
+/// UtterSpeech にも macOS 用の `AudioRecorder` があるため、両方を import する側では
+/// `UtteriOSKit.AudioRecorder` と書く。
 @MainActor
 public protocol AudioRecorder: AnyObject {
   /// 流すチャンクのサンプリング周波数（Hz）。取得済みの音声の長さの計算に使う

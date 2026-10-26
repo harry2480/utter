@@ -34,7 +34,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS / iOS Simulator）→ Release の署名設定の検査 → shellcheck → actionlint） |
+| `scripts/verify.sh` | 品質チェック（swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS は build/test、iOS Simulator はアプリとキーボード拡張の build）→ Release の署名設定の検査 → shellcheck → actionlint） |
 | `scripts/build-local.sh` | 自前ビルド（各自の Apple ID の開発用署名。秘密情報は不要） |
 | `scripts/format.sh` | swift format で自動整形 |
 | `scripts/coverage.sh` | カバレッジ計測（`coverage/*.lcov` を出力） |
@@ -43,7 +43,7 @@
 
 ### ビルド
 
-macOS アプリ（現在はメニューバーに常駐するだけのスケルトン）と iOS アプリ（現在は録音と結果の確認・コピーまで。音声認識は未設定。カスタムキーボード拡張を同じプロジェクトでビルドする）は、xcodegen でプロジェクトを生成してビルドします。
+macOS アプリ（メニューバー常駐。ショートカットでの録音・音声認識・整形・挿入と、設定・入力履歴の画面まで）と iOS アプリ（現在は録音と結果の確認・コピー、クラウド送信の同意と Claude API キーの設定画面まで。音声認識は既定で未設定で、SpeechAnalyzer を選んで試せる。カスタムキーボード拡張を同じプロジェクトでビルドする）は、xcodegen でプロジェクトを生成してビルドします。
 手順と開発用署名（`Config/Local.xcconfig`。Team ID・Bundle ID の接頭辞・iOS の App Group）の設定方法は [docs/ビルド・配布規約.md](docs/ビルド・配布規約.md) の「ビルド手順」を参照してください。
 
 自前ビルドに開発者の秘密情報は要りません。自分の Apple ID（無料の Personal Team でよい）の開発用署名でビルドします。
@@ -65,8 +65,8 @@ utter/
 ├── docs/                 # 要件定義・設計規約・検証結果
 ├── scripts/              # verify / format / Loop
 ├── Config/               # アプリ共通の xcconfig（署名・識別子の既定値、Local.xcconfig の雛形）
-├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterAI / UtterText / UtterPersistence）
-├── Apps/                 # macOS / iOS アプリ（macOS はスケルトン、iOS は録音と結果保存まで）
+├── Packages/             # 共通 Swift Package（UtterCore / UtterSpeech / UtterSpeechWhisperKit / UtterAI / UtterText / UtterPersistence）
+├── Apps/                 # macOS / iOS アプリ（iOS は録音と結果保存まで）
 ├── Extensions/           # iOS カスタムキーボード（文字入力・共有結果のプレビューと挿入。Apps/iOS/project.yml でビルド）
 └── Workers/              # macOS XPC STT Worker
 ```

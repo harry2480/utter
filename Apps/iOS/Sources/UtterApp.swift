@@ -18,10 +18,10 @@ import UtteriOSKit
 @main
 struct UtterApp: App {
   @State private var model: RecordingSessionModel
-  @State private var speechModel: SpeechModelSettingsModel?
-  private let speechEngine: SpeechEngineSelection
   @State private var consentSettings: ConsentSettingsModel
   @State private var claudeAPIKeySettings: APIKeySettingsModel
+  @State private var speechModel: SpeechModelSettingsModel?
+  private let speechEngine: SpeechEngineSelection
   private let hostAppStatus: HostAppStatusPublisher?
   private let signals: RecordingSignalObserver
 
@@ -67,9 +67,9 @@ struct UtterApp: App {
   var body: some Scene {
     WindowGroup {
       RecordingView(
-        model: model, speechEngine: speechEngine, speechModel: speechModel,
-        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings,
-        hostAppStatus: hostAppStatus)
+        model: model, consentSettings: consentSettings,
+        claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
+        speechModel: speechModel, hostAppStatus: hostAppStatus)
     }
   }
 

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  GENERATE_INFOPLIST_FILE で生成する Info.plist に足すキー（Xcode が生成分と合わせる）。
+  自動更新（Sparkle 2）の設定。appcast の URL と EdDSA 公開鍵はビルド設定
+  UTTER_SPARKLE_FEED_URL / UTTER_SPARKLE_PUBLIC_ED_KEY（Config/Base.xcconfig では空、
+  Local.xcconfig かリリースのスクリプトで与える）から入る。どちらかが空なら、アプリは Sparkle を起動しない（既定無効）。
+  - SUScheduledCheckInterval: 自動確認の間隔（秒）。要件は「低頻度」で値の定めがないため、仮置きで 1 週間
+  - SUEnableSystemProfiling: システムプロファイル（OS 版・機種など）を送らない（テレメトリを実装しない）
+  - SUAllowsAutomaticUpdates: 更新の自動ダウンロード・自動インストールを選べなくし、入れる前に必ず利用者に確かめる
+  自動確認するかどうか（SUEnableAutomaticChecks）はここに書かない。Sparkle が初回に利用者へ確かめ、メニューから切り替えられる
+-->
+<plist version="1.0">
+<dict>
+	<key>SUFeedURL</key>
+	<string>$(UTTER_SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(UTTER_SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>604800</integer>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+</dict>
+</plist>

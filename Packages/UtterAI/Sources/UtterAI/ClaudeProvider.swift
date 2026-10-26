@@ -57,6 +57,7 @@ public struct ClaudeProvider: AIProvider, AIEditProvider {
   }
 
   public var destination: CloudAIProviderKind { .claude }
+  public var isTokenBilled: Bool { true }
   public let configuration: Configuration
   private let credential: Credential
   private let transport: any HTTPTransport
