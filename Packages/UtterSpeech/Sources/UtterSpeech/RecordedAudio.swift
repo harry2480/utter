@@ -136,13 +136,9 @@ public struct RecordedAudio: Hashable, Sendable {
     }
   }
 
-  /// `chunkDuration` に収まるサンプル数。1サンプルに満たなければ 1。
-  /// 浮動小数点の誤差で1サンプル少なくならないよう、整数で計算する
+  /// `chunkDuration` に収まるサンプル数。1サンプルに満たなければ 1
   private func chunkSize(for chunkDuration: Duration) -> Int {
-    let (seconds, attoseconds) = chunkDuration.components
-    let rate = Int128(sampleRate)
-    let count = Int128(seconds) * rate + Int128(attoseconds) * rate / 1_000_000_000_000_000_000
-    return Int(max(1, min(count, Int128(Int.max / 2))))
+    AudioSampleCount.samples(in: chunkDuration, sampleRate: sampleRate)
   }
 
   private func chunk(_ samples: [Int16], _ range: Range<Int>) -> AudioChunk {

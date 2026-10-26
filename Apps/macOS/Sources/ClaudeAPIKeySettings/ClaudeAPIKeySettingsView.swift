@@ -2,7 +2,7 @@ import Security
 import SwiftUI
 import UtterAI
 
-/// Claude API キーの設定画面（AC-12）。状態と操作は `APIKeySettingsModel` が持つ。
+/// Claude API キーの設定画面（設定画面の「API キー」タブ, AC-12）。状態と操作は `APIKeySettingsModel` が持つ。
 ///
 /// - 入力欄は `SecureField`（伏せ字。コピー・切り取り・ドラッグで取り出せない）
 /// - 保存済みのキーは再表示しない。値に依存しない伏せ字で保存済みであることだけを示す
@@ -45,8 +45,6 @@ struct ClaudeAPIKeySettingsView: View {
       }
     }
     .formStyle(.grouped)
-    .frame(width: 480)
-    .fixedSize(horizontal: false, vertical: true)
     .onAppear { model.refresh() }
     .onDisappear { model.clearInput() }
     .confirmationDialog(

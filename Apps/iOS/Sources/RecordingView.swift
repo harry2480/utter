@@ -9,6 +9,9 @@ struct RecordingView: View {
   let model: RecordingSessionModel
   let consentSettings: ConsentSettingsModel
   let claudeAPIKeySettings: APIKeySettingsModel
+  let speechEngine: SpeechEngineSelection
+  /// 取得できるモデルがあるエンジンのときだけ
+  let speechModel: SpeechModelSettingsModel?
   @Environment(\.scenePhase) private var scenePhase
   @State private var isShowingSettings = false
 
@@ -31,7 +34,9 @@ struct RecordingView: View {
       }
     }
     .sheet(isPresented: $isShowingSettings) {
-      SettingsView(consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings)
+      SettingsView(
+        consentSettings: consentSettings, claudeAPIKeySettings: claudeAPIKeySettings,
+        speechEngine: speechEngine, speechModel: speechModel)
     }
     .task { await model.prepareResults() }
     .onChange(of: scenePhase) { _, phase in

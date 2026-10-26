@@ -12,4 +12,13 @@ DEVELOPMENT_TEAM =
 UTTER_APP_GROUP_ID =
 UTTER_IOS_CODE_SIGN_ENTITLEMENTS =
 
+// iOS の STT エンジン（#54 の判定待ち）。既定は未設定で、録音はするが文字にはしない。
+// SpeechAnalyzer を試すときだけ Local.xcconfig で speechAnalyzer にする
+UTTER_IOS_STT_ENGINE =
+
+// 自動更新（Sparkle 2）の appcast の URL と EdDSA 公開鍵。既定は空で、空なら Sparkle を起動しない（既定無効）。
+// Phase 0 #47（依存のライセンス確定）の判定待ちの先行実装。値の与え方は Local.xcconfig.example
+UTTER_SPARKLE_FEED_URL =
+UTTER_SPARKLE_PUBLIC_ED_KEY =
+
 #include? "Local.xcconfig"

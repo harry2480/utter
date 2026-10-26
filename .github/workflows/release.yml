@@ -41,6 +41,8 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           UTTER_BUNDLE_ID_PREFIX: ${{ vars.UTTER_BUNDLE_ID_PREFIX }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           missing=()
           for name in MACOS_DEVELOPER_ID_P12_BASE64 MACOS_DEVELOPER_ID_P12_PASSWORD APPLE_TEAM_ID \
@@ -52,6 +54,16 @@ jobs:
           if (( ${#missing[@]} > 0 )); then
             echo "::error title=リリースの設定がありません::Environment release の secrets / variables に次を登録してください: ${missing[*]}（docs/ビルド・配布規約.md「リリース」）"
             exit 1
+          fi
+          # 自動更新（Sparkle、#47 の判定待ちで既定無効）は秘密鍵と公開鍵の両方があるときだけ有効。片方だけなら設定漏れとして止める
+          if [[ -n "$SPARKLE_ED_PRIVATE_KEY" && -n "$SPARKLE_PUBLIC_ED_KEY" ]]; then
+            echo "UTTER_SPARKLE_ENABLED=true" >>"$GITHUB_ENV"
+            echo "自動更新（Sparkle）: 有効"
+          elif [[ -n "$SPARKLE_ED_PRIVATE_KEY" || -n "$SPARKLE_PUBLIC_ED_KEY" ]]; then
+            echo "::error title=自動更新の設定が一部だけです::secret SPARKLE_ED_PRIVATE_KEY と variable SPARKLE_PUBLIC_ED_KEY は両方登録するか、両方とも消してください（docs/ビルド・配布規約.md「リリース」）"
+            exit 1
+          else
+            echo "自動更新（Sparkle）: 無効（SPARKLE_ED_PRIVATE_KEY / SPARKLE_PUBLIC_ED_KEY が未登録）"
           fi
           echo "必要な secrets と変数がそろっています。"
 
@@ -84,6 +96,7 @@ jobs:
           MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
           MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           umask 077
@@ -119,6 +132,13 @@ jobs:
             echo "ASC_API_KEY_PATH=$api_key"
           } >>"$GITHUB_ENV"
 
+          # 自動更新の EdDSA 秘密鍵（generate_keys -x で書き出したファイルの中身）。有効なときだけ置く
+          if [[ "${UTTER_SPARKLE_ENABLED:-}" == "true" ]]; then
+            sparkle_key="$RUNNER_TEMP/sparkle-ed-private-key"
+            printf '%s' "$SPARKLE_ED_PRIVATE_KEY" >"$sparkle_key"
+            echo "SPARKLE_ED_PRIVATE_KEY_PATH=$sparkle_key" >>"$GITHUB_ENV"
+          fi
+
       - name: アーカイブ・署名・公証・staple・zip / dmg
         env:
           UTTER_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -126,8 +146,15 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           UTTER_BUILD_NUMBER: ${{ github.run_number }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           export UTTER_VERSION="${RELEASE_TAG#v}"
+          if [[ "${UTTER_SPARKLE_ENABLED:-}" == "true" ]]; then
+            # appcast は各 Release に添付し、最新の公開済み Release のものを配る（下書き・プレリリースは配らない）
+            export UTTER_SPARKLE_FEED_URL="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml"
+            export UTTER_SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/"
+            export UTTER_SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY"
+          fi
           scripts/release-macos.sh
 
       - name: GitHub Release（下書き）を作成して添付
@@ -145,6 +172,10 @@ jobs:
           if [[ "$version" == *-* ]]; then
             prerelease=(--prerelease)
           fi
+          assets=("build/release/utter-$version.zip" "build/release/utter-$version.dmg" "build/release/SHA256SUMS.txt")
+          if [[ "${UTTER_SPARKLE_ENABLED:-}" == "true" ]]; then
+            assets+=("build/release/appcast.xml")
+          fi
           # 下書きで作る。計測結果と既知の制限（AC-19）を本文に書いてから、人が公開する
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
@@ -153,9 +184,7 @@ jobs:
             ${prerelease[@]+"${prerelease[@]}"} \
             --title "utter $version" \
             --generate-notes \
-            "build/release/utter-$version.zip" \
-            "build/release/utter-$version.dmg" \
-            "build/release/SHA256SUMS.txt"
+            "${assets[@]}"
 
       - name: 一時キーチェーンと API キーを削除
         if: always()
@@ -165,4 +194,4 @@ jobs:
           if [[ -f "$keychain" ]]; then
             security delete-keychain "$keychain" || true
           fi
-          rm -f "$RUNNER_TEMP/asc-api-key.p8" "$RUNNER_TEMP/developer-id.p12"
+          rm -f "$RUNNER_TEMP/asc-api-key.p8" "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/sparkle-ed-private-key"
