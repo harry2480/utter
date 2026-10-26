@@ -7,6 +7,9 @@ options:
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
+  # Xcode のプロジェクトでは Package.resolved が生成物（*.xcodeproj）の中に置かれるため、
+  # コミットした Apps/macOS/Package.resolved を生成のたびに中へ写す（docs/ビルド・配布規約.md「依存」）
+  postGenCommand: ../../scripts/install-mac-package-resolved.sh
 configFiles:
   Debug: ../../Config/Base.xcconfig
   Release: ../../Config/Base.xcconfig
@@ -30,6 +33,8 @@ include:
   - path: Specs/UtterAI.yml
     relativePaths: false
   - path: Specs/UtterPersistence.yml
+    relativePaths: false
+  - path: Specs/Sparkle.yml
     relativePaths: false
   - path: Specs/Microphone.yml
     relativePaths: false

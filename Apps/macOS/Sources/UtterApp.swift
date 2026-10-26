@@ -17,6 +17,8 @@ struct UtterApp: App {
 
   @State private var composition = AppComposition(
     claudeAPIKeyStore: Self.claudeAPIKeyStore, database: Self.database)
+  /// 自動更新。appcast URL と公開鍵がビルド設定で与えられていなければ Sparkle を起動しない（既定無効）。
+  @State private var updater = SoftwareUpdater(infoDictionary: Bundle.main.infoDictionary ?? [:])
   #if DEBUG
     /// Realtime Direct（AC-15, 実験機能）の実機確認用。Debug ビルドにだけ含める
     @State private var realtimeDirectDebug = RealtimeDirectDebugRunner()
@@ -31,6 +33,7 @@ struct UtterApp: App {
         .environment(composition)
         // 録音ショートカットの登録（`AppComposition` が持つ）。メニューの表示に使う
         .environment(composition.shortcuts)
+        .environment(updater)
         #if DEBUG
           .environment(realtimeDirectDebug)
         #endif

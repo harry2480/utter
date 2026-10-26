@@ -16,7 +16,7 @@ if [[ ! -d "$project" ]]; then
   exit 1
 fi
 
-settings="$(xcodebuild -project "$project" -target UtterMac -configuration Release -showBuildSettings)"
+settings="$(xcodebuild -project "$project" -target UtterMac -configuration Release -showBuildSettings -disableAutomaticPackageResolution)"
 
 # xcodebuild -showBuildSettings の「    KEY = value」から値を取り出す（ない・空なら空文字）
 setting() {

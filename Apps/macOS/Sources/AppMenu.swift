@@ -26,6 +26,7 @@ struct AppMenu: View {
     InputHistoryMenuItem()
     ConsentSettingsMenuItem()
     Divider()
+    SoftwareUpdateMenuItem()
     QuitMenuItem()
   }
 }

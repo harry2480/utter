@@ -24,3 +24,7 @@ targets:
         GENERATE_INFOPLIST_FILE: "NO"
         SKIP_INSTALL: "YES"
         # Entitlement はマイク・ネットワークなどを使わないため付けない（PERM-01）
+      configs:
+        # 公式バイナリ（scripts/release-macos.sh）の公証では、組み込む XPC Service も Hardened Runtime が要る
+        Release:
+          ENABLE_HARDENED_RUNTIME: "YES"
