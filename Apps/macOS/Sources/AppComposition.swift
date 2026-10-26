@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import UtterAI
@@ -12,6 +13,7 @@ import UtterSpeech
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
 /// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
+/// 端末の状態（メモリ圧迫・低電力モード・電源）は起動から終了まで監視し、STT Worker へ送る（`DeviceResourceMonitoring`, 6章, AC-11）。
 @MainActor
 @Observable
 final class AppComposition {
@@ -20,6 +22,9 @@ final class AppComposition {
   let shortcuts: ShortcutCoordinator
   /// 起動時の復旧。一時音声の保存先を作れなければ `nil`（保存も復旧もしない）
   let launchRecovery: LaunchAudioRecovery?
+  /// 端末の状態の監視（6章, AC-11）。録音・認識の有無に関わらず動かす。
+  /// STT Worker の認識器を作らないとき（エンジンが未選択、接続先の Bundle ID が取れない）は、送り先がないため監視もしない（`nil`）
+  let resourceMonitoring: DeviceResourceMonitoring?
 
   init() {
     let hud = HUDController(
@@ -45,6 +50,12 @@ final class AppComposition {
       recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init))
     self.hud = hud
     self.session = session
+    let resourceMonitoring = recognizer.flatMap {
+      STTWorkerComposition.makeResourceMonitoring(for: $0)
+    }
+    self.resourceMonitoring = resourceMonitoring
+    resourceMonitoring?.start()
+    Self.stopAtTermination(resourceMonitoring)
     let launchRecovery = audioQueue.map {
       LaunchAudioRecovery(
         queue: $0, recognizer: recognizer, refinementMode: refinementMode,
@@ -60,6 +71,17 @@ final class AppComposition {
     // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
     // Esc の捕捉をセッション中だけ有効にする（REC-01）
     session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
+  }
+
+  /// アプリの終了時に端末の状態の監視をやめる（通知の登録を残さない）
+  private static func stopAtTermination(_ monitoring: DeviceResourceMonitoring?) {
+    guard let monitoring else { return }
+    // アプリの終了まで登録したままにするため、戻り値（登録の解除に使う）は持たない
+    _ = NotificationCenter.default.addObserver(
+      forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { monitoring.stop() }
+    }
   }
 
   /// 使う STT エンジン。既定のエンジンは Phase 0 の判定（11章）待ちのため、構成で明示的に選ばない限り `nil`。

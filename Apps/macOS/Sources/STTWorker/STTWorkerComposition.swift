@@ -20,4 +20,17 @@ enum STTWorkerComposition {
     return STTWorkerSpeechRecognizer(
       engine: engine, connector: connector, onTermination: onTermination)
   }
+
+  /// 端末の状態の監視を `recognizer` に結線する（6章, AC-11）。
+  ///
+  /// 保持モードの設定はまだないため、6章の標準（バランスモード、保持時間は `ModelRetentionPolicy` の仮置きの既定値）を送る。
+  /// 設定の結線（Phase 1）で `DeviceResourceMonitoring.updatePolicy(_:)` から利用者の設定を送る
+  @MainActor
+  static func makeResourceMonitoring(
+    for recognizer: STTWorkerSpeechRecognizer
+  ) -> DeviceResourceMonitoring? {
+    // 既定の引数は検証を通る値のため失敗しない
+    guard let policy = try? ModelRetentionPolicy() else { return nil }
+    return DeviceResourceMonitoring(policy: policy, receiver: recognizer)
+  }
 }
