@@ -560,6 +560,42 @@ struct EditRouterBudgetTests {
       model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
   }
 
+  @Test("AC-06: 予約の後に同意の撤回で予約を取り消す間にキャンセルされたら、結果を返さずに CancellationError を投げる")
+  func cancellationTakesPrecedenceOverRevokedConsent() async throws {
+    let budgetGuard = try makeGuard(spent: 70)
+    let stub = StubAIProvider(behavior: .respond("編集案"))
+    let router = try EditRouter(provider: stub)
+    let request = try EditRequest.make()
+    let budget = budget(budgetGuard, expected: 30)
+    let calls = Mutex(0)
+    let consent: @Sendable () -> ConsentState = {
+      let count = calls.withLock { count in
+        count += 1
+        return count
+      }
+      guard count == 1 else {
+        // 予約を待った後の確認で撤回とキャンセルを同時に起こし、取り消しの後の確認でキャンセルが見えるようにする
+        withUnsafeCurrentTask { $0?.cancel() }
+        return ConsentState()
+      }
+      return .editSelectionGranted()
+    }
+    let task = Task {
+      try await router.edit(
+        request, consent: consent, budget: budget, sensitivity: { .allowedInput })
+    }
+
+    await #expect(throws: CancellationError.self) {
+      try await task.value
+    }
+    #expect(calls.withLock { $0 } == 2)
+    #expect(await stub.editCallCount == 0)
+    #expect(await budgetGuard.ledger.spent(in: october) == 70)
+    // 予約が取り消されていれば、もう一度同じ見込み費用を予約できる
+    _ = try await budgetGuard.reserve(
+      model: "m", expectedUsage: TokenUsage(inputTokens: 30, outputTokens: 0), in: october)
+  }
+
   @Test("AI-05: 認証で拒否されたら課金されないため予約を取り消し、記録しない")
   func cancelsReservationOnAuthenticationFailure() async throws {
     let budgetGuard = try makeGuard()

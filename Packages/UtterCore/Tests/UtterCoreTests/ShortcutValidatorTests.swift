@@ -5,9 +5,16 @@ import Testing
 struct ShortcutValidatorTests {
   let space = KeyCombination(key: .space, modifiers: [.option])
   let fnOnly = KeyCombination(modifierOnly: [.function])
-  let supported = ShortcutValidator(capabilities: ShortcutCapabilities(supportsModifierOnly: true))
+  let supported = ShortcutValidator(
+    capabilities: ShortcutCapabilities(supportsModifierOnly: true, supportsEscapeCapture: false))
   let unsupported = ShortcutValidator(
-    capabilities: ShortcutCapabilities(supportsModifierOnly: false))
+    capabilities: .keyCombinationsOnly)
+
+  @Test("REC-02: 通常のキー組み合わせだけの範囲は、修飾キー単独・Esc 捕捉とも使わない（#51 の判定待ち）")
+  func keyCombinationsOnly() {
+    #expect(!ShortcutCapabilities.keyCombinationsOnly.supportsModifierOnly)
+    #expect(!ShortcutCapabilities.keyCombinationsOnly.supportsEscapeCapture)
+  }
 
   @Test("REC-02: キー名は前後の空白を除いて小文字にそろえ、空の名前は作れない")
   func normalizesKeyName() throws {

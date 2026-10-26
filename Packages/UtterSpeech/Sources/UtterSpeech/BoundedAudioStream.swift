@@ -15,21 +15,33 @@ public final class BoundedAudioStream: Sendable {
   private let capture: Mutex<AudioCapture>
 
   /// 録音側と、STT に渡す音声のストリームを作る
+  /// - Parameters:
+  ///   - buffer: 音声バッファの上限
+  ///   - onCancelled: 受け手が読むのをやめたときに1回だけ呼ぶ（次の `yield(_:)` を待たずに録音を止めるため）。
+  ///     呼ぶスレッドは決まっていない。このクラスのロックの外で呼ぶ
   public static func make(
-    buffer: AudioStreamBuffer = AudioStreamBuffer()
+    buffer: AudioStreamBuffer = AudioStreamBuffer(),
+    onCancelled: @escaping @Sendable () -> Void = {}
   ) -> (stream: BoundedAudioStream, chunks: AsyncStream<AudioChunk>) {
     // 上限内の音声を落とさないよう、無制限のバッファにする（量は AudioCapture が上限で抑える）
     let (chunks, continuation) = AsyncStream.makeStream(
       of: AudioChunk.self, bufferingPolicy: .unbounded)
-    return (BoundedAudioStream(buffer: buffer, continuation: continuation), chunks)
+    return (
+      BoundedAudioStream(buffer: buffer, continuation: continuation, onCancelled: onCancelled),
+      chunks
+    )
   }
 
-  private init(buffer: AudioStreamBuffer, continuation: AsyncStream<AudioChunk>.Continuation) {
+  private init(
+    buffer: AudioStreamBuffer, continuation: AsyncStream<AudioChunk>.Continuation,
+    onCancelled: @escaping @Sendable () -> Void
+  ) {
     self.continuation = continuation
     self.capture = Mutex(AudioCapture(buffer: buffer))
     continuation.onTermination = { [weak self] termination in
       guard case .cancelled = termination else { return }
       self?.capture.withLock { _ = $0.stop(.cancelled) }
+      onCancelled()
     }
   }
 
