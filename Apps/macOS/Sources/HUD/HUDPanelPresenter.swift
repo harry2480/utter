@@ -5,7 +5,8 @@ import UtterCore
 /// `HUDPanel` に `HUDView` を載せて表示する（REC-03）。
 ///
 /// パネルはキーウィンドウにならず VoiceOver のフォーカスも移らないため、失敗と通知は読み上げで知らせる。
-/// 読み上げる文言は `HUDPresentation.announcement(replacing:)` だけで、本文（Realtime Preview の認識テキスト）を含まない。
+/// 読み上げる文言は `HUDPresentation.announcement(after:)` だけで、本文（Realtime Preview の認識テキスト）を含まない。
+/// 段階が変わるだけ・認識テキストが変わるだけでは同じ通知を読み直さない。
 ///
 /// 表示・非表示の依頼はその場では画面に反映せず、`HUDDisplayQueue` に溜めてメインスレッドの次の処理でまとめて反映する。
 /// Esc のイベントタップのコールバック（キャンセル）の中で、ウィンドウの操作をしないため（REC-01）。

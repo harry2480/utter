@@ -135,11 +135,36 @@ struct SessionCoordinatorRefinementTests {
     await runSession(session, recorder: recorder)
 
     #expect(transport.count == 1)
-    guard case .cloudFallback = reporter.routes.first else {
+    guard case .cloudFallback(let reason) = reporter.routes.first else {
       Issue.record("退避を知らせていない: \(reporter.routes)")
       return
     }
     #expect(inserter.inserted.count == 1)
+    // HUD: 整形中から退避の通知を出し、挿入完了後も通知だけを残す
+    let notice = HUDNotice.refinementFellBack(RefinementFallbackNotice(reason: reason))
+    let refining = try #require(HUDPresentation(HUDContent(status: .refining, notice: notice)))
+    let inserting = try #require(HUDPresentation(HUDContent(status: .inserting, notice: notice)))
+    #expect(presenter.shown.contains(refining))
+    #expect(presenter.shown.contains(inserting))
+    #expect(presenter.current == HUDPresentation(HUDContent(status: nil, notice: notice)))
+  }
+
+  @Test("AC-16: 送らなかったとき（同意なし）・クラウド整形が通ったときは、退避の通知を出さない")
+  func noFallbackNoticeWithoutFallback() async throws {
+    for consented in [false, true] {
+      presenter.reset()
+      var settings = RefinementSettings.ready()
+      if !consented { settings.consentState = ConsentState() }
+      let recorder = StubAudioRecorder()
+      let session = try coordinator(settings, transport: CountingTransport(), recorder: recorder)
+
+      await runSession(session, recorder: recorder)
+
+      #expect(!presenter.shown.isEmpty)
+      let shown = presenter.shown
+      #expect(shown.allSatisfy { $0.messages.isEmpty })
+      #expect(presenter.current == nil)
+    }
   }
 
   // MARK: 入力履歴

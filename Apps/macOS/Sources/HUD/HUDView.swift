@@ -1,7 +1,7 @@
 import SwiftUI
 import UtterCore
 
-/// HUD の中身（REC-03, REC-05）。文言は `HUDPresentation` のものをそのまま出す。
+/// HUD の中身（REC-03, REC-05, AC-16）。文言は `HUDPresentation` のものをそのまま出す。
 ///
 /// Realtime Preview（2.2節, AC-03）の認識テキストは文言の下に出し、確定済みは通常の色、暫定は淡い色と点線の下線
 /// （かな漢字変換の未確定文字と同じ見せ方）で区別する。長くなったら新しい側を残して先頭を省く。
@@ -20,7 +20,8 @@ struct HUDView: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(presentation.title)
           .font(.headline)
-        if let message = presentation.message {
+        // 録音停止（または失敗の理由）と整形の退避の通知が重なると複数行になる（REC-05, AC-16）
+        ForEach(Array(presentation.messages.enumerated()), id: \.offset) { _, message in
           Text(message)
             .font(.subheadline)
             .foregroundStyle(.secondary)

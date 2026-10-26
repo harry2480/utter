@@ -22,6 +22,8 @@ targets:
       - path: Sources/Settings
         excludes:
           - "Views/**"
+      # 録音の割り込みの値（録音エンジンのアダプターは含めない）
+      - path: Sources/Audio/MacRecordingInterruptions.swift
     dependencies:
       - package: UtterCore
       - package: UtterSpeech

@@ -2,11 +2,11 @@ import Foundation
 import UtterCore
 import UtterPersistence
 
-/// 設定画面の入力中の値（2.1〜2.3節, 5章, 6章, AC-05）。
+/// 設定画面の入力中の値（2.1〜2.3節, 5章, 6章, 7章, AC-05, AC-12）。
 ///
 /// 数値・通貨・単価・bundle ID・サイトは文字列のまま持ち、保存するとき（`applied(to:)`）にまとめて検証する。
 /// 検証に通らない項目があれば何も保存せず、項目ごとの問題（`SettingsIssue`）を返す。
-/// 画面が扱わない項目（同意状態・履歴・除外アプリ・録音ショートカット）は保存の基準にした設定の値をそのまま残す。
+/// 画面が扱わない項目（同意状態・履歴・録音ショートカット）は保存の基準にした設定の値をそのまま残す。
 ///
 /// 金額と秒数は地域設定によらず、半角数字と小数点（`.`）だけを受け付ける（桁区切りは使わない）。
 struct SettingsForm: Hashable, Sendable {
@@ -34,6 +34,17 @@ struct SettingsForm: Hashable, Sendable {
     /// キーが空の行は保存しない
     var isBlank: Bool {
       key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+  }
+
+  /// 除外アプリの1行（7章, AC-12）
+  struct ExcludedAppRow: Hashable, Sendable, Identifiable {
+    let id: Int
+    var bundleID: String
+
+    /// 空の行は保存しない
+    var isBlank: Bool {
+      bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
   }
 
@@ -67,6 +78,11 @@ struct SettingsForm: Hashable, Sendable {
   var siteIdentificationAllowed: Bool
   var siteStyleRows: [StyleOverrideRow]
 
+  // MARK: 除外アプリ（7章, AC-12）
+
+  /// 利用者が指定した除外アプリ。保存した順に並べる
+  var excludedAppRows: [ExcludedAppRow]
+
   /// 行の識別子の採番。画面の行を並べ替え・削除しても取り違えないよう、値ではなく識別子で行を指す
   private var nextRowID = 0
 
@@ -92,6 +108,7 @@ struct SettingsForm: Hashable, Sendable {
     appStyleRows = []
     siteIdentificationAllowed = settings.siteIdentificationAllowed
     siteStyleRows = []
+    excludedAppRows = []
 
     for price in settings.priceTable.prices {
       priceRows.append(
@@ -105,6 +122,9 @@ struct SettingsForm: Hashable, Sendable {
     }
     for (host, style) in settings.siteStyleOverrides.sorted(by: { $0.key < $1.key }) {
       siteStyleRows.append(StyleOverrideRow(id: makeRowID(), key: host, style: style))
+    }
+    for bundleID in settings.excludedApps {
+      excludedAppRows.append(ExcludedAppRow(id: makeRowID(), bundleID: bundleID))
     }
   }
 
@@ -133,6 +153,32 @@ struct SettingsForm: Hashable, Sendable {
 
   mutating func removeSiteStyleRow(id: Int) {
     siteStyleRows.removeAll { $0.id == id }
+  }
+
+  mutating func addExcludedAppRow() {
+    excludedAppRows.append(ExcludedAppRow(id: makeRowID(), bundleID: ""))
+  }
+
+  /// 起動中のアプリなどから bundle ID を指定して追加する。bundle ID の形でない・すでに一覧にある
+  /// （大文字・小文字の違いは同じアプリとみなす）ときは追加せず `false` を返す
+  @discardableResult
+  mutating func addExcludedApp(bundleID: String) -> Bool {
+    let trimmed = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard Self.isPlausibleBundleID(trimmed), !containsExcludedApp(trimmed) else { return false }
+    excludedAppRows.append(ExcludedAppRow(id: makeRowID(), bundleID: trimmed))
+    return true
+  }
+
+  mutating func removeExcludedAppRow(id: Int) {
+    excludedAppRows.removeAll { $0.id == id }
+  }
+
+  /// 一覧に同じアプリ（大文字・小文字・前後の空白の違いを除く）があるか
+  func containsExcludedApp(_ bundleID: String) -> Bool {
+    let key = bundleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return excludedAppRows.contains {
+      $0.bundleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key
+    }
   }
 
   private mutating func makeRowID() -> Int {
@@ -199,6 +245,7 @@ struct SettingsForm: Hashable, Sendable {
 
     applyCost(to: &settings, issues: &issues)
     applyStyles(to: &settings, issues: &issues)
+    applyExcludedApps(to: &settings, issues: &issues)
 
     guard issues.isEmpty else {
       throw SettingsValidationError(issues: issues)
@@ -291,6 +338,25 @@ struct SettingsForm: Hashable, Sendable {
     settings.siteStyleOverrides = siteOverrides
   }
 
+  private func applyExcludedApps(to settings: inout AppSettings, issues: inout [SettingsIssue]) {
+    var apps: [String] = []
+    var seen: Set<String> = []
+    for row in excludedAppRows where !row.isBlank {
+      let bundleID = row.bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard Self.isPlausibleBundleID(bundleID) else {
+        issues.append(.excludedAppBundleID(rowID: row.id))
+        continue
+      }
+      // 大文字・小文字の違いは同じアプリとみなす（`SensitiveInputPolicy` と同じ）
+      guard seen.insert(bundleID.lowercased()).inserted else {
+        issues.append(.excludedAppDuplicate(rowID: row.id))
+        continue
+      }
+      apps.append(bundleID)
+    }
+    settings.excludedApps = apps
+  }
+
   // MARK: - 文字列と値の変換
 
   private static let posix = Locale(identifier: "en_US_POSIX")
@@ -368,13 +434,16 @@ enum SettingsIssue: Hashable, Sendable {
   /// ホスト名・URL として読めない（CTX-02）
   case siteHost(rowID: Int)
   case siteHostDuplicate(rowID: Int)
+  /// 除外アプリの bundle ID の形でない（7章, AC-12）
+  case excludedAppBundleID(rowID: Int)
+  case excludedAppDuplicate(rowID: Int)
 
   /// 行に属する問題なら、その行の識別子
   var rowID: Int? {
     switch self {
     case .priceModelEmpty(let id), .priceModelDuplicate(let id), .priceAmount(let id),
       .appBundleID(let id), .appBundleIDDuplicate(let id), .siteHost(let id),
-      .siteHostDuplicate(let id):
+      .siteHostDuplicate(let id), .excludedAppBundleID(let id), .excludedAppDuplicate(let id):
       id
     default:
       nil
@@ -404,13 +473,17 @@ enum SettingsIssue: Hashable, Sendable {
     case .priceAmount:
       return "単価は 0 以上の数を半角で入力してください（桁区切りなし）。"
     case .appBundleID:
-      return "bundle ID は英数字・ピリオド・ハイフンで入力してください（例: com.apple.mail）。"
+      return "bundle ID は英数字・ピリオド・ハイフン・アンダースコアで入力してください（例: com.apple.mail）。"
     case .appBundleIDDuplicate:
       return "同じアプリの上書きがほかの行にあります。"
     case .siteHost:
       return "サイトはホスト名か URL で入力してください（例: mail.example.com）。"
     case .siteHostDuplicate:
       return "同じサイトの上書きがほかの行にあります（www. の有無は同じサイトとみなします）。"
+    case .excludedAppBundleID:
+      return "bundle ID は英数字・ピリオド・ハイフン・アンダースコアで入力してください（例: com.example.app）。"
+    case .excludedAppDuplicate:
+      return "同じアプリがほかの行にあります（大文字・小文字の違いは同じアプリとみなします）。"
     }
   }
 }

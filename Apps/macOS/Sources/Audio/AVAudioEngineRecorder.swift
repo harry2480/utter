@@ -10,7 +10,7 @@ import UtterSpeech
 ///   `AudioRecordingPipeline` で 100ms ごとのチャンクにして上限つきで流す（REC-05）
 /// - 次の通知で録音を止め（変換器に残った音声も流してから）、`AudioRecordingEnd.reason` の `.interrupted(_:)` で知らせる。
 ///   自動で再開しない。
-///   値の対応は docs/アーキテクチャ.md の「macOS の録音（AVAudioEngine）」を参照
+///   値は `MacRecordingInterruptions`。対応は docs/アーキテクチャ.md の「macOS の録音（AVAudioEngine）」を参照
 ///   - `AVAudioEngineConfigurationChange`（入力機器の切断・既定の入力機器の変更・形式の変更。エンジンは止まっている）
 ///   - `NSWorkspace.willSleepNotification`（スリープ）
 /// - 音声はメモリ上で流すだけで、ファイルやログには出さない
@@ -109,13 +109,16 @@ actor AVAudioEngineRecorder: AudioRecorder {
       forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
     ) { [weak self] _ in
       Task {
-        await self?.tearDown(attempt, reason: .interrupted(Self.configurationChangeInterruption))
+        await self?.tearDown(
+          attempt, reason: .interrupted(MacRecordingInterruptions.configurationChange))
       }
     }
     let sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.willSleepNotification, object: nil, queue: nil
     ) { [weak self] _ in
-      Task { await self?.tearDown(attempt, reason: .interrupted(Self.sleepInterruption)) }
+      Task {
+        await self?.tearDown(attempt, reason: .interrupted(MacRecordingInterruptions.willSleep))
+      }
     }
     let active = ActiveRecording(
       attempt: attempt, engine: engine, resampler: resampler, pipeline: pipeline,
@@ -153,16 +156,6 @@ actor AVAudioEngineRecorder: AudioRecorder {
     active.engine.inputNode.removeTap(onBus: 0)
     active.engine.stop()
   }
-
-  /// エンジンの構成変更を表す値。エンジンは止まっており、録音に使っていた入力機器では続けられない。
-  /// UtterCore に macOS の値（#128 の `.audioRouteChanged(.inputDeviceChanged)`）が入るまでは、
-  /// 録音を止めて処理する既存の値で表す
-  static let configurationChangeInterruption = RecordingInterruption.audioRouteChanged(
-    .inputDeviceLost)
-
-  /// スリープを表す値。スリープで OS が録音を止めるため、オーディオ割り込みの開始で表す。
-  /// UtterCore に macOS の値（#128 の `.systemWillSleep`）が入ったら置き換える
-  static let sleepInterruption = RecordingInterruption.audioInterruptionBegan
 
   /// 録音のコールバック。オーディオのスレッドで呼ばれるため、アクターに隔離しない
   private nonisolated static func tapBlock(

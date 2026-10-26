@@ -13,6 +13,7 @@ import UtterSpeech
 /// - 整形は `SessionRefining`（本番は `SessionRefinementPipeline`）に任せる。設定・同意・API キー・予算がそろい、
 ///   入力先が機密入力でないときだけクラウドへ送り、それ以外はローカル整形（Raw / Local Basic, AI-03）にする
 /// - 挿入を終えたら、履歴が有効で機密入力でないときだけ入力履歴に保存する（7章, AC-12）
+/// - クラウドへ送ろうとしてローカル整形へ退避したら、HUD で退避の理由を知らせる（4.1節, AC-16）
 /// - 最大録音時間・音声バッファの上限・割り込みで録音を止めたら、それまでの音声を処理して HUD で知らせる（REC-05, iOS-PERF-03）
 /// - キャンセルは録音〜整形中と失敗の表示中だけ受け付ける。挿入が始まったら取り消さない（REC-01）
 /// - 処理中の開始操作は無視する（REC-06）
@@ -56,7 +57,7 @@ final class SessionCoordinator {
   /// - Parameters:
   ///   - recognizer: 音声認識。エンジンが選ばれていなければ `nil`（Phase 0 の判定待ちで既定のエンジンを持たない）
   ///   - refiner: 整形（TXT-01, AI-01, AI-03）。録音開始時の前面アプリをスタイル区分の判定に渡す（CTX-01）
-  ///   - refinementReporter: 整形の経路を知らせる差し込み口（AC-16）。#133 の結線まで `nil`
+  ///   - refinementReporter: 整形の経路を知らせる差し込み口（AC-16）。退避の HUD 通知はこれによらず `hud` に出す
   ///   - showsRealtimePreview: 入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）。
   ///     入力モードの設定（#130）を結線するまでは構成値で選ぶ
   ///   - history: 入力履歴への保存（7章, AC-12）。`nil` なら保存しない
@@ -321,6 +322,11 @@ final class SessionCoordinator {
     }
     guard isActive(session) else { return }
     refinementReporter?.refinementFinished(refined.route, session: session)
+    // 送ろうとしてローカル整形へ退避したら HUD で知らせる（4.1節, AC-16）。HUD は整形中を反映している間だけ受け付けるため、
+    // 整形完了を状態機械へ渡す前に知らせる。送らなかった場合（`localOnly`）は知らせない
+    if case .cloudFallback(let reason) = refined.route {
+      hud.recordRefinementFallback(RefinementFallbackNotice(reason: reason), for: session)
+    }
     guard apply(.refinementCompleted, session: session) else { return }
 
     // 挿入。自動挿入できなければ挿入側がプレビューへ退避する（文字列を失わない, AC-09）。

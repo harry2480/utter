@@ -7,10 +7,10 @@
 public struct HUDPresentation: Hashable, Sendable {
   /// 表示の種類。画面はアイコンと色を選ぶのに使う
   public let indicator: HUDIndicator
-  /// 1行目に出す文言。状態があれば状態、通知だけを残しているときは通知
+  /// 1行目に出す文言。状態があれば状態、通知だけを残しているときは先頭の通知
   public let title: String
-  /// 2行目に出す通知の文言。なければ `nil`
-  public let message: String?
+  /// 2行目以降に1件ずつ出す通知の文言。`HUDContent.notices` の順（録音停止または失敗の理由、整形の退避）
+  public let messages: [String]
   /// Realtime Preview の確定済み・暫定テキスト。録音中・認識中で、表示する文字があるときだけ持つ
   public let transcript: HUDTranscript?
 
@@ -23,23 +23,30 @@ public struct HUDPresentation: Hashable, Sendable {
     case .refining, .inserting, .failed, nil:
       self.transcript = nil
     }
-    switch (content.status, content.notice) {
-    case (let status?, let notice):
+    let texts = content.notices.map(Self.text(for:))
+    if let status = content.status {
       indicator = HUDIndicator(status)
       title = Self.text(for: status)
-      message = notice.map(Self.text(for:))
-    case (nil, let notice?):
+      messages = texts
+    } else if let first = texts.first {
       indicator = .notice
-      title = Self.text(for: notice)
-      message = nil
-    case (nil, nil):
+      title = first
+      messages = Array(texts.dropFirst())
+    } else {
       return nil
     }
   }
 
+  /// 2行目の文言（先頭の通知）。なければ `nil`。
+  ///
+  /// 通知が重なると先頭の1件しか返さないため、画面の表示には `messages` を使う。
+  public var message: String? {
+    messages.first
+  }
+
   /// VoiceOver で読み上げる文言。表示している文言を順に読む
   public var accessibilityLabel: String {
-    [title, message].compactMap(\.self).joined(separator: "。")
+    ([title] + messages).joined(separator: "。")
   }
 
   /// 表示したときに VoiceOver へ読み上げを依頼する文言。依頼しないときは `nil`。
@@ -50,21 +57,30 @@ public struct HUDPresentation: Hashable, Sendable {
     switch indicator {
     case .failure, .notice: accessibilityLabel
     case .recording: nil
-    case .processing: message == nil ? nil : accessibilityLabel
+    case .processing: messages.isEmpty ? nil : accessibilityLabel
     }
   }
 
-  /// `previous` の表示から切り替えたときに読み上げを依頼する文言。
+  /// 直前の表示から続けて表示するときに読み上げを依頼する文言。依頼しないときは `nil`。
   ///
   /// 表示の種類と文言が同じで `transcript` だけが変わったときは `nil`（Realtime Preview の更新のたびに
-  /// 同じ通知を読み上げ直さない）。それ以外は `announcement`。
-  public func announcement(replacing previous: HUDPresentation?) -> String? {
-    if let previous, previous.indicator == indicator, previous.title == title,
-      previous.message == message
-    {
+  /// 同じ通知を読み上げ直さない）。それ以外で、失敗は `announcement` のとおり読み上げる。失敗以外は、直前の表示に
+  /// なかった通知があるときだけ読み上げる（段階が変わるたびに同じ通知を読み直さない。整形中→挿入中→通知だけを
+  /// 残す、の間に退避の通知を繰り返さない）。
+  /// - Parameter previous: 直前に表示していた内容。隠していた後に表示するときは `nil`
+  public func announcement(after previous: HUDPresentation?) -> String? {
+    guard let announcement else { return nil }
+    guard let previous else { return announcement }
+    if previous.indicator == indicator, previous.title == title, previous.messages == messages {
       return nil
     }
-    return announcement
+    guard indicator != .failure else { return announcement }
+    return Set(noticeTexts).isSubset(of: previous.noticeTexts) ? nil : announcement
+  }
+
+  /// 表示している通知の文言（通知だけを残しているときは1行目を含む）
+  private var noticeTexts: [String] {
+    indicator == .notice ? [title] + messages : messages
   }
 
   static func text(for status: HUDStatus) -> String {
@@ -126,7 +142,7 @@ public struct HUDPresentation: Hashable, Sendable {
 // Realtime Preview の認識テキストをログに出さないよう、文字列表現とリフレクションでは `transcript` の文字数だけを出す。
 extension HUDPresentation: CustomStringConvertible, CustomReflectable {
   public var description: String {
-    "HUDPresentation(indicator: \(indicator), title: \(title), message: \(message ?? "nil"), "
+    "HUDPresentation(indicator: \(indicator), title: \(title), messages: \(messages), "
       + "transcript: \(transcript.map(String.init(describing:)) ?? "nil"))"
   }
 

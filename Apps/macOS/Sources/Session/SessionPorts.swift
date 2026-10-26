@@ -47,7 +47,7 @@ protocol SessionRefining: AnyObject {
 
 /// 整形の経路を知らせる差し込み口（4.1節, AC-16）。
 ///
-/// ローカル整形への退避を HUD で知らせる作業（#133）の結線まで、本番では渡さない（`nil`）。
+/// 退避の HUD 通知は `SessionCoordinator` が `HUDController` に直接出すため、本番では渡さない（`nil`）。テストで経路を確かめるのに使う。
 @MainActor
 protocol SessionRefinementReporting: AnyObject {
   /// セッションの整形が終わった。挿入の前に、整形したセッションごとに1回呼ぶ。本文は渡さない

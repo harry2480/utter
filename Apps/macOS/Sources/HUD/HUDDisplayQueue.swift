@@ -42,8 +42,8 @@ struct HUDDisplayQueue {
     }
     if let presentation = pendingShow {
       pendingShow = nil
-      // 認識テキストだけが変わったときは読み上げ直さない
-      let announcement = presentation.announcement(replacing: displayed)
+      // 認識テキストや段階だけが変わったときは、同じ通知を読み上げ直さない
+      let announcement = presentation.announcement(after: displayed)
       displayed = presentation
       steps.append(.show(presentation, announcement: announcement))
     }

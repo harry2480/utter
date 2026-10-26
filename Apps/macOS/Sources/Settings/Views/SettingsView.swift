@@ -1,9 +1,10 @@
+import AppKit
 import SwiftUI
 import UtterAI
 import UtterCore
 import UtterPersistence
 
-/// 設定画面（AC-05, AI-05, AI-07, CTX-01, CTX-02, REC-01, REC-02, REC-05, 2.2節, 6章）。
+/// 設定画面（AC-05, AC-12, AI-05, AI-07, CTX-01, CTX-02, REC-01, REC-02, REC-05, 2.2節, 6章, 7章）。
 ///
 /// 検証・保存・表示値は `SettingsModel` / `SettingsForm` / `CloudCostBridge` が持ち、ここは並べるだけにする。
 /// 入力はまとめて「保存」で検証・保存する（数値・通貨・サイトなどの入力途中の値を保存しない）。
@@ -28,6 +29,9 @@ struct SettingsView: View {
         StyleSettingsTab(model: model)
           .tabItem { Label("スタイル", systemImage: "paintbrush") }
           .tag(SettingsTab.style)
+        ExcludedAppsSettingsTab(model: model)
+          .tabItem { Label("除外アプリ", systemImage: "hand.raised") }
+          .tag(SettingsTab.excludedApps)
         ClaudeAPIKeySettingsView(model: apiKeyModel)
           .tabItem { Label("API キー", systemImage: "key") }
           .tag(SettingsTab.apiKey)
@@ -52,6 +56,7 @@ private enum SettingsTab: Hashable {
   case refinement
   case cost
   case style
+  case excludedApps
   case apiKey
 }
 
@@ -386,5 +391,114 @@ private struct StyleOverrideRowView: View {
       }
       IssueText(issues: issues)
     }
+  }
+}
+
+// MARK: - 除外アプリ
+
+private struct ExcludedAppsSettingsTab: View {
+  @Bindable var model: SettingsModel
+  /// 「起動中のアプリから追加」の候補。タブを開いたとき・一覧を変えたとき・アプリの起動と終了で読み直す
+  @State private var candidates: [ExcludedAppCandidate] = []
+
+  var body: some View {
+    Form {
+      Section {
+        ForEach($model.form.excludedAppRows) { $row in
+          ExcludedAppRowView(row: $row, issues: model.issues(forRow: row.id)) {
+            model.form.removeExcludedAppRow(id: row.id)
+          }
+        }
+        if model.form.excludedAppRows.isEmpty {
+          Text("除外アプリはありません。").foregroundStyle(.secondary)
+        }
+        HStack {
+          Button("bundle ID で追加") { model.form.addExcludedAppRow() }
+          Menu("起動中のアプリから追加") {
+            if candidates.isEmpty {
+              Text("追加できるアプリがありません")
+            }
+            ForEach(candidates) { candidate in
+              Button("\(candidate.name)（\(candidate.bundleID)）") {
+                model.form.addExcludedApp(bundleID: candidate.bundleID)
+              }
+            }
+          }
+          .fixedSize()
+        }
+      } header: {
+        Text("除外アプリ")
+      } footer: {
+        Text("ここに追加したアプリへの入力では、クラウドへの送信と入力履歴への保存をしません。追加・削除は「保存」で反映します。")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .formStyle(.grouped)
+    .onAppear(perform: reloadCandidates)
+    // 入力の1文字ごとではなく、一覧に入っているアプリが変わったときだけ読み直す
+    .onChange(of: listedApps) { reloadCandidates() }
+    .onReceive(
+      NSWorkspace.shared.notificationCenter.publisher(
+        for: NSWorkspace.didLaunchApplicationNotification)
+    ) { _ in reloadCandidates() }
+    .onReceive(
+      NSWorkspace.shared.notificationCenter.publisher(
+        for: NSWorkspace.didTerminateApplicationNotification)
+    ) { _ in reloadCandidates() }
+  }
+
+  private func reloadCandidates() {
+    let running = NSWorkspace.shared.runningApplications.map {
+      ExcludedAppCandidate.RunningApp(
+        bundleID: $0.bundleIdentifier, name: $0.localizedName,
+        isRegular: $0.activationPolicy == .regular)
+    }
+    candidates = ExcludedAppCandidate.candidates(
+      from: running, ownBundleID: Bundle.main.bundleIdentifier, form: model.form)
+  }
+
+  /// 一覧に入っているアプリ（大文字・小文字と前後の空白を除いた bundle ID）
+  private var listedApps: Set<String> {
+    Set(
+      model.form.excludedAppRows.map {
+        $0.bundleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      })
+  }
+}
+
+private struct ExcludedAppRowView: View {
+  @Binding var row: SettingsForm.ExcludedAppRow
+  let issues: [SettingsIssue]
+  let onRemove: () -> Void
+  /// インストールされているアプリの名前。bundle ID が変わったときだけ引き直す
+  @State private var appName: String?
+
+  var body: some View {
+    VStack(alignment: .leading) {
+      HStack {
+        TextField("bundle ID（例: com.example.app）", text: $row.bundleID)
+        if let appName {
+          Text(appName).foregroundStyle(.secondary).lineLimit(1)
+        }
+        Button(action: onRemove) {
+          Image(systemName: "minus.circle")
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("この行を削除")
+      }
+      IssueText(issues: issues)
+    }
+    .task(id: row.bundleID) {
+      appName = Self.appName(for: row.bundleID)
+    }
+  }
+
+  /// インストールされているアプリの名前。見つからなければ `nil`
+  private static func appName(for bundleID: String) -> String? {
+    let trimmed = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard SettingsForm.isPlausibleBundleID(trimmed),
+      let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed)
+    else { return nil }
+    return FileManager.default.displayName(atPath: url.path)
   }
 }

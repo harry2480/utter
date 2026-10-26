@@ -51,20 +51,118 @@ struct SettingsFormTests {
     #expect(try form.applied(to: settings) == settings)
   }
 
-  @Test("2.3節, AC-06: 画面で扱わない項目（同意・履歴・除外アプリ・ショートカット）は基準の設定の値を残す")
+  @Test("2.3節, AC-06: 画面で扱わない項目（同意・履歴・ショートカット）は基準の設定の値を残す")
   func unmanagedFieldsAreKept() throws {
     var consent = ConsentState()
     consent.grant(.transmission(.textRefinement(.claude)))
     let base = AppSettings(
       recordingShortcut: KeyCombination(key: .space, modifiers: [.option]),
-      consentState: consent, historyEnabled: true, excludedApps: ["com.example.secret"])
+      consentState: consent, historyEnabled: true)
 
     let saved = try SettingsForm(settings: AppSettings()).applied(to: base)
 
     #expect(saved.consentState == consent)
     #expect(saved.historyEnabled)
-    #expect(saved.excludedApps == ["com.example.secret"])
     #expect(saved.recordingShortcut == base.recordingShortcut)
+  }
+
+  // MARK: - 除外アプリ（7章, AC-12）
+
+  @Test("7章, AC-12: 保存済みの除外アプリを順に一覧にし、そのまま保存すると同じ値になる")
+  func excludedAppsRoundTrip() throws {
+    let settings = AppSettings(excludedApps: ["com.example.B", "com.example.a"])
+
+    let form = SettingsForm(settings: settings)
+
+    #expect(form.excludedAppRows.map(\.bundleID) == ["com.example.B", "com.example.a"])
+    #expect(try form.applied(to: settings).excludedApps == ["com.example.B", "com.example.a"])
+  }
+
+  @Test("7章, AC-12: 行を追加して入力した bundle ID を前後の空白を除いて保存し、空の行は保存しない")
+  func excludedAppRowsAreSaved() throws {
+    var form = SettingsForm(settings: AppSettings())
+    form.addExcludedAppRow()
+    form.excludedAppRows[0].bundleID = "  com.example.chat "
+    form.addExcludedAppRow()
+
+    let saved = try form.applied(to: AppSettings())
+
+    #expect(saved.excludedApps == ["com.example.chat"])
+  }
+
+  @Test("7章, AC-12: 削除した行は保存しない")
+  func removedExcludedAppIsNotSaved() throws {
+    var form = SettingsForm(
+      settings: AppSettings(excludedApps: ["com.example.a", "com.example.b"]))
+    let id = try #require(form.excludedAppRows.first).id
+
+    form.removeExcludedAppRow(id: id)
+
+    #expect(try form.applied(to: AppSettings()).excludedApps == ["com.example.b"])
+  }
+
+  @Test(
+    "7章, AC-12: bundle ID の形でない値は行ごとの問題にして、何も保存しない",
+    arguments: ["メモ", "com.example app", "com/example", "com.example.アプリ"])
+  func invalidExcludedAppIsRejected(bundleID: String) throws {
+    var form = SettingsForm(settings: AppSettings())
+    form.addExcludedAppRow()
+    form.excludedAppRows[0].bundleID = bundleID
+    let id = form.excludedAppRows[0].id
+
+    #expect(issues(form) == [.excludedAppBundleID(rowID: id)])
+    #expect(SettingsIssue.excludedAppBundleID(rowID: id).rowID == id)
+    // 文言に入力値を埋め込まない
+    #expect(!SettingsIssue.excludedAppBundleID(rowID: id).message.contains(bundleID))
+  }
+
+  @Test("7章, AC-12: 大文字・小文字だけが違う bundle ID は重複として後の行を問題にする")
+  func duplicateExcludedAppIsRejected() throws {
+    var form = SettingsForm(settings: AppSettings(excludedApps: ["com.example.Chat"]))
+    form.addExcludedAppRow()
+    form.excludedAppRows[1].bundleID = " COM.EXAMPLE.CHAT"
+    let duplicate = form.excludedAppRows[1].id
+
+    #expect(issues(form) == [.excludedAppDuplicate(rowID: duplicate)])
+  }
+
+  @Test("7章, AC-12: 起動中のアプリから追加するときは、一覧にあるアプリと bundle ID の形でない値を追加しない")
+  func addExcludedAppFromCandidate() throws {
+    var form = SettingsForm(settings: AppSettings(excludedApps: ["com.example.chat"]))
+
+    let added = [
+      "com.example.mail", "COM.EXAMPLE.CHAT", "not a bundle id", "",
+    ].map { form.addExcludedApp(bundleID: $0) }
+
+    #expect(added == [true, false, false, false])
+
+    #expect(
+      try form.applied(to: AppSettings()).excludedApps == ["com.example.chat", "com.example.mail"])
+  }
+
+  @Test("7章, AC-12: 追加の候補は、通常のアプリのうち自分自身・一覧にあるもの・bundle ID のないものを除き、名前順に並べる")
+  func excludedAppCandidates() {
+    let form = SettingsForm(settings: AppSettings(excludedApps: ["com.example.Listed"]))
+    let running: [ExcludedAppCandidate.RunningApp] = [
+      .init(bundleID: "com.example.zeta", name: "Zeta", isRegular: true),
+      .init(bundleID: "com.example.listed", name: "Listed", isRegular: true),
+      .init(bundleID: "com.example.utter", name: "utter", isRegular: true),
+      .init(bundleID: "com.example.agent", name: "Agent", isRegular: false),
+      .init(bundleID: nil, name: "No ID", isRegular: true),
+      .init(bundleID: "com.example.alpha", name: "Alpha", isRegular: true),
+      .init(bundleID: "COM.EXAMPLE.ALPHA", name: "Alpha", isRegular: true),
+      .init(bundleID: "com.example.noname", name: nil, isRegular: true),
+    ]
+
+    let candidates = ExcludedAppCandidate.candidates(
+      from: running, ownBundleID: "com.example.Utter", form: form)
+
+    #expect(
+      candidates == [
+        ExcludedAppCandidate(bundleID: "com.example.alpha", name: "Alpha"),
+        ExcludedAppCandidate(bundleID: "com.example.noname", name: "com.example.noname"),
+        ExcludedAppCandidate(bundleID: "com.example.zeta", name: "Zeta"),
+      ])
   }
 
   @Test("2.1節, 2.2節, TXT-01, 6章: 選んだ値を保存する")
