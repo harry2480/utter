@@ -1,16 +1,31 @@
 # アプリのユニットテストのターゲット（UtterMacTests）と、UtterMac のスキームでのテスト実行。project.yml の include で読み込む
 targets:
-  # 画面の状態（View を除く）のユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする
+  # 画面を除くロジックのユニットテスト。アプリを起動しないよう、テスト対象のソースを直接コンパイルする（TEST_HOST なし）
   UtterMacTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: Tests
+      - path: Sources/Shortcut
+      - path: Sources/Insertion
+      - path: Sources/RealtimeDirect
+      - path: Sources/EditMode
+      - path: Sources/Session
+      # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
+      - path: Sources/Recovery
+      # Session が使う型（TaskHUDRefreshScheduler）と、表示の依頼のまとめ（HUDDisplayQueue）。パネルと画面は含めない
+      - path: Sources/HUD/TaskHUDRefreshScheduler.swift
+      - path: Sources/HUD/HUDDisplayQueue.swift
+      # 辞書の編集画面の状態（View を除く）
+      - path: Sources/Dictionary/DictionaryEditorModel.swift
+      # 設定画面の状態（View を除く）
       - path: Sources/Settings
         excludes:
           - "Views/**"
     dependencies:
       - package: UtterCore
+      - package: UtterSpeech
+      - package: UtterText
       - package: UtterAI
       - package: UtterPersistence
     settings:

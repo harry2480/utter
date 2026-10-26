@@ -1,4 +1,5 @@
 import SwiftUI
+import UtterAI
 import UtterPersistence
 
 /// 設定画面（`Settings` シーン, ⌘,）。
@@ -10,10 +11,18 @@ struct SettingsScene: Scene {
     openUsageStore: {
       MonthlyUsageStore(database: try UtterDatabase.open(at: AppDatabaseLocation.url()))
     })
+  /// 「API キー」タブの状態（AC-12）
+  @State private var apiKeyModel: APIKeySettingsModel
+
+  /// - Parameter claudeAPIKeyStore: Claude API キーの保存先。
+  ///   Claude 整形の `ClaudeProvider(apiKeyStore:)` と同じものを渡す
+  init(claudeAPIKeyStore: any APIKeyStore) {
+    _apiKeyModel = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
+  }
 
   var body: some Scene {
     Settings {
-      SettingsView(model: model)
+      SettingsView(model: model, apiKeyModel: apiKeyModel)
     }
   }
 }

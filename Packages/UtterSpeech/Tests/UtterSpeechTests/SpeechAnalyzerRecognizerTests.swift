@@ -64,4 +64,14 @@ struct SpeechAnalyzerRecognizerTests {
     #expect(SpeechAnalyzerRecognizer().locale.identifier == "ja_JP")
     #expect(SpeechAnalyzerAssets().locale.identifier == "ja_JP")
   }
+
+  @Test("4章: STT Worker のローダーは、指定したロケールの SpeechAnalyzer の認識器を返す（モデルは OS が管理し、軽量として扱う）")
+  func loaderReturnsRecognizer() async throws {
+    let loader = SpeechAnalyzerModelLoader(locale: Locale(identifier: "en_US"))
+    #expect(loader.weight == .light)
+    let recognizer = try await loader.load()
+    let speechAnalyzer = try #require(recognizer as? SpeechAnalyzerRecognizer)
+    #expect(speechAnalyzer.locale.identifier == "en_US")
+    #expect(SpeechAnalyzerModelLoader().locale == SpeechAnalyzerRecognizer.defaultLocale)
+  }
 }
