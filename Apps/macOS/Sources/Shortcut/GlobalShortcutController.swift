@@ -29,6 +29,8 @@ final class GlobalShortcutController {
   private var interpreter = ShortcutInterpreter(mode: .toggle)
   private var translator = HotKeyEventTranslator()
   private var setting: GlobalShortcutSetting?
+  /// セッション中に変わり、待機に戻ってから適用する割当（`update(_:)`）
+  private var pending: PendingSetting?
   private var registration: HotKeyRegistrationID?
   private var modifierTap: (any KeyEventTap)?
   private var detector: ModifierOnlyDetector?
@@ -94,6 +96,23 @@ final class GlobalShortcutController {
     return status
   }
 
+  /// 設定画面で変わった割当を、待機中ならすぐに、セッション中なら待機に戻ってから適用する。
+  ///
+  /// セッションの途中で登録し直すと、押下中の状態（Push-to-talk の解放での停止）と Esc の捕捉を失うため、
+  /// 進行中のセッションでは変えない。今の割当と同じなら登録し直さない（競合・登録失敗の表示をそのまま残す）
+  func update(_ setting: GlobalShortcutSetting?) {
+    guard setting != self.setting else {
+      pending = nil
+      return
+    }
+    guard currentPhase() == .idle else {
+      pending = PendingSetting(setting: setting)
+      return
+    }
+    pending = nil
+    apply(setting)
+  }
+
   /// スリープ等で解放を取りこぼしうるときに、押下中の状態を破棄する。
   func reset() {
     translator.reset()
@@ -104,8 +123,13 @@ final class GlobalShortcutController {
   }
 
   /// セッションの状態が、ショートカット以外の要因（認識の完了・自動停止など）で変わったときに呼ぶ。
-  /// Esc の捕捉をセッション中だけ有効にする。
+  /// Esc の捕捉をセッション中だけ有効にする。待機に戻ったら、セッション中に変わった割当を適用する。
   func sessionPhaseDidChange() {
+    if let pending, currentPhase() == .idle {
+      self.pending = nil
+      apply(pending.setting)
+      return
+    }
     updateEscapeTap()
   }
 
@@ -330,6 +354,11 @@ final class GlobalShortcutController {
     // 権限が残っていれば、セッション中なら再有効化する（OS が無効化したタップは isEnabled が false になる）
     updateEscapeTap()
   }
+}
+
+/// 待機に戻ってから適用する割当。割当なし（`nil`）への変更も待つため、`Optional` を包む
+private struct PendingSetting {
+  let setting: GlobalShortcutSetting?
 }
 
 /// 録音ショートカットの割当。

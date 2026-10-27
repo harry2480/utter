@@ -387,6 +387,38 @@ struct SessionCoordinatorTests {
     #expect(!recorder.isRecording)
   }
 
+  @Test("REC-05: 設定で変えた最大録音時間は次のセッションから使い、録音中のセッションは変えない")
+  func maxDurationChangeAppliesToNextSession() async throws {
+    let recorder = StubAudioRecorder()
+    let recognizer = ScriptedSpeechRecognizer()
+    let session = coordinator(recorder: recorder, recognizer: recognizer)
+
+    let firstStart = clock.now
+    session.toggle()
+    #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
+    session.useSettings(
+      SessionSettings(configuration: try SessionConfiguration(maxRecordingDuration: .seconds(10))))
+
+    // 録音中のセッションは元の最大録音時間（既定の5分）のまま。新しい最大録音時間を過ぎても止めない
+    clock.advance(by: .seconds(11))
+    deadlineScheduler.fire()
+    #expect(session.phase == .recording)
+    #expect(deadlineScheduler.deadline == firstStart.advanced(by: .seconds(300)))
+
+    session.cancel()
+    #expect(await eventually { !recorder.isRecording })
+
+    // 次のセッションから新しい最大録音時間を使う
+    let secondStart = clock.now
+    session.toggle()
+    #expect(deadlineScheduler.deadline == secondStart.advanced(by: .seconds(10)))
+    #expect(await eventually { recognizer.runCount == 2 && recorder.isRecording })
+    clock.advance(by: .seconds(10))
+    deadlineScheduler.fire()
+    #expect(session.activeSession?.stopReason == .maxDurationReached)
+    session.cancel()
+  }
+
   @Test("REC-05: 音声バッファの上限に達したら録音を止め、音声を捨てずに処理する")
   func stopsAtBufferLimit() async throws {
     // バッファは最大録音時間 + 1秒（2秒分）
