@@ -61,6 +61,9 @@ final class StubScheduler: HUDRefreshScheduling, SessionDeadlineScheduling {
 /// 認識したテキストを変えずに返す整形（Raw 相当）。整形の選択を扱わないテストで使う
 @MainActor
 final class StubSessionRefiner: SessionRefining {
+  /// 停止→挿入の計測区間の判定に返す値。整形の結果には影響しない
+  var selectsCloudRefinement = false
+
   func refine(
     _ transcript: String,
     frontmostApp: String?,

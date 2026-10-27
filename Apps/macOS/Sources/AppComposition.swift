@@ -15,6 +15,7 @@ import UtterSpeech
 /// （同意・OpenAI API キー・予算がそろったときだけ）。
 /// 起動時の復旧と Edit Mode の指示の認識は、クラウド STT を選んでいても STT Worker を使う（音声をクラウドへ送らない）。
 /// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
+/// セッションと整形の送信は、6章の区間を名前だけの Signpost（`SignpostPerfIntervals`）で出す（#52）。
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
 /// 復旧した音声の整形はローカルだけで行い、整形モードは設定画面の保存値を使う（起動時はクラウドへ送らない）。
@@ -74,12 +75,15 @@ final class AppComposition {
     let sessionSettings = Self.sessionSettings(from: initialSettings)
     // 録音は同時に1つだけのため、録音のセッションと Edit Mode で同じものを使う
     let recorder = AVAudioEngineRecorder()
+    // 6章の区間を名前だけの Signpost で出す（#52）。記録していなければほぼ無コストのため、ビルド構成によらず常に出す
+    let measurer = SignpostPerfIntervals()
     let session = SessionCoordinator(
       configuration: sessionSettings.configuration,
       recorder: recorder,
       recognizer: recognizer,
       refiner: SessionRefinementPipeline(
-        settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase),
+        settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase,
+        measurer: measurer),
       inputMode: sessionSettings.inputMode,
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       history: InputHistoryRecorder.standard(database: openDatabase),
@@ -91,7 +95,8 @@ final class AppComposition {
         settingsStore: settingsStore, apiKeyStore: openAIAPIKeyStore, database: openDatabase),
       realtimeDirect: RealtimeDirectWriter.system(
         target: target, preview: preview, sensitivePolicy: Self.savedSensitivePolicy),
-      sensitivePolicy: Self.savedSensitivePolicy)
+      sensitivePolicy: Self.savedSensitivePolicy,
+      measurer: measurer)
     self.hud = hud
     self.session = session
     let retentionPolicy = ModelRetentionPolicy.fromSettings(initialSettings)

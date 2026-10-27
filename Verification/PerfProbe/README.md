@@ -10,7 +10,7 @@
 
 | パス | 内容 |
 |---|---|
-| `Sources/PerfProbe/` | Signpost の区間名（`PerfInterval`）と発行（`PerfSignposts`）。外部依存なし。将来アプリ本体が同じ区間名で発行できるようにする |
+| `Sources/PerfProbe/` | Signpost の区間名（`PerfInterval`）と発行（`PerfSignposts`）。外部依存なし。macOS アプリは同じ区間名を `Apps/macOS/Sources/Performance/` に持って発行する（このパッケージには依存しない） |
 | `Sources/perf-probe-demo/` | ダミーの区間を発行するデモ。計測パイプラインの動作確認用（マイク・STT・LLM・挿入は行わない） |
 | `Sources/PerfProbeAnalysis/`, `Sources/perf-probe-summarize/` | `xctrace export` の XML から区間ごとの n / min / p50 / p95 / max / mean を出し、6章の目標と並べる |
 | `scripts/record-signposts.sh` | `xctrace record`（os_signpost）で記録 → 書き出し → 集計 |
@@ -23,7 +23,7 @@
 - macOS 26 以降、Xcode（`xctrace` を使う。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` を指定）
 - バッテリー計測はノート型 Mac（AC 電源を外して計測）
 - 特別な権限は不要。`xctrace` / `vmmap` は自分のユーザーで動くプロセスに対して使う
-- 6章の計測そのものには、区間を発行する utter 本体（または各検証プローブ）が必要。アプリ本体はまだ無いため、現時点で実行できるのはデモでの動作確認と、既存プロセスのメモリ・CPU・バッテリーの記録
+- 6章の区間の計測には、区間を発行する utter 本体（macOS アプリ。Release 構成でビルドし、プロセス名は `utter`）を使う。ビルドの条件・区間の開始と終了の位置・出さない区間は [docs/Phase0検証-性能目標.md](../../docs/Phase0検証-性能目標.md) の「macOS アプリでの計測」
 
 ## ビルドとテスト
 
@@ -37,7 +37,7 @@ swift test --package-path Verification/PerfProbe
 
 ## Signpost の区間名
 
-サブシステム `utter.perf`、カテゴリ Points of Interest。区間名は `PerfInterval` だけで定義し、手順書の表と一致させる。Signpost には名前だけを載せ、メッセージ（発話本文・アプリ名・ファイル名など）は付けない。
+サブシステム `utter.perf`、カテゴリ Points of Interest。区間名は `PerfInterval` で定義し、手順書の表と一致させる。macOS アプリの `Apps/macOS/Sources/Performance/PerfInterval.swift` も同じ文字列にする（一致は `UtterMacTests` で確かめる）。Signpost には名前だけを載せ、メッセージ（発話本文・アプリ名・ファイル名など）は付けない。
 
 | 区間名 | 開始 → 終了 | 6章の目標 |
 |---|---|---|
@@ -51,7 +51,7 @@ swift test --package-path Verification/PerfProbe
 | `StopToInsertAI` | 録音停止 → 挿入完了（AI整形あり） | p50 ≤ 800ms、p95 ≤ 1.5秒 |
 | `ModelLoad` | STT モデルのロード開始 → 完了 | コールドスタートの内訳（計測のみ） |
 
-アプリやプローブ側での使い方:
+検証プローブ側での使い方（アプリ本体は `PerfIntervalMeasuring` 越しに `SignpostPerfIntervals` で出す）:
 
 ```swift
 import PerfProbe
@@ -78,8 +78,8 @@ swift build -c release --product perf-probe-demo
 scripts/record-signposts.sh --label demo-check --process perf-probe-demo \
   --launch -- .build/release/perf-probe-demo signposts --iterations 20
 
-# 本計測: 起動済みのアプリに接続し、記録中に発話→停止→挿入を繰り返す。Ctrl-C か --time-limit で止める
-scripts/record-signposts.sh --label local-builtin-mic-01 --attach <PID またはプロセス名> --time-limit 15m
+# 本計測: 起動済みの utter（Release 構成）に接続し、記録中に発話→停止→挿入を繰り返す。Ctrl-C か --time-limit で止める
+scripts/record-signposts.sh --label local-builtin-mic-01 --attach utter --time-limit 15m
 ```
 
 - `--attach` にプロセス名を渡して同名のプロセスが複数あると xctrace が失敗する。その場合は PID を渡す
@@ -109,6 +109,7 @@ scripts/sample-process.sh --name <アプリ> --interval 1 --duration 120 --outpu
 
 列: `timestamp, elapsed_s, pid, name, footprint_mb, footprint_peak_mb, rss_mb, cpu_time_s, cpu_percent`。終了時に、プロセスごとの平均 CPU 使用率（最初と最後のサンプル間の CPU 時間 ÷ 経過時間）と footprint の最大値を表示する。
 
+- utter のプロセス名は、アプリ本体が `utter`、STT Worker（XPC Service）が `UtterSTTWorker`
 - `footprint_mb` は `vmmap --summary` の Physical footprint（Activity Monitor の「メモリ」列と同じ指標）。6章のメモリ目標はこの値で比べる
 - `footprint_mb` が空になる場合は `vmmap` が対象を読めていない。同じユーザーで動くプロセスか確かめ、必要なら `sudo` で実行する
 - `--name` は開始時に一度だけ `pgrep -x` で PID を引く。計測中にアプリを再起動したら記録し直す。macOS の `pgrep -x` はプロセス名が長い（16 文字を超える）と一致しないことがあるので、見つからないときは Activity Monitor で PID を調べて `--pid` を使う
