@@ -24,6 +24,16 @@ enum RealtimeDirectUndoOutcome: Hashable, Sendable {
   case noSession
 }
 
+/// 認識を終えた Realtime Direct のセッションの結果（AC-15）。セッションの調停が、停止後に一括で挿入するかを決めるのに使う。
+enum RealtimeDirectCompletion: Hashable, Sendable {
+  /// 全体の確定テキストを書き込み、反映されたことを確かめた
+  case finished
+  /// 書き込みの途中でやめた。それまでの書き込みは入力欄に残し、確定テキスト全体をプレビューに出した
+  case stoppedAfterWriting(RealtimeDirectStopReason)
+  /// 入力欄へ何も送らないうちにやめた。入力欄に触れておらず、プレビューにも出していない（呼び出し側が一括で挿入する）
+  case stoppedBeforeWriting(RealtimeDirectStopReason)
+}
+
 /// 認識イベントの列を受けて、確定済みチャンクを入力欄へ逐次書き込む（2.2節 Realtime Direct, AC-15）。
 ///
 /// 範囲の追跡・差分・照合は UtterText の `RealtimeDirectSession` が決め、この型は AX での読み書きと
@@ -33,8 +43,9 @@ enum RealtimeDirectUndoOutcome: Hashable, Sendable {
 ///   全体の確定テキストを渡し、差分だけを置き換える
 /// - 書き込む直前ごとに、フォーカス中の入力対象・値全体・カーソル位置を読み、記録と合わなければ（範囲外の編集・
 ///   フォーカスの移動など）入力欄に触れずに直接の書き込みをやめる。機密入力（7章）に変わった場合も同じ
-/// - やめた後も認識は続け、終わったら確定テキスト全体をコピー可能なプレビューに出す（AC-09）。
-///   それまでの書き込みは入力欄に残す（範囲を確かめられないため取り除かない）
+/// - やめた後も認識は続け、入力欄へ書き込みを送っていたら、終わったときに確定テキスト全体をコピー可能なプレビューに出す
+///   （AC-09）。それまでの書き込みは入力欄に残す（範囲を確かめられないため取り除かない）。何も送らないうちにやめた場合は
+///   プレビューに出さず、呼び出し側が `completion` を見て一括で挿入する（Instant と同じ, AC-15）
 /// - 完了時は書き込んだ直後にもう一度照合し、成功を返して反映しなかった場合もプレビューに出す。完了の確定テキストが
 ///   空なら、確定済みのチャンクを消さない
 /// - 認識の失敗では、それまでの書き込みを確定済みとして残す（Realtime Preview と同じく確定済みテキストは残す）
@@ -49,7 +60,10 @@ final class RealtimeDirectWriter {
   private let preview: any InsertionPreviewPresenting
   private let allowlist: RealtimeDirectAllowlist
   private let policy: InsertionPolicy
-  private let sensitivePolicy: SensitiveInputPolicy
+  /// 機密入力の判定。利用者の除外アプリを反映するため、セッションの開始ごとに呼んで `sensitivePolicy` にする（7章, AC-12）
+  private let makeSensitivePolicy: @MainActor () -> SensitiveInputPolicy
+  /// このセッションの機密入力の判定
+  private var sensitivePolicy = SensitiveInputPolicy()
 
   private var filter = RecognitionEventFilter()
   private var transcript = TranscriptPreview()
@@ -64,14 +78,25 @@ final class RealtimeDirectWriter {
     preview: any InsertionPreviewPresenting,
     allowlist: RealtimeDirectAllowlist,
     policy: InsertionPolicy = InsertionPolicy(),
-    sensitivePolicy: SensitiveInputPolicy = SensitiveInputPolicy()
+    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() }
   ) {
     self.inspector = inspector
     self.field = field
     self.preview = preview
     self.allowlist = allowlist
     self.policy = policy
-    self.sensitivePolicy = sensitivePolicy
+    makeSensitivePolicy = sensitivePolicy
+  }
+
+  /// セッションの結果。始めていない・書き込みの途中・取り消した後は `nil`。途中でやめたら、認識の途中でも停止の結果を返す
+  var completion: RealtimeDirectCompletion? {
+    guard let session else { return nil }
+    switch session.state {
+    case .finished: return .finished
+    case .stopped(let reason):
+      return sentWrite ? .stoppedAfterWriting(reason) : .stoppedBeforeWriting(reason)
+    case .writing, .undone: return nil
+    }
   }
 
   /// 認識セッションの開始時に呼び、Realtime Direct を使えるか確かめて始める（AC-15）。
@@ -90,6 +115,7 @@ final class RealtimeDirectWriter {
     sentWrite = false
     transcript = TranscriptPreview()
     filter = RecognitionEventFilter()
+    sensitivePolicy = makeSensitivePolicy()
 
     let focused = inspector.focusedTarget()
     let requirements = RealtimeDirectRequirements(
@@ -210,12 +236,13 @@ final class RealtimeDirectWriter {
     }
   }
 
-  /// 認識を終え、直接の書き込みをやめていたら確定テキスト全体をプレビューに出す（AC-09）。
+  /// 認識を終え、書き込みを送った後に直接の書き込みをやめていたら確定テキスト全体をプレビューに出す（AC-09）。
+  /// 何も送らないうちにやめていたら、呼び出し側が一括で挿入するためプレビューに出さない
   private func finish(previewText: String) {
     guard var session else { return }
     try? session.finish()
     self.session = session
-    if case .stopped(let reason) = session.state, !previewText.isEmpty {
+    if case .stopped(let reason) = session.state, sentWrite, !previewText.isEmpty {
       preview.showPreview(
         text: previewText,
         cause: .realtimeDirectStopped(reason, wroteText: sentWrite))
@@ -255,12 +282,12 @@ extension RealtimeDirectWriter {
   /// 本番のアダプターで組み立てる。挿入と同じ `AccessibilityInsertionTarget` を渡し、録音開始時の入力対象の記録を共有する。
   ///
   /// 許可リストは `RealtimeDirectAllowlist.launchConfigured()`（#41 の判定前は空。Debug ビルドでだけ起動引数で足せる）。
-  /// ターミナル系のアプリ（`KnownTerminalApps`）では使わない。
+  /// ターミナル系のアプリ（`KnownTerminalApps`）では使わない。機密入力の判定はセッションの開始ごとに `sensitivePolicy` を呼ぶ
   static func system(
     target: AccessibilityInsertionTarget,
     preview: any InsertionPreviewPresenting,
     allowlist: RealtimeDirectAllowlist = .launchConfigured(),
-    sensitivePolicy: SensitiveInputPolicy = SensitiveInputPolicy()
+    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() }
   ) -> RealtimeDirectWriter {
     RealtimeDirectWriter(
       inspector: target, field: target, preview: preview, allowlist: allowlist,

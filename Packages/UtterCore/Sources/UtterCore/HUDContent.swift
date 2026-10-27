@@ -64,6 +64,8 @@ public enum HUDNotice: Hashable, Sendable {
   case refinementFellBack(RefinementFallbackNotice)
   /// 失敗の理由: クラウド STT を選んでいるが、送る条件がそろわない・認識できなかった（4章, AC-06, #188）
   case cloudSpeechRecognitionFailed(CloudSpeechRecognitionNotice)
+  /// 入力モードが Realtime Direct（実験機能）だが、このセッションでは自動で無効にした（2.2節, AC-15）
+  case realtimeDirectDisabled(RealtimeDirectFallbackNotice)
 
   /// 録音の停止理由に対応する通知。利用者の停止操作では `nil`。
   public init?(stopReason: RecordingStopReason) {
@@ -106,6 +108,23 @@ public enum CloudSpeechRecognitionNotice: Hashable, Sendable, CaseIterable {
   case networkUnavailable
   /// 応答を解釈できなかった
   case invalidResponse
+}
+
+/// Realtime Direct（2.2節, AC-15。実験機能）を自動で無効にした理由のうち、HUD で区別して知らせる種類。
+///
+/// 使えないと分かった時点で知らせ、Instant と同じく停止後にまとめて入力する（書き込んだ後にやめた場合はプレビューに出す）。
+/// Apps の判定結果（許可リスト・機密入力・照合の失敗）から導く。入力欄の内容・認識テキスト・アプリ名は持たない。
+public enum RealtimeDirectFallbackNotice: Hashable, Sendable, CaseIterable {
+  /// 前面のアプリが対応を確かめたアプリでない・ターミナル系・入力欄を読めない・テキストを選択しているなど、使える条件を満たさない
+  case unsupportedTarget
+  /// 入力先がパスワード欄・セキュア入力・機密アプリ・除外アプリ、または判定できない（7章）
+  case sensitiveInput
+  /// クラウド STT（#188）は一括認識で、確定済みチャンクを録音中に流さない
+  case cloudSpeechRecognition
+  /// 書き込む前の照合で、入力欄の変更・フォーカスの移動などを検知した。入力欄には何も書き込んでいない
+  case stoppedBeforeWriting
+  /// 書き込みの途中で、入力欄の変更・フォーカスの移動などを検知した。書き込んだ分は入力欄に残し、全体をプレビューに出す
+  case stoppedAfterWriting
 }
 
 /// ローカル整形へ退避した理由のうち、HUD で区別して知らせる種類（4.1節, AC-16, AI-06）。

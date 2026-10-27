@@ -373,12 +373,16 @@ public enum RefinementEngine: String, Codable, Hashable, Sendable, CaseIterable 
 
 /// 入力モード（2.2節）。
 ///
-/// Realtime Direct（実験機能）と Edit（v1.1）は MVP 外（1.1節）のため、まだ持たない
+/// Edit（v1.1）は入力モードではなく別のショートカットで始める（AC-14）。
+/// 保存値は rawValue で、知らない値・読めない値は既定の Instant に倒す（版を上げずに足せる）
 public enum InputMode: String, Codable, Hashable, Sendable, CaseIterable {
   /// 録音中に可能な範囲で STT を進め、停止後に最終認識・整形して一括挿入する（MVP 標準）
   case instant
   /// HUD で確定済みと暫定のテキストを区別して表示し、入力欄へは停止後に一括挿入する
   case realtimePreview
+  /// 確定済みチャンクを入力欄に逐次書き込む（実験機能・MVP 外, AC-15）。
+  /// 対応を確かめたアプリでだけ使い、それ以外では自動で無効にして Instant と同じく停止後に一括挿入する
+  case realtimeDirect
 }
 
 /// 保存する整形モード（TXT-01）。UtterAI の `RefinementMode` に変換して使う（UtterAI に依存しないため別の型にする）

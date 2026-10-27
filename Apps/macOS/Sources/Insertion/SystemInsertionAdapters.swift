@@ -148,13 +148,14 @@ extension InsertionExecutor {
   ///
   /// アプリ別の既定経路（`AppInsertionProfile.routes`）は Phase 0（#41）の判定後に `docs/挿入互換性表.md` から入れる。
   /// それまでは設定せず、すべてのアプリで既定の順（AX → Pasteboard → CGEvent）を試す。ターミナル系のアプリの `isTerminal` だけは
-  /// 判定によらず入れる（`KnownTerminalApps`）。
+  /// 判定によらず入れる（`KnownTerminalApps`）。録音開始時の入力対象の記録を Realtime Direct と共有するときは、
+  /// 同じ `target` を `RealtimeDirectWriter.system(target:preview:)` にも渡す。
   static func system(
     preview: any InsertionPreviewPresenting,
+    target: AccessibilityInsertionTarget = AccessibilityInsertionTarget(),
     policy: InsertionPolicy = InsertionPolicy(profiles: KnownTerminalApps.profiles),
     sensitivePolicy: SensitiveInputPolicy = SensitiveInputPolicy()
   ) -> (executor: InsertionExecutor, inspector: any InsertionTargetInspector) {
-    let target = AccessibilityInsertionTarget()
     let executor = InsertionExecutor(
       inspector: target,
       field: target,

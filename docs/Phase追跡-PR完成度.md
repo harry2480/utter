@@ -10,7 +10,7 @@
 | Phase 1（録音・HUD・STT Worker・挿入） | #57 | 実装済み（閉じた）。既定の STT エンジンなどは Phase 0 の判定待ち |
 | Phase 2（Claude / ChatGPT・辞書・文体・費用と同意） | #58 | ChatGPT 連携が #50 の判定待ち |
 | Phase 3（最適化・障害復旧・署名と公証・配布） | #59 | 計測に基づく最適化・実際の配布・挿入互換性表の記入が残る |
-| Phase 4（Edit Mode・クラウド STT・履歴・Realtime Direct。MVP 外） | #60 | Edit Mode・Realtime Direct のセッションへの結線、クラウド STT が残る |
+| Phase 4（Edit Mode・クラウド STT・履歴・Realtime Direct。MVP 外） | #60 | 結線は済み。Edit Mode・クラウド STT・Realtime Direct の実機での確認と、Realtime Direct の許可リスト（#41）が残る |
 | Phase i1（iOS 本体アプリ） | #61 | 実装済み（閉じた） |
 | Phase i2（カスタムキーボード） | #62 | 実装済み（閉じた） |
 | Phase i3（互換性・低メモリ・電力・実機継続利用） | #63 | 実機での検証待ち |

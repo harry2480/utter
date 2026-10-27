@@ -13,9 +13,6 @@ struct AppMenu: View {
     Divider()
     EditModeMenuItems()
     Divider()
-    #if DEBUG
-      RealtimeDirectDebugMenuItem()
-    #endif
     PermissionOnboardingMenuItem()
     SettingsMenuItem()
     DictionaryEditorMenuItem()

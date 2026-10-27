@@ -37,6 +37,7 @@ extension InputMode {
     switch self {
     case .instant: "Instant（停止後にまとめて入力）"
     case .realtimePreview: "Realtime Preview（HUD に途中経過を表示）"
+    case .realtimeDirect: "Realtime Direct（実験機能。確定した部分から入力欄へ入力）"
     }
   }
 }

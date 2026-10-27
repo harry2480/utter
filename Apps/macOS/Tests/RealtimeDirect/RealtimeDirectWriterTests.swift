@@ -213,20 +213,54 @@ final class RealtimeDirectWriterTests {
     #expect(writer.session?.state == .stopped(.interrupted))
   }
 
-  @Test("AC-15: 書き込みに失敗したらやめ、完了時に全体をプレビューに出す")
+  @Test("AC-15: 何も送らないうちに書き込みに失敗したらやめ、プレビューに出さずに一括の挿入を呼び出し側に任せる")
   func stopsWhenWriteFails() throws {
     let writer = try started()
     field.axSettable = false
 
     send([.confirmed("こんにちは。"), .confirmed("今日は")], to: writer)
+    #expect(writer.completion == .stoppedBeforeWriting(.writeFailed))
     send([.completed("こんにちは。今日は")], to: writer)
 
     #expect(field.value == "メモ: ")
     #expect(writer.session?.state == .stopped(.writeFailed))
+    #expect(writer.completion == .stoppedBeforeWriting(.writeFailed))
+    #expect(log.previews.isEmpty)
+  }
+
+  @Test("AC-15: 書き込んだ後にやめたら、結果は書き込み後の停止になる")
+  func completionAfterWriting() throws {
+    let writer = try started()
+    send([.confirmed("こんにちは。")], to: writer)
+    inspector.targets = [Self.target(Self.other)]
+    send([.completed("こんにちは。今日は")], to: writer)
+
+    #expect(writer.completion == .stoppedAfterWriting(.targetChanged))
+  }
+
+  @Test("AC-15: 全体を書き込んで終えたら結果は完了になり、取り消した後は結果を持たない")
+  func completionWhenFinished() throws {
+    let writer = try started()
+    send([.confirmed("こんにちは。"), .completed("こんにちは。")], to: writer)
+    #expect(writer.completion == .finished)
+
+    #expect(writer.undo() == .reverted)
+    #expect(writer.completion == nil)
+  }
+
+  @Test("7章, AC-12: 除外アプリはセッションの開始ごとに読み直し、除外したアプリでは始めない")
+  func readsExcludedAppsAtBegin() {
+    let excluded = ExcludedAppsBox()
+    let writer = RealtimeDirectWriter(
+      inspector: inspector, field: fieldAccess, preview: StubPreview(log: log),
+      allowlist: Self.allowlist,
+      sensitivePolicy: { SensitiveInputPolicy(excludedApps: excluded.apps) })
+    #expect(writer.begin(sessionID: session, recordedTarget: Self.recorded, isEnabled: true) == nil)
+
+    excluded.apps = [Self.app]
     #expect(
-      log.previews == [
-        .preview("こんにちは。今日は", .realtimeDirectStopped(.writeFailed, wroteText: false))
-      ])
+      writer.begin(sessionID: SessionID(), recordedTarget: Self.recorded, isEnabled: true)
+        == .sensitiveInput([.excludedApp]))
   }
 
   @Test("AC-15: 認識に失敗したら、それまでの書き込みを確定済みとして残す")
@@ -403,4 +437,10 @@ final class RealtimeDirectWriterTests {
       writer.begin(sessionID: session, recordedTarget: Self.recorded, isEnabled: true)
         == .unavailable([.selectionNotEmpty]))
   }
+}
+
+/// 除外アプリの保存値の代わり。テストの途中で値を変え、開始ごとに読み直すことを確かめる
+@MainActor
+private final class ExcludedAppsBox {
+  var apps: Set<String> = []
 }

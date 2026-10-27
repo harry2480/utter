@@ -13,6 +13,8 @@ public struct HUDState: Hashable, Sendable {
   private var failureNotice: HUDNotice?
   /// 進行中のセッションがローカル整形へ退避した理由
   private var refinementFallback: RefinementFallbackNotice?
+  /// 進行中のセッションで Realtime Direct を自動で無効にした理由（AC-15）
+  private var realtimeDirectFallback: RealtimeDirectFallbackNotice?
   /// 失敗の表示を終える時刻
   public private(set) var errorDismissDeadline: ContinuousClock.Instant?
   /// セッション終了後に残している通知
@@ -64,6 +66,7 @@ public struct HUDState: Hashable, Sendable {
       stopReason = nil
       self.failureNotice = nil
       refinementFallback = nil
+      realtimeDirectFallback = nil
       errorDismissDeadline = nil
       return
     }
@@ -73,6 +76,7 @@ public struct HUDState: Hashable, Sendable {
       clearLingeringNotice()
       sessionID = activeSession.id
       refinementFallback = nil
+      realtimeDirectFallback = nil
     }
     stopReason = activeSession.stopReason
 
@@ -101,6 +105,22 @@ public struct HUDState: Hashable, Sendable {
     refinementFallback = notice
   }
 
+  /// 進行中のセッションで Realtime Direct を自動で無効にしたことを反映する（2.2節, AC-15）。
+  ///
+  /// 録音中〜挿入中に、反映済みのセッション（`update(from:at:)` で渡したもの）について呼ぶ。待機中・失敗の表示中、
+  /// 反映済みのセッションと異なるセッションでは無視する。同じセッションで複数回呼んだ場合は最後の理由を表示する。
+  /// 退避の通知と同じく、挿入を終えて待機に戻った後もしばらく残す
+  public mutating func recordRealtimeDirectFallback(
+    _ notice: RealtimeDirectFallbackNotice, for sessionID: SessionID
+  ) {
+    switch phase {
+    case .recording, .recognizing, .refining, .inserting: break
+    case .idle, .error: return
+    }
+    guard sessionID == self.sessionID else { return }
+    realtimeDirectFallback = notice
+  }
+
   /// `now` の時点で HUD に表示する内容。何も表示しないときは `nil`。
   public func content(at now: ContinuousClock.Instant) -> HUDContent? {
     if let status = HUDStatus(phase: phase) {
@@ -110,11 +130,15 @@ public struct HUDState: Hashable, Sendable {
     return HUDContent(status: nil, notices: lingeringNotices)
   }
 
-  /// 進行中のセッションの通知。録音停止の通知（失敗の表示中に失敗の理由があればそれに置き換える）、退避の通知の順に並べる。
+  /// 進行中のセッションの通知。録音停止の通知（失敗の表示中に失敗の理由があればそれに置き換える）、
+  /// Realtime Direct を無効にした通知、退避の通知の順に並べる。
   private var activeNotices: [HUDNotice] {
     var notices: [HUDNotice] = []
     if let notice = failureNotice ?? stopReason.flatMap(HUDNotice.init(stopReason:)) {
       notices.append(notice)
+    }
+    if let realtimeDirectFallback {
+      notices.append(.realtimeDirectDisabled(realtimeDirectFallback))
     }
     if let refinementFallback {
       notices.append(.refinementFellBack(refinementFallback))

@@ -120,3 +120,26 @@ enum CloudSpeechRecognitionPreparation: Sendable {
   /// 条件がそろわないため送らない
   case unavailable(CloudSpeechRecognitionNotice)
 }
+
+/// 入力モードが Realtime Direct（実験機能・MVP 外）のセッションで、確定済みチャンクを入力欄へ逐次書き込む（2.2節, AC-15）。
+///
+/// 本番は `RealtimeDirectWriter`（許可リスト・機密入力・範囲の照合を行い、AX で書き込む）。
+/// 録音開始時の入力対象の記録は、挿入（`SessionTextInserting`）と同じ `AccessibilityInsertionTarget` で共有する。
+@MainActor
+protocol SessionRealtimeDirectWriting: AnyObject {
+  /// 録音開始時に呼び、使えるか確かめて始める。使えなければ理由を返し、以後のイベントを書き込まない
+  func begin(sessionID: SessionID, recordedTarget: InsertionTargetID?, isEnabled: Bool)
+    -> RealtimeDirectStartFailure?
+  /// 認識イベントを受け取る。`confirmed` と終端のイベントで書き込む
+  func handle(_ event: RecognitionEvent)
+  /// 認識を終えたセッションの結果。始めていない・認識の途中・取り消した後は `nil`
+  var completion: RealtimeDirectCompletion? { get }
+  /// セッションのキャンセル。書き込んだテキストを照合のうえ取り除く。別のセッションなら何もせず `nil`
+  @discardableResult
+  func cancel(_ sessionID: SessionID) -> RealtimeDirectUndoOutcome?
+  /// 認識の終了後に、書き込んだテキストを照合のうえ取り除く（一度だけ）
+  @discardableResult
+  func undo() -> RealtimeDirectUndoOutcome
+}
+
+extension RealtimeDirectWriter: SessionRealtimeDirectWriting {}

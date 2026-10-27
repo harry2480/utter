@@ -334,4 +334,21 @@ struct HUDPresentationTests {
       #expect(!text.contains("いい天気"))
     }
   }
+
+  @Test("AC-15: Realtime Direct を無効にした通知は録音中の2行目に出し、理由ごとに文言が異なる")
+  func realtimeDirectFallbackText() throws {
+    let presentation = try #require(
+      HUDPresentation(
+        HUDContent(status: .recording, notice: .realtimeDirectDisabled(.unsupportedTarget))))
+    #expect(presentation.indicator == .recording)
+    #expect(presentation.title == "録音中")
+    #expect(
+      presentation.messages == ["この入力先は Realtime Direct に対応していないため、停止後にまとめて入力します"])
+
+    let texts = Set(
+      RealtimeDirectFallbackNotice.allCases.map {
+        HUDPresentation.text(for: .realtimeDirectDisabled($0))
+      })
+    #expect(texts.count == RealtimeDirectFallbackNotice.allCases.count)
+  }
 }

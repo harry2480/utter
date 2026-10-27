@@ -140,6 +140,21 @@ private struct RecordingSettingsTab: View {
     "送るには、クラウド送信の同意の画面で「選択テキストの編集」への同意と、Claude API キー・月次予算・単価表が要ります。",
   ].joined()
 
+  /// Realtime Direct の説明（2.2節, AC-15）。対応アプリは許可リスト（`RealtimeDirectAllowlist`）から出す
+  static var realtimeDirectCaption: String {
+    let apps = RealtimeDirectAllowlist.launchConfigured().apps.sorted()
+    var supported = "対応を確かめたアプリはまだないため、今はどのアプリでも使えません。"
+    if !apps.isEmpty {
+      supported = "対応アプリ: \(apps.joined(separator: ", "))。"
+    }
+    return [
+      "実験機能です。確定した認識結果を、整形せずに入力欄へ順に入力します。",
+      supported,
+      "対応していないアプリ・パスワード欄など・クラウド音声認識では自動で使わず、停止後にまとめて入力します。",
+      "途中で入力欄が変わったら入力をやめ、全体をコピーできるようにします。",
+    ].joined()
+  }
+
   var body: some View {
     Form {
       Section("録音") {
@@ -166,6 +181,10 @@ private struct RecordingSettingsTab: View {
       Section("入力") {
         Picker("入力モード", selection: $model.form.inputMode) {
           ForEach(InputMode.allCases, id: \.self) { Text($0.label).tag($0) }
+        }
+        if model.form.inputMode == .realtimeDirect {
+          Text(Self.realtimeDirectCaption)
+            .font(.caption).foregroundStyle(.secondary)
         }
       }
       Section("音声認識モデルの保持") {

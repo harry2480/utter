@@ -99,6 +99,16 @@ public final class HUDController {
     refresh()
   }
 
+  /// 進行中のセッションで Realtime Direct を自動で無効にしたことを反映する（2.2節, AC-15）。
+  ///
+  /// 条件は `HUDState.recordRealtimeDirectFallback(_:for:)` を参照
+  public func recordRealtimeDirectFallback(
+    _ notice: RealtimeDirectFallbackNotice, for session: SessionID
+  ) {
+    state.recordRealtimeDirectFallback(notice, for: session)
+    refresh()
+  }
+
   private func refresh() {
     let now = now()
     let next = state.content(at: now).flatMap { HUDPresentation($0, transcript: transcript) }
