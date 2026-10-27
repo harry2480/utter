@@ -79,7 +79,8 @@ struct ChatGPTIDTokenTests {
     let publicKey = try #require(SecKeyCopyPublicKey(privateKey))
     let der = try #require(SecKeyCopyExternalRepresentation(publicKey, nil) as Data?)
     var reader = DERReader(der)
-    let components = try #require(reader.rsaPublicKey())
+    let parsed = reader.rsaPublicKey()
+    let components = try #require(parsed)
     let key = ChatGPTSigningKey(
       kty: "RSA", kid: "real", alg: "RS256", use: "sig",
       n: base64URLEncoded(components.modulus), e: base64URLEncoded(components.exponent))
