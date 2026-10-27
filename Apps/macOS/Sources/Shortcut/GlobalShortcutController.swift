@@ -15,8 +15,8 @@ import UtterCore
 /// ここは OS の登録と、両者・アプリの結線だけを持つ。
 @MainActor
 final class GlobalShortcutController {
-  /// 競合検出で使う utter の録音ショートカットの ID
-  static let recordBindingID = "utter.record"
+  /// 競合検出で使う utter の録音ショートカットの ID（設定画面の記録の判定 `ShortcutRecorder` でも使う）
+  nonisolated static let recordBindingID = "utter.record"
 
   let capabilities: ShortcutCapabilities
   private let registrar: any HotKeyRegistering

@@ -2,11 +2,11 @@ import Foundation
 import UtterCore
 import UtterPersistence
 
-/// 設定画面の入力中の値（2.1〜2.3節, 5章, 6章, 7章, AC-05, AC-12）。
+/// 設定画面の入力中の値（2.1〜2.3節, 5章, 6章, 7章, AC-05, AC-12, REC-01）。
 ///
 /// 数値・通貨・単価・bundle ID・サイトは文字列のまま持ち、保存するとき（`applied(to:)`）にまとめて検証する。
 /// 検証に通らない項目があれば何も保存せず、項目ごとの問題（`SettingsIssue`）を返す。
-/// 画面が扱わない項目（同意状態・履歴・録音ショートカット）は保存の基準にした設定の値をそのまま残す。
+/// 画面が扱わない項目（同意状態・履歴）は保存の基準にした設定の値をそのまま残す。
 ///
 /// 金額と秒数は地域設定によらず、半角数字と小数点（`.`）だけを受け付ける（桁区切りは使わない）。
 struct SettingsForm: Hashable, Sendable {
@@ -50,6 +50,8 @@ struct SettingsForm: Hashable, Sendable {
 
   // MARK: 録音・入力（2.1節, 2.2節, 6章）
 
+  /// 録音ショートカット（REC-01）。未設定なら `nil`。画面の「記録」（`ShortcutRecorder`）で受け付けた組み合わせを入れる
+  var recordingShortcut: KeyCombination?
   var recordingTrigger: ShortcutTriggerMode
   var inputMode: InputMode
   /// 最大録音時間（秒, REC-05）
@@ -88,6 +90,7 @@ struct SettingsForm: Hashable, Sendable {
 
   /// 保存済みの設定から入力欄の値を作る
   init(settings: AppSettings) {
+    recordingShortcut = settings.recordingShortcut
     recordingTrigger = settings.recordingTrigger
     inputMode = settings.inputMode
     maxRecordingSeconds = Self.text(seconds: settings.maxRecordingDuration)
@@ -218,6 +221,15 @@ struct SettingsForm: Hashable, Sendable {
     var issues: [SettingsIssue] = []
     var settings = base
 
+    // 記録で受け付けた組み合わせは通るが、保存済みの値が登録できない組み合わせのときに知らせる。
+    // システムのショートカットは変わり得るため、ここでは照合しない（登録時に `GlobalShortcutController` が照合する）
+    if let shortcut = recordingShortcut,
+      ShortcutRecorder.issue(for: shortcut, systemShortcuts: []) != nil
+    {
+      issues.append(.recordingShortcut)
+    } else {
+      settings.recordingShortcut = recordingShortcut
+    }
     settings.recordingTrigger = recordingTrigger
     settings.inputMode = inputMode
     settings.modelRetentionMode = modelRetentionMode
@@ -413,6 +425,8 @@ struct SettingsValidationError: Error, Hashable, Sendable {
 
 /// 入力の問題（項目ごと）
 enum SettingsIssue: Hashable, Sendable {
+  /// 録音ショートカットが登録できない組み合わせ（修飾キー単独・Fn を含む等, REC-01）
+  case recordingShortcut
   /// 最大録音時間が数でない、または範囲外（REC-05）
   case maxRecordingDuration
   /// 選べない処理系（ChatGPT）が選ばれている（AC-05）
@@ -453,6 +467,8 @@ enum SettingsIssue: Hashable, Sendable {
   /// 画面に出す文言。利用者の入力値は埋め込まない
   var message: String {
     switch self {
+    case .recordingShortcut:
+      return "このショートカットは割り当てられません。記録し直すか、解除してください。"
     case .maxRecordingDuration:
       let range = AppSettings.maxRecordingDurationRange
       return "最大録音時間は \(Int(range.lowerBound))〜\(Int(range.upperBound)) 秒の数で入力してください。"

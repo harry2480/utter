@@ -22,11 +22,12 @@ struct SettingsFormTests {
 
   // MARK: - 保存と復元
 
-  @Test("AC-05, AI-05, CTX-02, REC-05: 保存済みの値から作った入力欄をそのまま保存すると同じ設定になる")
+  @Test("AC-05, AI-05, CTX-02, REC-01, REC-05: 保存済みの値から作った入力欄をそのまま保存すると同じ設定になる")
   func formRoundTripsSettings() throws {
     let settings = AppSettings(
       maxRecordingDuration: 600,
       recordingTrigger: .pushToTalk,
+      recordingShortcut: KeyCombination(key: .space, modifiers: [.option, .command]),
       inputMode: .realtimePreview,
       refinementMode: .structured,
       refinementEngine: .cloudAI,
@@ -51,19 +52,49 @@ struct SettingsFormTests {
     #expect(try form.applied(to: settings) == settings)
   }
 
-  @Test("2.3節, AC-06: 画面で扱わない項目（同意・履歴・ショートカット）は基準の設定の値を残す")
+  @Test("2.3節, AC-06: 画面で扱わない項目（同意・履歴）は基準の設定の値を残す")
   func unmanagedFieldsAreKept() throws {
     var consent = ConsentState()
     consent.grant(.transmission(.textRefinement(.claude)))
-    let base = AppSettings(
-      recordingShortcut: KeyCombination(key: .space, modifiers: [.option]),
-      consentState: consent, historyEnabled: true)
+    let base = AppSettings(consentState: consent, historyEnabled: true)
 
     let saved = try SettingsForm(settings: AppSettings()).applied(to: base)
 
     #expect(saved.consentState == consent)
     #expect(saved.historyEnabled)
-    #expect(saved.recordingShortcut == base.recordingShortcut)
+  }
+
+  // MARK: - 録音ショートカット（REC-01）
+
+  @Test("REC-01: 記録したショートカットを保存し、解除すると未設定で保存する")
+  func recordingShortcutIsApplied() throws {
+    let r = try #require(ShortcutKey(rawValue: "r"))
+    let recorded = KeyCombination(key: r, modifiers: [.option, .command])
+    var form = SettingsForm(settings: AppSettings())
+    form.recordingShortcut = recorded
+
+    let saved = try form.applied(to: AppSettings())
+    #expect(saved.recordingShortcut == recorded)
+
+    var cleared = SettingsForm(settings: saved)
+    #expect(cleared.recordingShortcut == recorded)
+    cleared.recordingShortcut = nil
+    #expect(try cleared.applied(to: saved).recordingShortcut == nil)
+  }
+
+  @Test(
+    "REC-01: 登録できない保存済みのショートカット（修飾キー単独・Fn・修飾キーなし）は保存せず、問題にする",
+    arguments: [
+      KeyCombination(modifierOnly: .function),
+      KeyCombination(modifierOnly: .option),
+      KeyCombination(key: .space, modifiers: [.function, .command]),
+      KeyCombination(key: .space),
+      KeyCombination.escape,
+    ])
+  func unsupportedRecordingShortcutIsRejected(_ combination: KeyCombination?) throws {
+    let base = AppSettings(recordingShortcut: try #require(combination))
+
+    #expect(issues(SettingsForm(settings: base), base: base) == [.recordingShortcut])
   }
 
   // MARK: - 除外アプリ（7章, AC-12）

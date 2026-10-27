@@ -134,6 +134,7 @@ private struct RecordingSettingsTab: View {
   var body: some View {
     Form {
       Section("録音") {
+        RecordingShortcutRow(model: model)
         Picker("録音の操作", selection: $model.form.recordingTrigger) {
           ForEach(ShortcutTriggerMode.allCases, id: \.self) { Text($0.label).tag($0) }
         }
