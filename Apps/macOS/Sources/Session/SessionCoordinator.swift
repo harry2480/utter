@@ -302,6 +302,8 @@ final class SessionCoordinator {
     var preview = TranscriptPreview()
     for await event in recognizer.recognize(forwarding.audio, session: session) {
       guard isActive(session) else { return }
+      // 録音の中断で認識を止めた後（状態機械はまだ失敗の表示中）に届いたイベントは、書き込みも表示もしない
+      guard !Task.isCancelled else { return }
       guard filter.accept(event) == nil else { continue }
       // Realtime Direct では、確定済みチャンクと終端のイベントで入力欄へ書き込む（暫定の結果は書き込まない）
       if writesDirectly { realtimeDirect?.handle(event) }
