@@ -58,13 +58,18 @@ xcodebuild \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
   UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= UTTER_MAC_STT_ENGINE= \
   -quiet build
-# アプリの純粋なロジックのユニットテスト（アプリは起動しない）
+# アプリの純粋なロジックのユニットテスト（アプリは起動しない）。
+# -quiet では失敗した期待値がログに出ないため、結果を xcresult に残す（CI は失敗時に artifact として上げる）
+mac_test_results="build/TestResults/UtterMac.xcresult"
+rm -rf "$mac_test_results"
+mkdir -p "$(dirname -- "$mac_test_results")"
 xcodebuild \
   -project Apps/macOS/Utter.xcodeproj \
   -scheme UtterMac \
   -configuration Debug \
   -destination "platform=macOS,arch=$(uname -m)" \
   -derivedDataPath "$derived_data" \
+  -resultBundlePath "$mac_test_results" \
   -disableAutomaticPackageResolution \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO \
   UTTER_SPARKLE_FEED_URL= UTTER_SPARKLE_PUBLIC_ED_KEY= UTTER_MAC_STT_ENGINE= \

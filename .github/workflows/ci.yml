@@ -32,6 +32,16 @@ jobs:
 
       - run: scripts/verify.sh
 
+      # macOS アプリのテストが落ちたとき、失敗した期待値を xcresult で確かめられるようにする（#193）
+      - name: テスト結果を保存
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UtterMac-xcresult
+          path: build/TestResults/UtterMac.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
   ci-status:
     name: CI ステータス確認
     if: always()
