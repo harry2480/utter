@@ -88,7 +88,7 @@ final class RealtimeDirectWriter {
     makeSensitivePolicy = sensitivePolicy
   }
 
-  /// 認識を終えたセッションの結果。始めていない・認識の途中・取り消した後は `nil`
+  /// セッションの結果。始めていない・書き込みの途中・取り消した後は `nil`。途中でやめたら、認識の途中でも停止の結果を返す
   var completion: RealtimeDirectCompletion? {
     guard let session else { return nil }
     switch session.state {

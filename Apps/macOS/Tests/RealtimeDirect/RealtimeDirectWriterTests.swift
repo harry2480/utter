@@ -219,7 +219,7 @@ final class RealtimeDirectWriterTests {
     field.axSettable = false
 
     send([.confirmed("こんにちは。"), .confirmed("今日は")], to: writer)
-    #expect(writer.completion == nil)
+    #expect(writer.completion == .stoppedBeforeWriting(.writeFailed))
     send([.completed("こんにちは。今日は")], to: writer)
 
     #expect(field.value == "メモ: ")
