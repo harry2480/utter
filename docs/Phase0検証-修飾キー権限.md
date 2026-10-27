@@ -56,7 +56,7 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 
 - `cgSessionEventTap` はログインセッションに HID・リモコンのイベントが入る位置に置かれる。HID のイベントが WindowServer に入る位置（`cghidEventTap`）に置けるのは root だけ [A1][A3]
 - `tapCreate` のリファレンスには「キーの押下・解放を受け取れるのは root で動いているか、補助装置のアクセスが有効な場合」という OS X 10.4 当時の記述が残っている [A1]。W1（macOS 10.15）の「listenOnly は入力監視、defaultTap はアクセシビリティ」と書き方が違うため、W1 を新しい情報として扱い、macOS 26 での実際の挙動は実機で確かめる
-- タップが応答しなくなった場合や、利用者がタップの無効化を求めた場合は、コールバックに無効化のイベント（`tapDisabledByTimeout`・`tapDisabledByUserInput`）が届き、`tapEnable` で再び有効にできる [A4][A5]
+- タップが応答しなくなった場合や、利用者がタップの無効化を求めた場合は、コールバックに無効化のイベント（`tapDisabledByTimeout`・`tapDisabledByUserInput`）が届き、`tapEnable` で再び有効にできる [A4]
 - `eventsOfInterest` のうち監視を許されないイベントのビットは外され、空になると `tapCreate` は `NULL` を返す [A1]
 - 権限の確認：W1 は、承認のダイアログを出さずに状態を確かめる方法として `IOHIDCheckAccess`（`kIOHIDRequestTypeListenEvent`）、ダイアログを出す方法として `IOHIDRequestAccess` を挙げる。合成イベントの送信は `kIOHIDRequestTypePostEvent` で確かめる [W1]。`CGPreflightListenEventAccess()` などは macOS 10.15 から使えるが、リファレンスに説明文がない [A9]。`AXIsProcessTrusted()` はアクセシビリティで信頼されたクライアントかを返し、`AXIsProcessTrustedWithOptions(_:)` は `kAXTrustedCheckOptionPrompt` で、信頼されていなければ利用者に知らせる（非同期で、戻り値には影響しない）[A10]
 - システム設定の説明：入力監視は「マウスやトラックパッドの入力を監視し、キーボードで入力した内容を見ることをアプリに許可する」、アクセシビリティは「スクリプトやシステムコマンドを実行して Mac を操作することをアプリに許可する」[S1]
@@ -129,7 +129,8 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 
 期待結果:
 - Event はキー down/up で検出可能
-- 権限なしでも基本検出可（ただしアプリの入力欄へのアクセスは要権限）
+- 入力監視の要否は未確認（listenOnly のタップは入力監視が要ると W1 は述べる。HotkeyProbe の `modifier` で確かめる）
+- アプリの入力欄へのアクセスには Accessibility 権限が要る
 ```
 
 ### 2. Esc キー捕捉
@@ -141,8 +142,8 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 3. Cmd+Esc 等との組み合わせ
 
 期待結果:
-- EventMonitor で検出可能
-- 捕捉後の処理（中止 vs 継続）を制御可
+- 検出の方式と権限は未確認（NSEvent のグローバルモニタは配送を止められない [A6]）
+- Esc の捕捉（中止 vs 継続）は defaultTap で制御する想定。実機で確かめる（未確認）
 ```
 
 - Push-to-talk ではトリガー（修飾キー単独・修飾キー付きの組み合わせ）を押したまま Esc を押すため、Esc にトリガーの修飾キーが付く。REC-01 の「Esc でキャンセル」を PTT でも成り立たせるには、トリガーの修飾キーを修飾キー付き Esc の判定から除く必要がある（HotkeyProbe の `session --mode ptt` で確かめる）。本番仕様として扱いを決める
