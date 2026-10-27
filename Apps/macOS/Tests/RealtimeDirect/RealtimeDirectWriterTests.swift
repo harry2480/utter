@@ -250,13 +250,14 @@ final class RealtimeDirectWriterTests {
 
   @Test("7章, AC-12: 除外アプリはセッションの開始ごとに読み直し、除外したアプリでは始めない")
   func readsExcludedAppsAtBegin() {
-    var excluded: Set<String> = []
+    let excluded = ExcludedAppsBox()
     let writer = RealtimeDirectWriter(
       inspector: inspector, field: fieldAccess, preview: StubPreview(log: log),
-      allowlist: Self.allowlist, sensitivePolicy: { SensitiveInputPolicy(excludedApps: excluded) })
+      allowlist: Self.allowlist,
+      sensitivePolicy: { SensitiveInputPolicy(excludedApps: excluded.apps) })
     #expect(writer.begin(sessionID: session, recordedTarget: Self.recorded, isEnabled: true) == nil)
 
-    excluded = [Self.app]
+    excluded.apps = [Self.app]
     #expect(
       writer.begin(sessionID: SessionID(), recordedTarget: Self.recorded, isEnabled: true)
         == .sensitiveInput([.excludedApp]))
@@ -436,4 +437,10 @@ final class RealtimeDirectWriterTests {
       writer.begin(sessionID: session, recordedTarget: Self.recorded, isEnabled: true)
         == .unavailable([.selectionNotEmpty]))
   }
+}
+
+/// 除外アプリの保存値の代わり。テストの途中で値を変え、開始ごとに読み直すことを確かめる
+@MainActor
+private final class ExcludedAppsBox {
+  var apps: Set<String> = []
 }
