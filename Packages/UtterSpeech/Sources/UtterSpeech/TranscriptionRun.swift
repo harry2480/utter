@@ -7,7 +7,8 @@ import UtterCore
 /// `TranscriptionSession` で1回の認識を進め、`SpeechRecognizer` の契約どおりにイベントを流す（4章）。
 ///
 /// - 音声の入力と結果の読み取りを並行して進め、どちらが先に終わったかで終え方を決める
-/// - 音声が終わったら `finalize()` で残りを確定させ、確定テキスト全体を `completed` で流す
+/// - 音声が終わったら `finalize()` で残りを確定させ、確定テキスト全体を `completed` で流す。確定されないまま残った
+///   末尾の暫定結果は `completed` の末尾に含める（`TranscriptionEventMapper.completedText`）
 /// - 失敗したら `failed` を流してから音声の読み取りを止める（録音側が終端イベントで録音の止め方を決められるように）
 /// - 受け手がストリームを破棄したら `cancel()` で止め、終端イベントは流さない。モデルのロード・解析の開始・確定の待ちの最中でも止める
 enum TranscriptionRun {
@@ -30,7 +31,7 @@ enum TranscriptionRun {
   private enum Stage: Sendable {
     /// 成功なら渡した音声のバッファの数
     case inputFinished(Result<Int, SpeechRecognitionError>)
-    /// 成功なら確定テキスト全体
+    /// 成功なら `completed` に使う全体のテキスト（確定テキストと、確定されなかった末尾の暫定部分）
     case resultsFinished(Result<String, SpeechRecognitionError>)
   }
 
@@ -138,7 +139,8 @@ enum TranscriptionRun {
     }
   }
 
-  /// 結果を読み、`partial` / `confirmed` を流す。成功なら確定テキスト全体を返す。
+  /// 結果を読み、`partial` / `confirmed` を流す。成功なら `completed` に使う全体のテキストを返す。
+  /// 音声の終わりより前に結果が終わった場合は呼び出し側が失敗として扱うため、このテキストは使われない。
   private static func readResults(
     _ results: some AsyncSequence<TranscriptionSegment, any Error>,
     emitter: RecognitionEventEmitter
@@ -155,7 +157,7 @@ enum TranscriptionRun {
     } catch {
       return .resultsFinished(.failure(classify(error)))
     }
-    return .resultsFinished(.success(mapper.confirmedText))
+    return .resultsFinished(.success(mapper.completedText))
   }
 
   /// 音声を解析器の形式に変換して渡す。音声が終わったら変換器の残りを渡して入力を閉じる。

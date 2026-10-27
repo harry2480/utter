@@ -115,7 +115,7 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 | `AssetInventory.status`（取得前 → 取得後） | | |
 | オフラインでの認識 | | |
 
-### リポジトリの実装との照合（コードは変えていない）
+### リポジトリの実装との照合（照合ではコードを変えていない。末尾の暫定結果は #48 で対策した）
 
 `Packages/UtterSpeech/Sources/UtterSpeech/` の `TranscriptionSession.swift`（`SpeechAnalyzerSession`）・`SpeechAnalyzerAssets.swift`・`TranscriptionEventMapper.swift`・`TranscriptionRun.swift` と、出典の記述を比べた。
 
@@ -123,7 +123,7 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 - 一致：`status` の `supported` を「未取得」として扱う。`cancelAndFinishNow()` を `await` だけで呼ぶ（`throws` なし）[D4][D8]
 - 一致：`progressiveTranscription` の設定に `audioTimeRange` を足しており、表の `timeIndexedProgressiveTranscription` と同じ組み合わせ（`volatileResults`・`fastResults`・`audioTimeRange`）になる [D6]
 - 補足：`install()` は取得の前に `reserve(locale:)` を呼ぶ（失敗は無視）。D4 によれば `assetInstallationRequest(supporting:)` が必要に応じて自動で予約し、上限を超えるときはエラーを投げるため、事前の予約がなくても結果は同じと読める（推測）。食い違いではない
-- **確かめる点（食い違いの可能性）**：`TranscriptionEventMapper` は `isFinal == true` の結果だけを連結して `completed` の値にし、確定結果が来ないまま残った暫定結果は捨てる。D7 は「暫定結果が確定として出し直される保証はない」「確定で変わらなかった範囲には新しい確定結果を出さなくてもよい」と書いている。W1 は `finalizeAndFinishThroughEndOfInput()` で暫定結果が確定すると説明しているが、D7 の書き方では、確定した範囲の結果が出し直されないことがありうる。その場合、最後の暫定結果のテキストが `completed` から抜ける。発話の終わりが欠けないかを Probe で確かめる（`file` で、最後の暫定結果の後に確定結果が届くか・`resultsFinalizationTime` が `range.end` を超えて暫定結果が確定扱いになる場合があるかを記録する）
+- **対策を入れた（#48）**：照合の時点の `TranscriptionEventMapper` は `isFinal == true` の結果だけを連結して `completed` の値にし、確定結果が来ないまま残った暫定結果は捨てていた。D7 は「暫定結果が確定として出し直される保証はない」「確定で変わらなかった範囲には新しい確定結果を出さなくてもよい」と書いており、W1 の説明（`finalizeAndFinishThroughEndOfInput()` で暫定結果が確定する）だけでは、最後の暫定結果のテキストが `completed` から抜けないとは言えない。そこで安全側に倒し、入力の終わりで認識を終えるときは、確定結果がカバーしていない最後の暫定部分を `completed` の末尾に含めるようにした（`TranscriptionEventMapper.completedText`）。カバーしているかは、確定結果の範囲の終わり（`range.end`）と暫定結果の範囲・音声の時刻の属性（`audioTimeRange`）で判断し、属性がまったくなければ最後の確定の後に届いた暫定結果を使う。暫定結果が後から確定として出し直された場合は確定だけを使う。空白だけの末尾は足さない。`confirmed` の意味（確定済みのチャンク）は変えず、キャンセル・失敗の扱いも変えていない。Realtime Direct は `completed` で全体のテキストを渡して差分だけを書き込むため、足した末尾は書き込み済みの範囲の後への追記になる。実機で末尾の欠けがないかは Probe で確かめる（`file` で、最後の暫定結果の後に確定結果が届くか・`resultsFinalizationTime` が `range.end` を超えて暫定結果が確定扱いになる場合があるかを記録する。確定結果が必ず届くと分かれば、この対策は何もしない）
 - 補足：既定のプリセット（`progressiveTranscription`）は `fastResults` を含み、D6 は「速いが精度の低い」と書いている。精度の評価では `--preset transcription`（確定のみ・`fastResults` なし）とも比べる
 
 ## テスト手順

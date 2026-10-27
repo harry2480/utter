@@ -153,6 +153,61 @@ struct TranscriptionRunTests {
     #expect(stub.calls == [.prepare, .start, .finalize])
   }
 
+  @Test("#48: 確定されないまま残った末尾の暫定結果を completed の末尾に含める。confirmed は変えない")
+  func completedKeepsUnfinalizedTail() async throws {
+    let stub = try StubTranscriptionSession()
+    let (audio, input) = AsyncStream.makeStream(of: AudioChunk.self)
+    let events = events(stub, audio: audio)
+    stub.yield(Self.segment("明日は", isFinal: true))
+    stub.yield(Self.segment("晴れです", isFinal: false, start: 1, end: 2))
+    input.yield(Self.chunk())
+    input.finish()
+
+    let collected = await Self.collect(events)
+
+    #expect(collected.map(\.kind) == [.confirmed("明日は"), .partial("晴れです"), .completed("明日は晴れです")])
+    #expect(stub.calls == [.prepare, .start, .finalize])
+  }
+
+  @Test("#48: 末尾の暫定結果が確定として出し直されたら、completed に二重に含めない")
+  func completedDoesNotDuplicateFinalizedTail() async throws {
+    let stub = try StubTranscriptionSession(
+      finalSegments: [Self.segment("晴れです。", isFinal: true, start: 1, end: 2)])
+    let (audio, input) = AsyncStream.makeStream(of: AudioChunk.self)
+    let events = events(stub, audio: audio)
+    stub.yield(Self.segment("明日は", isFinal: true))
+    stub.yield(Self.segment("はれです", isFinal: false, start: 1, end: 2))
+    input.yield(Self.chunk())
+    input.finish()
+
+    let collected = await Self.collect(events)
+
+    #expect(collected.last?.kind == .completed("明日は晴れです。"))
+  }
+
+  @Test("#48: 末尾の暫定結果が残っていても、確定の失敗・結果の早い終わりは failed のまま")
+  func failuresIgnoreUnfinalizedTail() async throws {
+    let finalizeFails = try StubTranscriptionSession(
+      finalizeError: NSError(domain: NSCocoaErrorDomain, code: 1))
+    let (audio, input) = AsyncStream.makeStream(of: AudioChunk.self)
+    let failing = events(finalizeFails, audio: audio)
+    finalizeFails.yield(Self.segment("あした", isFinal: false))
+    input.yield(Self.chunk())
+    input.finish()
+
+    #expect(await Self.collect(failing).last?.kind == .failed(.engineFailed))
+
+    let endsEarly = try StubTranscriptionSession()
+    let (earlyAudio, earlyInput) = AsyncStream.makeStream(of: AudioChunk.self)
+    let early = events(endsEarly, audio: earlyAudio)
+    earlyInput.yield(Self.chunk())
+    endsEarly.yield(Self.segment("あした", isFinal: false))
+    endsEarly.finishResults()
+
+    #expect(await Self.collect(early).map(\.kind) == [.partial("あした"), .failed(.engineFailed)])
+    earlyInput.finish()
+  }
+
   @Test("AC-10: 音声が1つもなければ確定を待たずに空の completed で終える")
   func completesEmptyAudio() async throws {
     let stub = try StubTranscriptionSession()
@@ -278,6 +333,24 @@ struct TranscriptionRunTests {
     let consumer = Task { await Self.collect(events) }
     input.yield(Self.chunk())
     try await Self.waitUntil { stub.calls.contains(.start) }
+
+    consumer.cancel()
+
+    #expect(await consumer.value.allSatisfy { !$0.kind.isTerminal })
+    try await Self.waitUntil { stub.calls.contains(.cancel) }
+    #expect(!stub.calls.contains(.finalize))
+    input.finish()
+  }
+
+  @Test("#48: 末尾の暫定結果が残っていても、受け手がストリームを破棄したら終端イベントを流さない")
+  func cancelsWithUnfinalizedTail() async throws {
+    let stub = try StubTranscriptionSession()
+    let (audio, input) = AsyncStream.makeStream(of: AudioChunk.self)
+    let events = events(stub, audio: audio)
+    let consumer = Task { await Self.collect(events) }
+    input.yield(Self.chunk())
+    try await Self.waitUntil { stub.calls.contains(.start) }
+    stub.yield(Self.segment("あした", isFinal: false))
 
     consumer.cancel()
 
