@@ -31,6 +31,24 @@ struct OpenAISpeechRecognizerTests {
     }
   }
 
+  /// 機密入力の判定を差し替えられる入れ物。呼ばれた回数も数える
+  final class SensitivityBox: Sendable {
+    let decisions: Mutex<[SensitiveInputDecision]>
+    let calls = Mutex(0)
+
+    /// 呼ばれるたびに `decisions` の先頭から返し、最後の1つは返し続ける
+    init(_ decisions: SensitiveInputDecision...) {
+      self.decisions = Mutex(decisions)
+    }
+
+    func current() -> SensitiveInputDecision {
+      calls.withLock { $0 += 1 }
+      return decisions.withLock { decisions in
+        decisions.count > 1 ? decisions.removeFirst() : decisions[0]
+      }
+    }
+  }
+
   static let speechGranted: ConsentState = {
     var consent = ConsentState()
     consent.grant(.transmission(.speechRecognition))
@@ -68,7 +86,7 @@ struct OpenAISpeechRecognizerTests {
   private func recognizer(
     _ transport: any HTTPStreamingTransport,
     consent: ConsentBox = ConsentBox(OpenAISpeechRecognizerTests.speechGranted),
-    sensitivity: SensitiveInputDecision = .allowedInput,
+    sensitivity: SensitivityBox = SensitivityBox(.allowedInput),
     budgetGuard: BudgetGuard? = nil,
     configuration: OpenAISpeechRecognizer.Configuration? = nil
   ) throws -> OpenAISpeechRecognizer {
@@ -76,7 +94,7 @@ struct OpenAISpeechRecognizerTests {
     return OpenAISpeechRecognizer(
       apiKey: "sk-test-secret", configuration: configuration ?? self.configuration,
       consent: { consent.current() },
-      sensitivity: { sensitivity },
+      sensitivity: { sensitivity.current() },
       budget: SpeechRecognitionBudget(
         guard: try budgetGuard ?? makeGuard(),
         expectedUsagePerSecond: TokenUsage(inputTokens: 3, outputTokens: 1),
@@ -161,10 +179,26 @@ struct OpenAISpeechRecognizerTests {
     let budgetGuard = try makeGuard()
 
     let events = await run(
-      try recognizer(transport, sensitivity: .secureFieldInput, budgetGuard: budgetGuard),
+      try recognizer(
+        transport, sensitivity: SensitivityBox(.secureFieldInput), budgetGuard: budgetGuard),
       [oneSecond])
 
     #expect(events.map(\.kind) == [.failed(.sensitiveInput)])
+    #expect(transport.requests.withLock { $0.isEmpty })
+    #expect(await budgetGuard.ledger.spent(in: october) == 0)
+  }
+
+  @Test("7章, AC-12: 予算の予約を待つ間に入力先が機密入力になったら、予約を取り消して送信しない")
+  func noSendWhenInputBecameSensitiveWhileReserving() async throws {
+    let transport = StubTransport(.response(status: 200, body: Self.successBody))
+    let budgetGuard = try makeGuard()
+    let sensitivity = SensitivityBox(.allowedInput, .secureFieldInput)
+
+    let events = await run(
+      try recognizer(transport, sensitivity: sensitivity, budgetGuard: budgetGuard), [oneSecond])
+
+    #expect(events.map(\.kind) == [.failed(.sensitiveInput)])
+    #expect(sensitivity.calls.withLock { $0 } == 2)
     #expect(transport.requests.withLock { $0.isEmpty })
     #expect(await budgetGuard.ledger.spent(in: october) == 0)
   }

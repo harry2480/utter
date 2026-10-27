@@ -105,8 +105,9 @@ public struct OpenAISpeechRecognizer: SpeechRecognizer {
 
   /// - Parameters:
   ///   - consent: 最新の同意状態を返す。認識の開始時と送信の直前に呼び、音声送信の同意を確認する（AC-06）
-  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。送信の直前に呼び、`allowsCloudTransmission` でなければ
-  ///     送信せずに `failed(.sensitiveInput)` で終える。録音の開始時の判定は呼び出し側が行う
+  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。予算の予約の前と、予約を待った後の送信の直前に呼び、
+  ///     `allowsCloudTransmission` でなければ送信せずに（予約済みなら取り消して）`failed(.sensitiveInput)` で終える。
+  ///     録音の開始時の判定は呼び出し側が行う
   ///   - budget: 予算上限の設定（AI-04, AI-05）。トークン課金の API のため、省略できない
   ///   - makeBoundary: multipart の区切り文字列。テストで固定するために注入できる
   public init(
@@ -188,6 +189,11 @@ public struct OpenAISpeechRecognizer: SpeechRecognizer {
     if Task.isCancelled {
       await budget.guard.cancel(reservation)
       return nil
+    }
+    // 予約を待つ間に入力先が機密入力になっていたら、送信せずに予約を取り消す
+    guard await sensitivity().allowsCloudTransmission else {
+      await budget.guard.cancel(reservation)
+      return .failed(.sensitiveInput)
     }
 
     let result = await sendWithTimeout(makeURLRequest(wav: wav))
