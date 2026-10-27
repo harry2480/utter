@@ -188,6 +188,23 @@ struct OpenAISpeechRecognizerTests {
     #expect(await budgetGuard.ledger.spent(in: october) == 0)
   }
 
+  @Test("AC-06: 予算の予約を待つ間に音声送信の同意を撤回したら、予約を取り消して送信しない")
+  func noSendWhenRevokedWhileReserving() async throws {
+    let transport = StubTransport(.response(status: 200, body: Self.successBody))
+    let budgetGuard = try makeGuard()
+    var revoked = Self.speechGranted
+    revoked.revoke(.transmission(.speechRecognition))
+    let consent = ConsentBox(Self.speechGranted, Self.speechGranted, revoked)
+
+    let events = await run(
+      try recognizer(transport, consent: consent, budgetGuard: budgetGuard), [oneSecond])
+
+    #expect(events.map(\.kind) == [.failed(.consentNotGranted)])
+    #expect(consent.calls.withLock { $0 } == 3)
+    #expect(transport.requests.withLock { $0.isEmpty })
+    #expect(await budgetGuard.ledger.spent(in: october) == 0)
+  }
+
   @Test("7章, AC-12: 予算の予約を待つ間に入力先が機密入力になったら、予約を取り消して送信しない")
   func noSendWhenInputBecameSensitiveWhileReserving() async throws {
     let transport = StubTransport(.response(status: 200, body: Self.successBody))

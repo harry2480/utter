@@ -12,7 +12,8 @@ import UtterText
 /// - 音声認識のエンジンが選ばれていない（`recognizer == nil`）なら、マイクを開かずに「音声認識が設定されていません」の失敗を表示する
 /// - 録音開始時に入力対象（とスタイル区分の判定に使う前面アプリ）を記録し、挿入はその対象に対して確かめる（INS-01）
 /// - 録音開始時の入力先がパスワード欄・セキュア入力・機密アプリ・除外アプリ、または判定できなければ、セッションを始めずに
-///   （マイクを開かず、音声認識・送信・履歴もせずに）HUD で知らせる（7章, AC-12）。録音を始めた後に入力先が変わった場合は、
+///   （マイクを開かず、音声認識・送信・履歴もせずに）HUD で知らせる（7章, AC-12）。前の録音の停止・クラウド STT の準備・
+///   マイクの使用許可を待った後にも判定し直し、その間に変わっていれば音声を読まずにやめる。録音を始めた後に入力先が変わった場合は、
 ///   送信・履歴保存・挿入の直前の判定で止める（`SensitiveInputPolicy` の呼び出し側の契約）
 /// - 整形は `SessionRefining`（本番は `SessionRefinementPipeline`）に任せる。設定・同意・API キー・予算がそろい、
 ///   入力先が機密入力でないときだけクラウドへ送り、それ以外はローカル整形（Raw / Local Basic, AI-03）にする
@@ -268,6 +269,8 @@ final class SessionCoordinator {
     guard
       let recognizer = await sessionRecognizer(session, target: target, usesCloud: usesCloud)
     else { return }
+    // 前の録音の停止・クラウド STT の準備を待つ間に入力先が機密入力へ変わっていたら、マイクを開かない（7章, AC-12）
+    guard !suppressIfSensitive(session, target: target) else { return }
     // STT Worker の異常終了の再処理は、Worker のときだけ使う。クラウド STT は Worker を通さず、
     // 失敗は通信・同意・予算などで同じ音声を送り直しても直らない（送り直すと費用もかかる）ため。
     // Realtime Direct は、認識し直した全体と書き込んだ範囲を突き合わせられないため使わない
@@ -301,6 +304,8 @@ final class SessionCoordinator {
       abandon(session)
       return
     }
+    // マイクの使用許可を待つ間に入力先が機密入力へ変わっていたら、音声を読まずに録音を止める（7章, AC-12）
+    guard !suppressIfSensitive(session, target: target, stopsRecorder: true) else { return }
 
     let ends = Task { [weak self] in
       for await end in recording.ends {
@@ -657,6 +662,19 @@ final class SessionCoordinator {
     // 録音の段階を終えてから失敗にする。録音はまだ始めていないため、録音側は止めない
     machine.stopRecording(at: now())
     fail(session, notice: notice)
+  }
+
+  /// 録音を始める前の待ちの間に入力先が機密入力へ変わっていたら、何も処理せずに待機へ戻して HUD で知らせる（7章, AC-12）。
+  /// 抑止したら `true`。`stopsRecorder` は録音を始めた直後（まだ音声を読んでいない）に呼ぶとき `true` にする
+  private func suppressIfSensitive(
+    _ session: SessionID, target: RecordedInsertionTarget, stopsRecorder: Bool = false
+  ) -> Bool {
+    let decision = sensitiveDecision(for: target)
+    guard !decision.allowsRecording else { return false }
+    if stopsRecorder { stopRecorder() }
+    abandon(session)
+    hud.recordRecordingSuppressed(decision.primaryReason ?? .undetermined)
+    return true
   }
 
   /// 音声がないまま停止されたセッションを、何も処理せずに待機へ戻す

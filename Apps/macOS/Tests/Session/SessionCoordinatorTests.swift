@@ -256,6 +256,25 @@ struct SessionCoordinatorTests {
     #expect(presenter.current?.title == "除外アプリのため、録音しません")
   }
 
+  @Test("7章, AC-12: マイクの使用許可を待つ間に入力先が機密入力へ変わったら、音声を読まずに録音を止めて知らせる")
+  func suppressesWhenInputBecomesSensitiveWhileAskingPermission() async {
+    let microphone = GatedMicrophoneAccess()
+    let recorder = StubAudioRecorder(microphone: microphone)
+    let session = coordinator(recorder: recorder)
+
+    session.toggle()
+    #expect(await eventually { microphone.isAsking })
+    inserter.sensitiveContext = SensitiveInputContext(
+      secureField: .on, secureEventInput: .off, app: "com.example.editor")
+    microphone.answer(true)
+
+    #expect(await eventually { session.phase == .idle })
+    #expect(await eventually { !recorder.isRecording })
+    #expect(presenter.current?.title == "パスワード欄のため、録音しません")
+    #expect(insertedTexts.isEmpty)
+    #expect(retention.events.allSatisfy { if case .finishRecording = $0 { false } else { true } })
+  }
+
   // MARK: STT 未設定・失敗
 
   @Test("11章: 音声認識のエンジンが選ばれていなければマイクを開かず、「音声認識が設定されていません」を表示する")
