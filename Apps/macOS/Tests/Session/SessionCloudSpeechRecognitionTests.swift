@@ -29,6 +29,15 @@ struct SessionCloudSpeechRecognitionTests {
 
   private var store: AppSettingsStore { AppSettingsStore(defaults: suite.defaults) }
 
+  /// 録音に音声を足し、セッションがその音声を受け取るまで待つ（#193）。
+  /// `isRecording` は録音側で先に真になる。セッションが録音の開始を受け取る前に停止すると、
+  /// 開始を待つ間に停止されたものとして音声を捨てるため、セッションが受け取った音声で待つ
+  private func feedUntilReceived(_ recorder: StubAudioRecorder) async {
+    let received = retention.appendedSampleCount
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    #expect(await eventually { retention.appendedSampleCount > received })
+  }
+
   private func coordinator(
     _ settings: AppSettings,
     recorder: StubAudioRecorder,
@@ -80,7 +89,7 @@ struct SessionCloudSpeechRecognitionTests {
 
     session.toggle()
     #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    await feedUntilReceived(recorder)
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -97,7 +106,7 @@ struct SessionCloudSpeechRecognitionTests {
 
     session.toggle()
     #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    await feedUntilReceived(recorder)
     inserter.sensitiveContext = SensitiveInputContext(
       secureField: .on, secureEventInput: .off, app: "com.example.editor")
     session.toggle()
@@ -177,7 +186,7 @@ struct SessionCloudSpeechRecognitionTests {
 
     session.toggle()
     #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    await feedUntilReceived(recorder)
     session.toggle()
     #expect(await eventually { session.phase == .error(.recognition) })
 
@@ -206,7 +215,7 @@ struct SessionCloudSpeechRecognitionTests {
     // 次のセッションからクラウド STT を使う
     session.toggle()
     #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    await feedUntilReceived(recorder)
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
