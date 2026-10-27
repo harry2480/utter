@@ -34,7 +34,7 @@ final class CloudSpeechRecognitionPipeline: SessionCloudSpeechRecognizing {
   }
 
   /// クラウド STT のモデル名（仮置き）。単価表の照合にも使う。設定画面で変えられるようにするかは #60 で決める
-  static let model = "gpt-4o-mini-transcribe"
+  nonisolated static let model = "gpt-4o-mini-transcribe"
 
   /// 音声1秒あたりの見込みの使用量（仮置き, AI-05）。応答に使用量がなければこの量で記録するため、少なめに見積もらない。
   /// 入力は音声トークン（1分あたり約1,000トークンの公表値に余裕を足す）、出力は認識テキスト（日本語の発話速度に余裕を足す）
