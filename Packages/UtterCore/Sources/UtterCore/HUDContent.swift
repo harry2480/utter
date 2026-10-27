@@ -66,6 +66,8 @@ public enum HUDNotice: Hashable, Sendable {
   case cloudSpeechRecognitionFailed(CloudSpeechRecognitionNotice)
   /// 入力モードが Realtime Direct（実験機能）だが、このセッションでは自動で無効にした（2.2節, AC-15）
   case realtimeDirectDisabled(RealtimeDirectFallbackNotice)
+  /// 入力先がパスワード欄・セキュア入力・機密アプリ・除外アプリ、または判定できないため、録音を始めなかった（7章, AC-12）
+  case recordingSuppressed(SensitiveInputReason)
 
   /// 録音の停止理由に対応する通知。利用者の停止操作では `nil`。
   public init?(stopReason: RecordingStopReason) {

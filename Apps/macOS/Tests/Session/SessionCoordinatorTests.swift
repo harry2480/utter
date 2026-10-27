@@ -27,7 +27,8 @@ struct SessionCoordinatorTests {
     recognizer: (any SpeechRecognizer)? = StubSpeechRecognizer(steps: [.confirmed("こんにちは")]),
     mode: RefinementMode = .raw,
     configuration: SessionConfiguration = SessionConfiguration(),
-    recovery: (any SessionRecognitionRecovering)? = nil
+    recovery: (any SessionRecognitionRecovering)? = nil,
+    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() }
   ) -> SessionCoordinator {
     let clock = clock
     let store = AppSettingsStore(defaults: suite.defaults)
@@ -49,6 +50,7 @@ struct SessionCoordinatorTests {
       deadlineScheduler: deadlineScheduler,
       audioRetention: retention,
       recognitionRecovery: recovery,
+      sensitivePolicy: sensitivePolicy,
       now: { clock.now })
   }
 
@@ -143,6 +145,115 @@ struct SessionCoordinatorTests {
     #expect(
       retention.events.last.map { if case .end(_, let completed) = $0 { completed } else { false } }
         == true)
+  }
+
+  // MARK: 機密入力（7章, AC-12）
+
+  /// 録音を始めない入力先と、HUD に出す文言
+  struct SuppressedStart: Sendable, CustomTestStringConvertible {
+    let context: SensitiveInputContext
+    let message: String
+    var testDescription: String { message }
+  }
+
+  nonisolated static let suppressedStarts: [SuppressedStart] = [
+    SuppressedStart(
+      context: SensitiveInputContext(
+        secureField: .on, secureEventInput: .off, app: "com.example.editor"),
+      message: "パスワード欄のため、録音しません"),
+    SuppressedStart(
+      context: SensitiveInputContext(
+        secureField: .off, secureEventInput: .on, app: "com.example.editor"),
+      message: "セキュア入力が有効なため、録音しません"),
+    SuppressedStart(
+      context: SensitiveInputContext(
+        secureField: .off, secureEventInput: .off, app: "com.example.vault"),
+      message: "機密情報を扱うアプリのため、録音しません"),
+    SuppressedStart(
+      context: SensitiveInputContext(
+        secureField: .off, secureEventInput: .off, app: "com.example.excluded"),
+      message: "除外アプリのため、録音しません"),
+    SuppressedStart(
+      context: SensitiveInputContext(secureField: .unknown, secureEventInput: .off, app: nil),
+      message: "入力先を確認できないため、録音しません"),
+  ]
+
+  @Test(
+    "7章, AC-12: パスワード欄・セキュア入力・機密アプリ・除外アプリ・判定できない入力先では、マイクを開かずに HUD で知らせる",
+    arguments: suppressedStarts)
+  func suppressesRecording(_ start: SuppressedStart) async {
+    inserter.sensitiveContext = start.context
+    let microphone = StubMicrophoneAccess(authorization: .notDetermined)
+    let recorder = StubAudioRecorder(microphone: microphone)
+    let session = coordinator(
+      recorder: recorder,
+      sensitivePolicy: {
+        SensitiveInputPolicy(
+          sensitiveApps: ["com.example.vault"], excludedApps: ["com.example.excluded"])
+      })
+    var phaseChanges = 0
+    session.onPhaseChange = { phaseChanges += 1 }
+
+    session.toggle()
+
+    // セッションを始めない（録音・認識・一時音声・挿入のどれも行わない）
+    #expect(session.phase == .idle)
+    #expect(session.activeSession == nil)
+    #expect(phaseChanges == 0)
+    #expect(microphone.requestCount == 0)
+    #expect(!recorder.isRecording)
+    #expect(retention.events.isEmpty)
+    #expect(insertedTexts.isEmpty)
+    #expect(presenter.current?.title == start.message)
+    #expect(presenter.current?.indicator == .notice)
+
+    // 知らせはしばらくで消える
+    clock.advance(by: HUDConfiguration.defaultLimitNoticeDisplayDuration)
+    hudScheduler.fire()
+    #expect(!presenter.isVisible)
+  }
+
+  @Test("7章, AC-12: 機密入力で始めなかった後でも、入力先が変われば次の開始操作で録音できる")
+  func recordsAfterSuppressedStart() async {
+    inserter.sensitiveContext = SensitiveInputContext(
+      secureField: .on, secureEventInput: .off, app: "com.example.editor")
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder)
+
+    session.toggle()
+    #expect(presenter.current?.title == "パスワード欄のため、録音しません")
+
+    inserter.sensitiveContext = SensitiveInputContext(
+      secureField: .off, secureEventInput: .off, app: "com.example.editor")
+    session.toggle()
+    #expect(session.phase == .recording)
+    #expect(presenter.current?.title == "録音中")
+    #expect(presenter.current?.messages.isEmpty == true)
+    #expect(await eventually { recorder.isRecording })
+    session.toggle()
+    #expect(await eventually { session.phase == .idle })
+    #expect(insertedTexts == ["こんにちは"])
+  }
+
+  @Test("7章, AC-12: 判定は開始操作のたびに、その時点の入力先と除外アプリで行う")
+  func decidesOnEveryStart() async {
+    let recorder = StubAudioRecorder()
+    let excluded = ExcludedAppsBox()
+    let session = coordinator(
+      recorder: recorder, sensitivePolicy: { SensitiveInputPolicy(excludedApps: excluded.apps) })
+
+    session.toggle()
+    #expect(inserter.sensitiveContextRequests == 1)
+    #expect(session.phase == .recording)
+    #expect(await eventually { recorder.isRecording })
+    session.toggle()
+    #expect(await eventually { session.phase == .idle })
+
+    // 録音を終えた後に除外アプリへ加えたら、次の開始操作では録音しない
+    excluded.apps = ["com.example.editor"]
+    session.toggle()
+    #expect(session.phase == .idle)
+    #expect(presenter.current?.title == "除外アプリのため、録音しません")
   }
 
   // MARK: STT 未設定・失敗

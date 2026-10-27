@@ -351,4 +351,20 @@ struct HUDPresentationTests {
       })
     #expect(texts.count == RealtimeDirectFallbackNotice.allCases.count)
   }
+
+  @Test("7章, AC-12: 録音を始めなかった通知は1行目に出して読み上げ、理由ごとに文言が異なる")
+  func recordingSuppressedText() throws {
+    let presentation = try #require(
+      HUDPresentation(HUDContent(status: nil, notice: .recordingSuppressed(.secureField))))
+    #expect(presentation.indicator == .notice)
+    #expect(presentation.title == "パスワード欄のため、録音しません")
+    #expect(presentation.messages.isEmpty)
+    #expect(presentation.announcement == "パスワード欄のため、録音しません")
+
+    let reasons: [SensitiveInputReason] = [
+      .secureField, .secureEventInput, .sensitiveApp, .excludedApp, .undetermined,
+    ]
+    let texts = Set(reasons.map { HUDPresentation.text(for: .recordingSuppressed($0)) })
+    #expect(texts.count == reasons.count)
+  }
 }

@@ -108,6 +108,18 @@ public struct HUDPresentation: Hashable, Sendable {
     case .cloudSpeechRecognitionFailed(let failure):
       "\(reason(for: failure))ため、クラウドで音声認識できませんでした"
     case .realtimeDirectDisabled(let fallback): realtimeDirectText(for: fallback)
+    case .recordingSuppressed(let suppression): "\(reason(for: suppression))ため、録音しません"
+    }
+  }
+
+  /// 録音を始めなかった理由（7章, AC-12）。入力欄の内容・アプリ名は含めない
+  private static func reason(for suppression: SensitiveInputReason) -> String {
+    switch suppression {
+    case .secureField: "パスワード欄の"
+    case .secureEventInput: "セキュア入力が有効な"
+    case .sensitiveApp: "機密情報を扱うアプリの"
+    case .excludedApp: "除外アプリの"
+    case .undetermined: "入力先を確認できない"
     }
   }
 

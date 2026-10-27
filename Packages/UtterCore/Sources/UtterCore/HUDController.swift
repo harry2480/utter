@@ -17,7 +17,7 @@ public protocol HUDRefreshScheduling: AnyObject {
 /// `HUDState` を保持し、状態の変化と表示時間の経過に合わせて HUD を更新する（REC-03, REC-05）。
 ///
 /// セッションを進める側は状態機械を変えるたびに `update(from:)` を呼び、ローカル整形へ退避したら
-/// `recordRefinementFallback(_:for:)` を呼ぶ。表示する内容が変わったときだけ
+/// `recordRefinementFallback(_:for:)` を呼ぶ。機密入力の判定で録音を始めなかったら `recordRecordingSuppressed(_:)` を呼ぶ。表示する内容が変わったときだけ
 /// `HUDPresenting` に表示・非表示を依頼し、通知を消す時刻と失敗の表示を終える時刻に `HUDRefreshScheduling` で更新を予約する。
 /// 失敗の表示時間が過ぎたら `onErrorDisplayExpired` を1回呼ぶ。受け取った側は
 /// `SessionStateMachine.dismissError()` を呼んで `update(from:)` で反映する（反映するまで失敗を表示し続ける）。
@@ -106,6 +106,14 @@ public final class HUDController {
     _ notice: RealtimeDirectFallbackNotice, for session: SessionID
   ) {
     state.recordRealtimeDirectFallback(notice, for: session)
+    refresh()
+  }
+
+  /// 機密入力の判定で録音を始めなかったことを知らせる（7章, AC-12）。
+  ///
+  /// 条件は `HUDState.recordRecordingSuppressed(_:at:)` を参照
+  public func recordRecordingSuppressed(_ reason: SensitiveInputReason) {
+    state.recordRecordingSuppressed(reason, at: now())
     refresh()
   }
 

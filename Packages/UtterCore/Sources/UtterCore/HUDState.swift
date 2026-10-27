@@ -121,6 +121,18 @@ public struct HUDState: Hashable, Sendable {
     realtimeDirectFallback = notice
   }
 
+  /// 機密入力の判定で録音を始めなかったことを知らせる（7章, AC-12）。
+  ///
+  /// セッションを始めないため、待機中に呼ぶ。上限到達・退避の通知と同じく `limitNoticeDisplayDuration` だけ残し、
+  /// 前に残していた通知は置き換える。待機中でなければ（録音中〜失敗の表示中）無視する
+  public mutating func recordRecordingSuppressed(
+    _ reason: SensitiveInputReason, at now: ContinuousClock.Instant
+  ) {
+    guard phase == .idle else { return }
+    lingeringNotices = [.recordingSuppressed(reason)]
+    noticeExpiry = now.advanced(by: configuration.limitNoticeDisplayDuration)
+  }
+
   /// `now` の時点で HUD に表示する内容。何も表示しないときは `nil`。
   public func content(at now: ContinuousClock.Instant) -> HUDContent? {
     if let status = HUDStatus(phase: phase) {

@@ -11,6 +11,9 @@ import UtterText
 ///
 /// - 音声認識のエンジンが選ばれていない（`recognizer == nil`）なら、マイクを開かずに「音声認識が設定されていません」の失敗を表示する
 /// - 録音開始時に入力対象（とスタイル区分の判定に使う前面アプリ）を記録し、挿入はその対象に対して確かめる（INS-01）
+/// - 録音開始時の入力先がパスワード欄・セキュア入力・機密アプリ・除外アプリ、または判定できなければ、セッションを始めずに
+///   （マイクを開かず、音声認識・送信・履歴もせずに）HUD で知らせる（7章, AC-12）。録音を始めた後に入力先が変わった場合は、
+///   送信・履歴保存・挿入の直前の判定で止める（`SensitiveInputPolicy` の呼び出し側の契約）
 /// - 整形は `SessionRefining`（本番は `SessionRefinementPipeline`）に任せる。設定・同意・API キー・予算がそろい、
 ///   入力先が機密入力でないときだけクラウドへ送り、それ以外はローカル整形（Raw / Local Basic, AI-03）にする
 /// - 挿入を終えたら、履歴が有効で機密入力でないときだけ入力履歴に保存する（7章, AC-12）
@@ -64,6 +67,7 @@ final class SessionCoordinator {
   @ObservationIgnored private let recognitionRecovery: (any SessionRecognitionRecovering)?
   @ObservationIgnored private let cloudRecognition: (any SessionCloudSpeechRecognizing)?
   @ObservationIgnored private let realtimeDirect: (any SessionRealtimeDirectWriting)?
+  @ObservationIgnored private let sensitivePolicy: @MainActor () -> SensitiveInputPolicy
   @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
 
   /// 進行中のセッションの非同期処理
@@ -85,6 +89,7 @@ final class SessionCoordinator {
   ///     `nil` ならやり直さない。クラウド STT のセッションでは使わない
   ///   - cloudRecognition: クラウド STT（#188）。`nil`、または選んでいなければ `recognizer` を使う
   ///   - realtimeDirect: Realtime Direct の書き込み（AC-15）。`nil` なら入力モードが Realtime Direct でも使えない扱いにする
+  ///   - sensitivePolicy: 録音開始時の機密入力の判定（7章, AC-12）。保存済みの除外アプリを反映するため、開始のたびに呼ぶ
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
   init(
     configuration: SessionConfiguration = SessionConfiguration(),
@@ -102,6 +107,7 @@ final class SessionCoordinator {
     recognitionRecovery: (any SessionRecognitionRecovering)? = nil,
     cloudRecognition: (any SessionCloudSpeechRecognizing)? = nil,
     realtimeDirect: (any SessionRealtimeDirectWriting)? = nil,
+    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() },
     makeSessionID: @escaping @Sendable () -> SessionID = { SessionID() },
     now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
   ) {
@@ -122,6 +128,7 @@ final class SessionCoordinator {
     self.recognitionRecovery = audioRetention == nil ? nil : recognitionRecovery
     self.cloudRecognition = cloudRecognition
     self.realtimeDirect = realtimeDirect
+    self.sensitivePolicy = sensitivePolicy
     self.now = now
     hud.onErrorDisplayExpired = { [weak self] in
       guard let self else { return }
@@ -189,7 +196,8 @@ final class SessionCoordinator {
   }
 
   /// 録音を始める。待機中でなければ何もしない（処理中の開始操作は無視する, REC-06）。
-  /// 起動時の復旧が音声認識を使っている間（`suspendIfIdle()` から `resume()` まで）も無視する
+  /// 起動時の復旧が音声認識を使っている間（`suspendIfIdle()` から `resume()` まで）も無視する。
+  /// 入力先が機密入力なら録音を始めずに HUD で知らせる（7章, AC-12）
   func startRecording() {
     guard machine.phase == .idle, !isSuspended else { return }
     applyNextSettings()
@@ -199,10 +207,16 @@ final class SessionCoordinator {
       failWithoutRecording(notice: .speechRecognitionNotConfigured)
       return
     }
-    guard case .started(let token) = machine.start(at: now()) else { return }
-    let session = token.sessionID
     // 入力対象は録音開始時に記録する（INS-01）
     let target = inserter.recordTarget()
+    // パスワード欄・機密アプリ・除外アプリ、または判定できなければ、マイクを開く前にやめる（判定できない場合も安全側, 7章）
+    let decision = sensitivePolicy().decide(inserter.sensitiveInputContext(for: target))
+    guard decision.allowsRecording else {
+      hud.recordRecordingSuppressed(decision.primaryReason ?? .undetermined)
+      return
+    }
+    guard case .started(let token) = machine.start(at: now()) else { return }
+    let session = token.sessionID
     retainedSession = session
     audioRetention?.begin(session)
     // 前のセッションの書き込みは、次のセッションを始めたら取り消せない（入力欄の状態を確かめ直せないため）

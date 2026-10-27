@@ -483,7 +483,7 @@ private struct ExcludedAppsSettingsTab: View {
       } header: {
         Text("除外アプリ")
       } footer: {
-        Text("ここに追加したアプリへの入力では、クラウドへの送信と入力履歴への保存をしません。追加・削除は「保存」で反映します。")
+        Text("ここに追加したアプリへの入力では、録音・クラウドへの送信・入力履歴への保存をしません。追加・削除は「保存」で反映します。")
           .font(.caption).foregroundStyle(.secondary)
       }
     }

@@ -91,4 +91,33 @@ struct SensitiveInputPolicyTests {
     #expect(policy.sensitiveApps.isEmpty)
     #expect(policy.decide(context).allowsRecording)
   }
+
+  @Test("7章, AC-12: 知らせる理由は、パスワード欄・セキュア入力・機密アプリ・除外アプリ・判定できないの順に1つ選ぶ")
+  func primaryReason() {
+    #expect(
+      Self.policy.decide(
+        SensitiveInputContext(secureField: .off, secureEventInput: .off, app: "com.example.editor")
+      ).primaryReason == nil)
+    #expect(
+      Self.policy.decide(
+        SensitiveInputContext(secureField: .on, secureEventInput: .on, app: "com.example.both")
+      ).primaryReason == .secureField)
+    #expect(
+      Self.policy.decide(
+        SensitiveInputContext(secureField: .off, secureEventInput: .on, app: "com.example.both")
+      ).primaryReason == .secureEventInput)
+    #expect(
+      Self.policy.decide(
+        SensitiveInputContext(secureField: .off, secureEventInput: .off, app: "com.example.both")
+      ).primaryReason == .sensitiveApp)
+    #expect(
+      Self.policy.decide(
+        SensitiveInputContext(
+          secureField: .unknown, secureEventInput: .off, app: "com.example.private")
+      ).primaryReason == .excludedApp)
+    #expect(
+      Self.policy.decide(
+        SensitiveInputContext(secureField: .unknown, secureEventInput: .off, app: nil)
+      ).primaryReason == .undetermined)
+  }
 }
