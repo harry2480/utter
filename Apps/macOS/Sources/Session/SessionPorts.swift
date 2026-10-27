@@ -110,7 +110,11 @@ protocol SessionCloudSpeechRecognizing: AnyObject {
   /// クラウド STT を選んでいるか。セッションの開始時に1回だけ読み、そのセッションの間は変えない（設定の変更は次のセッションから）
   var isSelected: Bool { get }
   /// クラウド STT の認識器を作る。録音を始める前に呼ぶ。条件がそろわなければ認識器を作らず、送らない理由を返す
-  func prepareRecognizer() async -> CloudSpeechRecognitionPreparation
+  ///
+  /// - Parameter sensitivity: その時点の入力先の機密入力の判定。認識器が送信の直前に呼ぶ（7章, AC-12）
+  func prepareRecognizer(
+    sensitivity: @escaping @Sendable () async -> SensitiveInputDecision
+  ) async -> CloudSpeechRecognitionPreparation
 }
 
 /// クラウド STT の準備の結果。

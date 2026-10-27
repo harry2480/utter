@@ -14,7 +14,8 @@ import UtterSpeech
 /// 3. 予算上限を確かめられる（AI-04, AI-05。整形と同じ月次予算・単価表・今月の累計から `BudgetGuard` を作る。
 ///    単価表にクラウド STT のモデル（`model`）の単価がなければ作らない）
 ///
-/// 認識器は認識の開始時と送信の直前にも同意を読み直し（撤回されていれば送らない）、送信前に見込み費用を予約して、
+/// 認識器は認識の開始時と送信の直前にも同意を読み直し（撤回されていれば送らない）、送信の直前に入力先の機密入力の判定もし直し
+/// （録音中にパスワード欄・除外アプリなどへ移っていれば送らない, 7章, AC-12）、送信前に見込み費用を予約して、
 /// 応答の使用量で推定費用を整形と同じ累計に記録する。送るのは録音音声とモデル名などの設定値だけで、
 /// 辞書語・ウィンドウタイトル・入力欄の本文・URL は送らない（CTX-03）。
 /// 推定費用の累計を保存できなかった（`BudgetGuard.hasPersistenceFailure`）後は、アプリを起動し直すまで送らない（安全側）。
@@ -30,6 +31,8 @@ final class CloudSpeechRecognitionPipeline: SessionCloudSpeechRecognizing {
     let configuration: OpenAISpeechRecognizer.Configuration
     /// 最新の同意状態。認識器が認識の開始時と送信の直前に呼ぶ
     let consent: @Sendable () async -> ConsentState
+    /// その時点の入力先の機密入力の判定。認識器が送信の直前に呼ぶ（7章, AC-12）
+    let sensitivity: @Sendable () async -> SensitiveInputDecision
     let budget: SpeechRecognitionBudget
   }
 
@@ -64,7 +67,7 @@ final class CloudSpeechRecognitionPipeline: SessionCloudSpeechRecognizing {
     makeRecognizer: @escaping MakeRecognizer = { parts in
       OpenAISpeechRecognizer(
         apiKey: parts.apiKey.value, configuration: parts.configuration, consent: parts.consent,
-        budget: parts.budget)
+        sensitivity: parts.sensitivity, budget: parts.budget)
     },
     now: @escaping @Sendable () -> Date = { Date() },
     calendar: Calendar = .current
@@ -81,7 +84,9 @@ final class CloudSpeechRecognitionPipeline: SessionCloudSpeechRecognizing {
     settingsStore.load().cloudSpeechRecognitionEnabled
   }
 
-  func prepareRecognizer() async -> CloudSpeechRecognitionPreparation {
+  func prepareRecognizer(
+    sensitivity: @escaping @Sendable () async -> SensitiveInputDecision
+  ) async -> CloudSpeechRecognitionPreparation {
     if let lastBudgetGuard, await lastBudgetGuard.hasPersistenceFailure {
       hasUsagePersistenceFailure = true
     }
@@ -116,7 +121,8 @@ final class CloudSpeechRecognitionPipeline: SessionCloudSpeechRecognizing {
     return .ready(
       makeRecognizer(
         RecognizerParts(
-          apiKey: apiKey, configuration: configuration, consent: consent, budget: budget)))
+          apiKey: apiKey, configuration: configuration, consent: consent,
+          sensitivity: sensitivity, budget: budget)))
   }
 
   /// 同意の画面（`ConsentSettingsController`）が保存した最新の同意状態
@@ -151,6 +157,7 @@ extension CloudSpeechRecognitionNotice {
     switch error {
     case .consentNotGranted: self = .consentNotGranted
     case .audioLimitExceeded: self = .audioLimitExceeded
+    case .sensitiveInput: self = .sensitiveInput
     case .budgetExceeded: self = .budgetExceeded
     case .timeout: self = .timeout
     case .authenticationExpired: self = .authenticationExpired

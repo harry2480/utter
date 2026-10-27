@@ -68,6 +68,7 @@ struct OpenAISpeechRecognizerTests {
   private func recognizer(
     _ transport: any HTTPStreamingTransport,
     consent: ConsentBox = ConsentBox(OpenAISpeechRecognizerTests.speechGranted),
+    sensitivity: SensitiveInputDecision = .allowedInput,
     budgetGuard: BudgetGuard? = nil,
     configuration: OpenAISpeechRecognizer.Configuration? = nil
   ) throws -> OpenAISpeechRecognizer {
@@ -75,6 +76,7 @@ struct OpenAISpeechRecognizerTests {
     return OpenAISpeechRecognizer(
       apiKey: "sk-test-secret", configuration: configuration ?? self.configuration,
       consent: { consent.current() },
+      sensitivity: { sensitivity },
       budget: SpeechRecognitionBudget(
         guard: try budgetGuard ?? makeGuard(),
         expectedUsagePerSecond: TokenUsage(inputTokens: 3, outputTokens: 1),
@@ -151,6 +153,20 @@ struct OpenAISpeechRecognizerTests {
     #expect(events.map(\.kind) == [.failed(.consentNotGranted)])
     #expect(consent.calls.withLock { $0 } == 2)
     #expect(transport.requests.withLock { $0.isEmpty })
+  }
+
+  @Test("7章, AC-12: 録音中に入力先が機密入力になったら送信も予約もせず sensitiveInput で終える")
+  func noSendWhenInputBecameSensitive() async throws {
+    let transport = StubTransport(.response(status: 200, body: Self.successBody))
+    let budgetGuard = try makeGuard()
+
+    let events = await run(
+      try recognizer(transport, sensitivity: .secureFieldInput, budgetGuard: budgetGuard),
+      [oneSecond])
+
+    #expect(events.map(\.kind) == [.failed(.sensitiveInput)])
+    #expect(transport.requests.withLock { $0.isEmpty })
+    #expect(await budgetGuard.ledger.spent(in: october) == 0)
   }
 
   // MARK: - 送信と応答

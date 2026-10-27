@@ -90,6 +90,46 @@ struct SessionCloudSpeechRecognitionTests {
     #expect(recovery.questions.isEmpty)
   }
 
+  @Test("7章, AC-12: 録音中に入力先が機密入力になったら、録音した音声を OpenAI へ送らずに理由を表示する")
+  func doesNotSendWhenInputBecomesSensitive() async throws {
+    let recorder = StubAudioRecorder()
+    let session = try coordinator(CloudSpeechRecognitionSettings.ready(), recorder: recorder)
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    inserter.sensitiveContext = SensitiveInputContext(
+      secureField: .on, secureEventInput: .off, app: "com.example.editor")
+    session.toggle()
+    #expect(await eventually { session.phase == .error(.recognition) })
+
+    #expect(transport.count == 0)
+    #expect(
+      presenter.current?.message == "入力先が機密入力のため、クラウドで音声認識できませんでした")
+    #expect(inserter.inserted.isEmpty)
+    #expect(local.runCount == 0)
+  }
+
+  @Test("7章, AC-12: 開始時の入力先が機密入力なら、クラウド STT の準備もマイクもせずに録音しない")
+  func suppressedStartSkipsCloudPreparation() async throws {
+    inserter.sensitiveContext = SensitiveInputContext(
+      secureField: .off, secureEventInput: .on, app: "com.example.editor")
+    let microphone = StubMicrophoneAccess(authorization: .notDetermined)
+    let recorder = StubAudioRecorder(microphone: microphone)
+    // 準備に進むと、未保存の API キーの理由が出る
+    let session = try coordinator(
+      CloudSpeechRecognitionSettings.ready(), recorder: recorder, apiKeyStore: StubAPIKeyStore())
+
+    session.toggle()
+    await Task.yield()
+
+    #expect(session.phase == .idle)
+    #expect(presenter.current?.title == "セキュア入力が有効なため、録音しません")
+    #expect(microphone.requestCount == 0)
+    #expect(transport.count == 0)
+    #expect(retention.events.isEmpty)
+  }
+
   @Test("AC-06: 音声の送信に同意していなければ、マイクを開かず、ローカルにも切り替えずに理由を表示する")
   func showsReasonWithoutConsent() async throws {
     var settings = CloudSpeechRecognitionSettings.ready()

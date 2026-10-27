@@ -12,6 +12,10 @@ struct CloudSpeechRecognitionPipelineTests {
   private let suite: TestDefaults
   private let database: UtterDatabase
 
+  /// 機密入力に当たらない入力先の判定
+  nonisolated static let allowedInput = SensitiveInputPolicy().decide(
+    SensitiveInputContext(secureField: .off, secureEventInput: .off, app: "com.example.editor"))
+
   init() throws {
     suite = try TestDefaults()
     database = try UtterDatabase.inMemory()
@@ -57,7 +61,11 @@ struct CloudSpeechRecognitionPipelineTests {
     let pipeline = try pipeline(CloudSpeechRecognitionSettings.ready(), transport: transport)
     #expect(pipeline.isSelected)
 
-    guard case .ready(let recognizer) = await pipeline.prepareRecognizer() else {
+    guard
+      case .ready(let recognizer) = await pipeline.prepareRecognizer(sensitivity: {
+        Self.allowedInput
+      })
+    else {
       Issue.record("クラウド STT の認識器を作れなかった")
       return
     }
@@ -94,7 +102,9 @@ struct CloudSpeechRecognitionPipelineTests {
     let transport = CountingStreamingTransport()
     let pipeline = try pipeline(settings, transport: transport)
 
-    #expect(await pipeline.prepareRecognizer().unavailableReason == .consentNotGranted)
+    #expect(
+      await pipeline.prepareRecognizer(sensitivity: { Self.allowedInput }).unavailableReason
+        == .consentNotGranted)
     #expect(transport.count == 0)
   }
 
@@ -102,7 +112,11 @@ struct CloudSpeechRecognitionPipelineTests {
   func revokedConsentStopsSending() async throws {
     let transport = CountingStreamingTransport()
     let pipeline = try pipeline(CloudSpeechRecognitionSettings.ready(), transport: transport)
-    guard case .ready(let recognizer) = await pipeline.prepareRecognizer() else {
+    guard
+      case .ready(let recognizer) = await pipeline.prepareRecognizer(sensitivity: {
+        Self.allowedInput
+      })
+    else {
       Issue.record("クラウド STT の認識器を作れなかった")
       return
     }
@@ -121,7 +135,9 @@ struct CloudSpeechRecognitionPipelineTests {
     let pipeline = try pipeline(
       CloudSpeechRecognitionSettings.ready(), apiKeyStore: StubAPIKeyStore(), transport: transport)
 
-    #expect(await pipeline.prepareRecognizer().unavailableReason == .apiKeyNotSet)
+    #expect(
+      await pipeline.prepareRecognizer(sensitivity: { Self.allowedInput }).unavailableReason
+        == .apiKeyNotSet)
     #expect(transport.count == 0)
   }
 
@@ -133,7 +149,9 @@ struct CloudSpeechRecognitionPipelineTests {
     let pipeline = try pipeline(
       CloudSpeechRecognitionSettings.ready(), apiKeyStore: keys, transport: transport)
 
-    #expect(await pipeline.prepareRecognizer().unavailableReason == .apiKeyUnavailable)
+    #expect(
+      await pipeline.prepareRecognizer(sensitivity: { Self.allowedInput }).unavailableReason
+        == .apiKeyUnavailable)
     #expect(transport.count == 0)
   }
 
@@ -144,7 +162,9 @@ struct CloudSpeechRecognitionPipelineTests {
     let transport = CountingStreamingTransport()
     let pipeline = try pipeline(settings, transport: transport)
 
-    #expect(await pipeline.prepareRecognizer().unavailableReason == .budgetUnavailable)
+    #expect(
+      await pipeline.prepareRecognizer(sensitivity: { Self.allowedInput }).unavailableReason
+        == .budgetUnavailable)
     #expect(transport.count == 0)
   }
 
@@ -155,7 +175,9 @@ struct CloudSpeechRecognitionPipelineTests {
       CloudSpeechRecognitionSettings.ready(priceModel: AppSettings.defaultRefinementModel),
       transport: transport)
 
-    #expect(await pipeline.prepareRecognizer().unavailableReason == .budgetUnavailable)
+    #expect(
+      await pipeline.prepareRecognizer(sensitivity: { Self.allowedInput }).unavailableReason
+        == .budgetUnavailable)
     #expect(transport.count == 0)
   }
 
@@ -166,7 +188,11 @@ struct CloudSpeechRecognitionPipelineTests {
     let pipeline = try pipeline(
       CloudSpeechRecognitionSettings.ready(budgetLimit: 10, inputPrice: 1_000_000),
       transport: transport)
-    guard case .ready(let recognizer) = await pipeline.prepareRecognizer() else {
+    guard
+      case .ready(let recognizer) = await pipeline.prepareRecognizer(sensitivity: {
+        Self.allowedInput
+      })
+    else {
       Issue.record("クラウド STT の認識器を作れなかった")
       return
     }

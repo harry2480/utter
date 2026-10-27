@@ -148,6 +148,7 @@ public struct HUDPresentation: Hashable, Sendable {
     case .budgetUnavailable: "月次予算・単価表を確かめられない"
     case .budgetExceeded: "月次予算の上限を超える"
     case .audioLimitExceeded: "クラウドへ送れる音声の上限を超えた"
+    case .sensitiveInput: "入力先が機密入力の"
     case .configurationUnavailable: "クラウド音声認識の設定を使えない"
     case .timeout: "クラウド音声認識の応答が時間内に届かなかった"
     case .authenticationExpired: "OpenAI API キーが無効になっている"
