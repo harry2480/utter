@@ -22,6 +22,7 @@ import UtterText
 /// ホスト名はスタイルの判定にだけ使い、保持・送信・記録しない。
 /// 推定費用の累計を保存できなかった（`BudgetGuard.hasPersistenceFailure`）後は、累計が実際より少ない可能性があるため、
 /// アプリを起動し直すまでクラウドへ送らない（安全側）。
+/// 計測器（`PerfIntervalMeasuring`）を渡すと、送信先の `refine` を `LLMComplete` の区間として計測する（6章, #52）。
 @MainActor
 final class SessionRefinementPipeline: SessionRefining {
   /// 送信先のプロバイダーを作る。本番は `ClaudeProvider(apiKeyStore:configuration:)`、テストは Stub の送信部を使う
@@ -37,6 +38,7 @@ final class SessionRefinementPipeline: SessionRefining {
   private let timeout: Duration
   private let now: @Sendable () -> Date
   private let calendar: Calendar
+  private let measurer: (any PerfIntervalMeasuring)?
   /// 推定費用の累計を保存できなかったか。一度でも失敗したら、以降はクラウドへ送らない
   private var hasUsagePersistenceFailure = false
 
@@ -48,6 +50,7 @@ final class SessionRefinementPipeline: SessionRefining {
   ///   - timeout: クラウド整形の応答待ちの上限時間（4.1節）
   ///   - now: 実時刻（費用を計上する月の判定）
   ///   - calendar: 費用を計上する月の判定に使う暦。設定画面の推定費用の表示と同じものを使う
+  ///   - measurer: 性能計測の区間の記録（#52）。`nil` なら計測しない
   init(
     settingsStore: AppSettingsStore,
     apiKeyStore: any APIKeyStore,
@@ -59,7 +62,8 @@ final class SessionRefinementPipeline: SessionRefining {
     siteHostReader: any FrontmostSiteHostReading = AccessibilitySiteHostReader(),
     timeout: Duration = RefinementRouter.defaultTimeout,
     now: @escaping @Sendable () -> Date = { Date() },
-    calendar: Calendar = .current
+    calendar: Calendar = .current,
+    measurer: (any PerfIntervalMeasuring)? = nil
   ) {
     self.settingsStore = settingsStore
     self.apiKeyStore = apiKeyStore
@@ -70,6 +74,12 @@ final class SessionRefinementPipeline: SessionRefining {
     self.timeout = timeout
     self.now = now
     self.calendar = calendar
+    self.measurer = measurer
+  }
+
+  var selectsCloudRefinement: Bool {
+    let settings = settingsStore.load()
+    return settings.refinementEngine == .cloudAI && RefinementMode(settings.refinementMode) != .raw
   }
 
   func refine(
@@ -112,7 +122,7 @@ final class SessionRefinementPipeline: SessionRefining {
     guard !hasUsagePersistenceFailure else { return local(.budgetUnavailable) }
     guard let configuration = try? ClaudeProvider.Configuration(model: settings.refinementModel)
     else { return local(.cloudUnavailable) }
-    let provider = makeProvider(configuration, apiKeyStore)
+    let provider = measured(makeProvider(configuration, apiKeyStore))
     guard currentConsent().allows(.textRefinement(provider.destination)) else {
       return local(.consentNotGranted)
     }
@@ -179,6 +189,12 @@ final class SessionRefinementPipeline: SessionRefining {
   ) -> SiteHost? {
     guard resolver.needsSiteHost, let frontmostApp else { return nil }
     return reader.siteHost(inFrontmostApp: frontmostApp)
+  }
+
+  /// 計測器があれば、送信先の `refine` を `LLMComplete` の区間として計測する
+  private func measured(_ provider: any AIProvider) -> any AIProvider {
+    guard let measurer else { return provider }
+    return PerfMeasuredAIProvider(base: provider, measurer: measurer)
   }
 
   /// 同意の画面（`ConsentSettingsController`）が保存した最新の同意状態

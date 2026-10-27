@@ -40,6 +40,8 @@ import UtterText
 ///   失敗した場合も同じ。書き込んだ後に照合に失敗したら、書き込みを残して全体をプレビューに出す（書き込み側が出す）。
 ///   キャンセルでは書き込んだ範囲を照合のうえ取り除き、完了後は `undoRealtimeDirect()` で取り除ける。
 ///   Realtime Direct のセッションでは、STT Worker の異常終了で認識し直さない（書き込んだ範囲と食い違うため）
+/// - 計測器（`PerfIntervalMeasuring`）を渡すと、6章の区間（録音開始遅延・停止→挿入とその内訳）を名前だけの Signpost で記録する（#52）。
+///   終点に達しないままセッションが終わったら、その時点で区間を閉じる。開始・終了の位置は docs/Phase0検証-性能目標.md
 @MainActor
 @Observable
 final class SessionCoordinator {
@@ -71,6 +73,10 @@ final class SessionCoordinator {
   @ObservationIgnored private let realtimeDirect: (any SessionRealtimeDirectWriting)?
   @ObservationIgnored private let sensitivePolicy: @MainActor () -> SensitiveInputPolicy
   @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
+  /// 進行中のセッションの性能計測の区間（#52）
+  @ObservationIgnored private let perf: SessionPerfIntervals
+  /// 進行中のセッションで停止→挿入の区間を測るか。STT Worker で認識し、停止後に一括挿入するセッションだけ測る
+  @ObservationIgnored private var measuresStopToInsert = false
 
   /// 進行中のセッションの非同期処理
   @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -92,6 +98,7 @@ final class SessionCoordinator {
   ///   - cloudRecognition: クラウド STT（#188）。`nil`、または選んでいなければ `recognizer` を使う
   ///   - realtimeDirect: Realtime Direct の書き込み（AC-15）。`nil` なら入力モードが Realtime Direct でも使えない扱いにする
   ///   - sensitivePolicy: 録音開始時の機密入力の判定（7章, AC-12）。保存済みの除外アプリを反映するため、開始のたびに呼ぶ
+  ///   - measurer: 性能計測の区間の記録（6章, #52）。`nil` なら計測しない
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
   init(
     configuration: SessionConfiguration = SessionConfiguration(),
@@ -110,6 +117,7 @@ final class SessionCoordinator {
     cloudRecognition: (any SessionCloudSpeechRecognizing)? = nil,
     realtimeDirect: (any SessionRealtimeDirectWriting)? = nil,
     sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() },
+    measurer: (any PerfIntervalMeasuring)? = nil,
     makeSessionID: @escaping @Sendable () -> SessionID = { SessionID() },
     now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
   ) {
@@ -131,6 +139,7 @@ final class SessionCoordinator {
     self.cloudRecognition = cloudRecognition
     self.realtimeDirect = realtimeDirect
     self.sensitivePolicy = sensitivePolicy
+    perf = SessionPerfIntervals(measurer: measurer)
     self.now = now
     hud.onErrorDisplayExpired = { [weak self] in
       guard let self else { return }
@@ -209,17 +218,23 @@ final class SessionCoordinator {
       failWithoutRecording(notice: .speechRecognitionNotConfigured)
       return
     }
+    beginRecordingStartIntervals(usesCloud: usesCloud)
     // 入力対象は録音開始時に記録する（INS-01）
     let target = inserter.recordTarget()
     // パスワード欄・機密アプリ・除外アプリ、または判定できなければ、マイクを開く前にやめる（判定できない場合も安全側, 7章）
     let decision = sensitiveDecision(for: target)
     guard decision.allowsRecording else {
+      // 録音しないため、始めた区間を閉じる
+      perf.endAll()
       // 入力対象の記録を上書きしたため、前のセッションの書き込みはもう取り消せない
       canUndoRealtimeDirect = false
       hud.recordRecordingSuppressed(decision.primaryReason ?? .undetermined)
       return
     }
-    guard case .started(let token) = machine.start(at: now()) else { return }
+    guard case .started(let token) = machine.start(at: now()) else {
+      perf.endAll()
+      return
+    }
     let session = token.sessionID
     retainedSession = session
     audioRetention?.begin(session)
@@ -228,6 +243,8 @@ final class SessionCoordinator {
     reflect()
     // 入力対象を記録した直後に、同じ入力欄で Realtime Direct を使えるか確かめる
     let writesDirectly = beginRealtimeDirect(session, target: target, usesCloud: usesCloud)
+    // クラウド STT（ローカル高速入力ではない）と Realtime Direct（停止後に一括挿入しない）は、停止→挿入を測らない
+    measuresStopToInsert = !usesCloud && !writesDirectly
     runTask = Task { [weak self] in
       await self?.run(
         session: session, target: target, usesCloud: usesCloud, writesDirectly: writesDirectly)
@@ -339,6 +356,9 @@ final class SessionCoordinator {
             HUDTranscript(
               confirmedText: preview.confirmedText, provisionalText: preview.provisionalText),
             for: session)
+          if !preview.confirmedText.isEmpty || !preview.provisionalText.isEmpty {
+            perf.end(.realtimeFirstText)
+          }
         }
         continue
       case .completed(let value):
@@ -385,6 +405,8 @@ final class SessionCoordinator {
       fail(session, notice: reason.map { HUDNotice.cloudSpeechRecognitionFailed($0) })
       return
     }
+    // 認識し直した場合も含め、挿入する本文の元になる確定結果がそろった
+    perf.end(.sttFinalize)
     // Realtime Direct で書き込んだら、整形・一括挿入をしない。何も書き込まないうちにやめたら Instant と同じく続ける
     let directCompletion = writesDirectly ? realtimeDirect?.completion : nil
     if case .stoppedBeforeWriting = directCompletion {
@@ -424,7 +446,13 @@ final class SessionCoordinator {
 
     // 挿入。自動挿入できなければ挿入側がプレビューへ退避する（文字列を失わない, AC-09）。
     // 挿入は始まったら取り消さないため、退避した場合も完了として待機へ戻る
+    perf.begin(.insert)
     let report = await inserter.insert(refined.text, into: target)
+    if isActive(session) {
+      perf.end(.insert)
+      perf.end(.stopToInsertLocal)
+      perf.end(.stopToInsertAI)
+    }
     guard apply(.insertionCompleted, session: session) else { return }
     // 待機に戻ったため、以降に次のセッションが始まりうる。次のセッションのタスクを消さないよう先に外す
     runTask = nil
@@ -564,7 +592,12 @@ final class SessionCoordinator {
   ) -> (audio: AsyncStream<AudioChunk>, task: Task<Void, Never>) {
     let (stream, continuation) = AsyncStream.makeStream(of: AudioChunk.self)
     let task = Task { [weak self] in
+      var isFirstChunk = true
       for await chunk in chunks {
+        if isFirstChunk {
+          isFirstChunk = false
+          self?.firstChunkArrived(session)
+        }
         self?.retain(chunk, session: session)
         continuation.yield(chunk)
       }
@@ -575,6 +608,12 @@ final class SessionCoordinator {
       continuation.onTermination = { _ in task.cancel() }
     }
     return (stream, task)
+  }
+
+  /// 録音の最初のチャンクを受け取った。録音開始遅延の区間を終える
+  private func firstChunkArrived(_ session: SessionID) {
+    guard isActive(session) else { return }
+    perf.end(.recordingStart)
   }
 
   /// `end` を伝える前のセッションのチャンクだけを差し込み口に渡す
@@ -741,10 +780,41 @@ final class SessionCoordinator {
   private func reflect(failureNotice: HUDNotice? = nil) {
     let previous = phase
     phase = machine.phase
+    trackPerfIntervals(from: previous)
     if phase != previous { onPhaseChange?() }
     hud.update(from: machine, failureNotice: failureNotice)
     deadlineScheduler.schedule(at: machine.recordingDeadline) { [weak self] in
       self?.recordingDeadlineReached()
+    }
+  }
+
+  // MARK: - 性能計測（6章, #52）
+
+  /// 録音開始の操作を受けた時点で始める区間。ショートカット・メニューの操作から同期的に呼ばれる `startRecording()` で、
+  /// 入力対象の記録・機密入力の判定より前に始める（後段で始めると、それより前の遅延が区間に入らない）。
+  /// クラウド STT は一括認識で録音中に認識テキストを出さないため、Realtime Preview でも初回文字表示の区間を始めない
+  private func beginRecordingStartIntervals(usesCloud: Bool) {
+    // 前のセッションの区間は待機に戻ったときに閉じているが、念のため残さない
+    perf.endAll()
+    perf.begin(.recordingStart)
+    if inputMode == .realtimePreview, !usesCloud {
+      perf.begin(.realtimeFirstText)
+    }
+  }
+
+  /// 状態の変化に合わせて区間を始める・閉じる。録音から認識へ進んだら（停止の操作・最大録音時間・音声バッファの上限・
+  /// 割り込み・認識が先に終わった場合のどれでも）停止からの区間を始め、待機・失敗へ進んだら開いている区間をすべて閉じる
+  private func trackPerfIntervals(from previous: SessionPhase) {
+    switch (previous, phase) {
+    case (.recording, .recognizing):
+      perf.begin(.sttFinalize)
+      if measuresStopToInsert {
+        perf.begin(refiner.selectsCloudRefinement ? .stopToInsertAI : .stopToInsertLocal)
+      }
+    case (_, .idle), (_, .error):
+      perf.endAll()
+    case (_, .recording), (_, .recognizing), (_, .refining), (_, .inserting):
+      break
     }
   }
 

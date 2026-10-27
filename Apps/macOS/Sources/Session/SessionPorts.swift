@@ -31,6 +31,11 @@ protocol SessionTextInserting: AnyObject {
 /// 本番は設定に従ってローカル整形とクラウド整形を選ぶ `SessionRefinementPipeline`。
 @MainActor
 protocol SessionRefining: AnyObject {
+  /// 今の設定でクラウド整形を選んでいるか（処理系がクラウド AI で、整形モードが Raw でない）。
+  /// 停止→挿入の計測区間を AI 整形ありとなしのどちらにするかの判定にだけ使う（6章, #52）。
+  /// 同意・API キー・予算・入力先はここでは確かめないため、`true` でも整形がローカルへ退避することがある
+  var selectsCloudRefinement: Bool { get }
+
   /// 整形する。発話を失わないよう失敗しない（クラウド整形できなければローカル整形の結果を返す）。
   ///
   /// - Parameters:

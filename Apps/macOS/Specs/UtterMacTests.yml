@@ -11,6 +11,8 @@ targets:
       - path: Sources/RealtimeDirect
       - path: Sources/EditMode
       - path: Sources/Session
+      # Session が使う性能計測の区間（#52）。区間名・Signpost の発行・整形の送信の計測
+      - path: Sources/Performance
       # 一時音声の保存と起動時の復旧（確認のダイアログを含む。テストからは開かない）
       - path: Sources/Recovery
       # Session が使う型（TaskHUDRefreshScheduler）と、表示の依頼のまとめ（HUDDisplayQueue）。パネルと画面は含めない
