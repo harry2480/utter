@@ -6,7 +6,7 @@
 OSS の配布アプリ（utter）が、他製品のクライアントID の流用や非公開エンドポイントに頼らずに（AI-02）Sign in with ChatGPT を正式に使えるかを判断する材料を残す。
 
 - 不成立時の方針（11章）：MVP から外し、OpenAI API キー方式を代替とする
-- 対象外：ChatGPT プロバイダーの実装（結論を受けて別 Issue）
+- 対象外：ChatGPT プロバイダーの実装（判定後に #50 で macOS 向けに実装した。末尾の「付記: Sign in with ChatGPT の実装」）
 - 認証情報（トークン・クライアントID の実値・API キー）はこの文書にも Issue にも書かない
 
 ## 調査の方法
@@ -156,19 +156,19 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 
 | 項目 | 記入欄 |
 |---|---|
-| 判定（成立／不成立） | |
-| 判定日 | |
-| 判定者 | |
-| 規約原文（S13・S14・S15）の確認結果 | |
-| 備考 | |
+| 判定（成立／不成立） | 条件つきで成立 |
+| 判定日 | 2026-10-27 |
+| 判定者 | maintainer（作業セッションでの指示） |
+| 規約原文（S13・S14・S15）の確認結果 | 未実施。リリース前に人がブラウザで原文を確認する |
+| 備考 | 条件は「結論の案」の1〜4のとおり。(1) utter が無料で、利用者の端末上でのみ動く間に限る。(2) OpenAI API キー方式も別の選択肢として並べ、黙って切り替えない。(3) iOS は当面 API キー方式のみとし、Sign in with ChatGPT は macOS から始める。(4) DevKit のコードは取り込まず、公開ドキュメントのプロトコルに沿って独自に実装する。規約原文の確認で OSS の配布アプリが対象外と読めた場合は、11章どおり不成立に改める |
 
 ## 人が行う確認・手続き
 
 - [ ] S13（Sign in with ChatGPT Terms）・S14（Service terms 15節）・S15（Help Center）の原文をブラウザで読み、抜粋と相違がないか、OSS の配布アプリを対象外とする条件がないかを確認する
 - [ ] 「open-source partners」に utter が当たるかに疑問が残る場合、関心フォーム（https://openai.com/form/sign-in-with-chatgpt-interest/ ）等で OpenAI に確認する。申請は開発者本人のアカウントで行う
 - [ ] 将来、有料化やリモートホストをする場合は、提供前に関心フォームで申請する
-- [ ] 判定欄を記入する
-- [ ] 成立（条件つき）と判定した場合：要件定義を更新する Issue を作る。OpenAI API キー方式を併記する箇所（1章、3章の技術スタック表、AI-01、AC-05）と、iOS の当面の扱い（検証が済むまで API キー方式のみ）を書く箇所（12章の iOS 技術スタック表など）
+- [x] 判定欄を記入する（2026-10-27）
+- [x] 成立（条件つき）と判定した場合：要件定義を更新する（Issue は作らず、#50 の作業ブランチで直接直した）。OpenAI API キー方式を併記する箇所（1章、3章の技術スタック表、AI-01、AC-05）と、iOS の当面の扱い（検証が済むまで API キー方式のみ）を書く箇所（12章の iOS 技術スタック表など）
 - [ ] 不成立と判定した場合：要件定義内の「Sign in with ChatGPT」「ChatGPT」の全出現箇所（1章、3章の技術スタック表、AI-01、AI-02、AC-05、10章 Phase 2、11章、12章の iOS 技術スタック表、iAC-10）を API キー方式に書き換える Issue を作る
 
 ## 実装 Issue へ引き継ぐ制約（成立と判定した場合）
@@ -212,3 +212,68 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 | 整形用モデルの候補（低遅延の小型モデル, AI-07） | `gpt-5.4-nano`（ほかに `gpt-5-nano`・`gpt-5-mini` など） | OpenAI API Pricing https://developers.openai.com/api/docs/pricing （本文を取得） |
 | 単価（100万トークンあたり、Standard） | `gpt-5.4-nano` 入力 $0.20 / 出力 $1.25、`gpt-5-nano` 入力 $0.05 / 出力 $0.40、`gpt-5-mini` 入力 $0.25 / 出力 $2.00 | 同上 |
 | ストリームのイベント名 | `response.output_text.delta`・`response.completed`・`response.incomplete`・`response.failed`・`error`・`response.refusal.delta` | Streaming API responses https://developers.openai.com/api/docs/guides/streaming-responses （本文を取得。イベント名と `delta`・`response.error.code` の読み方は本文で確認した。`usage`・`error` イベントの `code` など残りの JSON の形は、API リファレンスの本文が大きく取得しきれず未確認のため仮置きで、実際の API キーで確認する） |
+
+## 付記: Sign in with ChatGPT の実装（#50）
+
+判定（条件つきで成立）を受けて、macOS だけで、既定で無効な形で実装した。上の「実装 Issue へ引き継ぐ制約」をすべて守る。
+OpenAI の DevKit のコードは取り込まず、公開ドキュメントのプロトコルに沿って Swift で独自に実装した（条件4）。iOS とキーボード拡張には入れていない（条件3, iAC-08）。
+
+### 構成
+
+| 層 | 型 | 役割 |
+|---|---|---|
+| `Packages/UtterAI` | `ChatGPTSignIn`・`ChatGPTAuthorizationAttempt` | 公開ドキュメントの値、PKCE（S256）・state・nonce の生成、認可要求の組み立て、コールバックの検証 |
+| 〃 | `ChatGPTAuthClient`（本番 `OpenAIAuthClient`・Stub `StubChatGPTAuthClient`） | コード交換・リフレッシュ・失効・JWKS。リダイレクトに従わない |
+| 〃 | `ChatGPTIDTokenValidator` | ID トークンの署名（RS256, Security.framework）・iss・aud・exp・nonce・sub の検証 |
+| 〃 | `ChatGPTAccountSession` | ホスト ID の生成・保持、登録（クライアントID）の保存、リフレッシュの直列化、サインアウト、利用上限・対象外のあとの送信停止 |
+| 〃 | `ChatGPTPlanProvider`（`AIProvider`。Stub は `StubAIProvider(destination: .chatGPT)`） | `POST /v1/responses` での整形、受信中の文字数上限、S7 のエラーの分類（`ChatGPTPlanFailure`） |
+| 〃 | `ChatGPTModelCatalog` | `GET /v1/models` のうち `visibility: "list"` のモデル |
+| 〃 | `ChatGPTAccountStore`・`ChatGPTLoopbackServer`・`ChatGPTBrowserOpening`（protocol と Stub） | 保存・待ち受け・ブラウザの口。OS の API には依存しない |
+| `Apps/macOS` | `KeychainChatGPTAccountStore` | 記録を Keychain（本デバイス限定・iCloud 同期なし）に1項目で保存 |
+| 〃 | `NetworkLoopbackServer` | Network.framework で `127.0.0.1` だけで待ち受け、`/auth/callback` の最初の GET だけを受け取る |
+| 〃 | `WorkspaceBrowser` | 既定のブラウザで認可要求を開く |
+| 〃 | `SessionRefinementPipeline`・設定画面 | 処理系の「ChatGPT（Sign in with ChatGPT）」、Continue with ChatGPT・Using ChatGPT plan・Manage usage・サインアウト |
+
+- 送信は、処理系に「ChatGPT（Sign in with ChatGPT）」を選び、ChatGPT（OpenAI）への整形の同意（AC-06）・サインイン（プラン利用のスコープあり）・モデルの選択がそろったときだけ。送るのは整形モード・スタイル区分・辞書語・本文だけ（CTX-03）
+- 失敗・上限時間の超過・検証失敗は Local Basic へ退避し（4.1節）、Claude や OpenAI API キー方式へ自動で切り替えない（AI-04, S7）
+- トークン課金ではないため予算は使わない（`isTokenBilled == false`）。利用状況は「Manage usage」で ChatGPT の設定へ案内する
+- トークン・認可コード・クライアントID・ID トークンは、ログ・エラー・文字列表現に出さない
+- OpenAI API キー方式は、設定画面に別の選択肢として並べるが、整形の送信先としてはまだ結線しておらず選べない（条件2の「並べる」は表示までで、結線は残作業）
+
+### 一次情報で裏付けた値
+
+S1〜S11 の一括版（https://developers.openai.com/siwc/llms-full.txt ）と discovery 文書（https://auth.openai.com/.well-known/openid-configuration ）の本文を **2026-10-27** に取得して確かめた。上の出典表の確認日（2026-10-18）は、S12〜S15 を確認し直していないため書き換えていない。
+
+| 項目 | 実装した値 | 出典 |
+|---|---|---|
+| 認可・トークンのエンドポイント | `https://auth.openai.com/api/accounts/authorize`・`…/oauth/token` | S3、discovery |
+| 認可要求の項目 | `client_id`（初回 `dynamic_agent_client`）・`agent_name_hint`（初回のみ）・`ext_agent_host_id`・`response_type=code`・`redirect_uri`・`scope`・`resource`・`state`・`nonce`・`code_challenge_method=S256`・`code_challenge`、再認可の `id_token_hint`・`login_hint` | S3, S6 |
+| コールバック | `code`・`state`・（初回は）`client_id`。`error=access_denied` は state を確かめてから止める。初回で `client_id` がなければ登録未完了、再認可で違う `client_id` は拒否 | S3 |
+| コード交換・リフレッシュの本文 | フォーム形式。交換は `grant_type=authorization_code`・`client_id`・`code`・`code_verifier`・`redirect_uri`・`resource`、リフレッシュは `grant_type=refresh_token`・`client_id`・`refresh_token`・`resource`（`scope` は送らない） | S3, S6 |
+| トークンの応答 | `access_token`・`refresh_token`・`id_token`・`token_type`・`expires_in`・`scope`（・`earliest_refresh_at`。使っていない） | S8 |
+| ID トークンの検証 | JWKS `https://auth.openai.com/.well-known/jwks.json`、RS256（discovery の `id_token_signing_alg_values_supported`）、`iss` は `https://auth.openai.com`、`aud`（配列の例）に発行済みのクライアントID、`exp`・`nonce`・`sub`、時刻のずれの許容 5 秒 | S3, Website 版の手順（一括版）, discovery |
+| 失効 | discovery の `revocation_endpoint`（2026-10-27 時点 `https://auth.openai.com/api/accounts/oauth/revoke`）へ `token`・`token_type_hint=refresh_token`・`client_id`。空の 200 が成功 | S6、discovery |
+| プラン利用の再許可 | 利用者が明示的に有効にし直すときだけ `prompt=consent` を付けて再認可する（`force_reconsent` は OpenAI の展開の確認が要るため使わない） | S7 |
+| Responses API | `store: false`・`stream: true`・`instructions`・`input` の配列（`role: "user"`）。送らない項目は S5 の一覧どおり。`response.completed` まで届いたものだけを使う | S4, S5 |
+| モデル一覧 | `GET https://api.openai.com/v1/models` の `models[]` の `slug`・`display_name`・`visibility` | S4 |
+| エラー | S7 の表（`subscription_sharing_*`・`chatpass_v2_*`）、ストリームの途中の `response.failed` の利用上限、ストリーム前の `{"detail": "..."}` と 401/403/503 | S4, S7 |
+| UI の文言 | Continue with ChatGPT・Using ChatGPT plan・Manage usage（https://chatgpt.com/settings/usage ）・初回だけの You're using your ChatGPT plan / Got it・利用上限では Manage usage を主な操作にする | S11 |
+
+### 仮置き（出典に書かれていない、または実機で未確認）
+
+| 項目 | 仮置きの扱い | 確認の方法 |
+|---|---|---|
+| トークンエンドポイントのエラー本文の形 | S7 は code の名前だけを示し、本文の形を書いていない。OAuth 2.0（RFC 6749 5.2節）の `{"error": "<code>"}` と、API の形の `{"error": {"code": "<code>"}}` の両方を読む | 実際のリフレッシュの失敗で確かめる |
+| `ext_agent_host_id` の形式 | 推奨の JWK thumbprint ではなく、受け付けられる `urn:uuid:`（UUIDv4）を使う（鍵の保管が要らないため） | — |
+| `agent_name_hint` | `utter` | — |
+| リフレッシュの時期 | 期限の 120 秒前から。`earliest_refresh_at` は使っていない | 実機で確かめる |
+| `expires_in` がないときの期限 | 3600 秒（S8 の値） | — |
+| ブラウザでのサインインを待つ上限 | 300 秒 | — |
+| 503 の送り直し | ストリームが始まる前の 503 だけ、0.5 秒あけて 1 回まで（S7 は「回数を区切った backoff」とだけ書く）。整形全体は `RefinementRouter` の上限時間で打ち切る | — |
+| code のない 403 | ストリーム前の許可・地域などの制限として、AI-06 では「利用枠不足」に分ける。送信の停止はしない | 実際の応答で確かめる |
+| 利用上限・対象外のあとの停止 | アプリを起動している間だけ覚える（再起動で解ける）。利用上限は設定画面の「送信を再開」で解く。回復時刻は推測しない | — |
+| 出力の文字数の上限 | API キー方式と同じ値（発話の文字数 × 4.1節の文字数比の上限、下限 200 文字）。Phase 2 で決める | 評価セットで決める |
+| 署名鍵 | 2048 ビット以上の RSA だけを使う。JWKS はサインインのたびに読み、キャッシュしない。`at_hash`・`sid`・`iat` は確かめていない | — |
+| アカウント | 1つだけを扱い、アカウントの切り替え・選択はない（S6 の複数アカウントの管理は後続） | — |
+| ループバックの待ち受け | macOS のファイアウォールの確認が出るか、ブラウザから `127.0.0.1` へ戻れるかは実機で未確認 | 実機で確かめる |
+| ID トークンの署名検証 | Security.framework による RS256 の検証は、テストで作った鍵では確かめたが、実際の JWKS では未確認 | 実機で確かめる |
