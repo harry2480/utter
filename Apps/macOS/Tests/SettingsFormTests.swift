@@ -91,8 +91,8 @@ struct SettingsFormTests {
       KeyCombination(key: .space),
       KeyCombination.escape,
     ])
-  func unsupportedRecordingShortcutIsRejected(_ combination: KeyCombination?) throws {
-    let base = AppSettings(recordingShortcut: try #require(combination))
+  func unsupportedRecordingShortcutIsRejected(_ combination: KeyCombination?) {
+    let base = AppSettings(recordingShortcut: combination)
 
     #expect(issues(SettingsForm(settings: base), base: base) == [.recordingShortcut])
   }
