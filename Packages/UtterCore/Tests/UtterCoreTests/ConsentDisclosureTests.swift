@@ -37,6 +37,15 @@ struct ConsentDisclosureTests {
     #expect(disclosure.notSent.contains("音声"))
   }
 
+  @Test("AC-06, #188: 音声の送信の説明は、送るのが録音した音声だけで、送信先が OpenAI であることを示す")
+  func speechRecognitionNamesDestination() {
+    let disclosure = ConsentDisclosure(scope: .transmission(.speechRecognition))
+
+    #expect(disclosure.content == "録音した音声")
+    #expect(disclosure.destination == "OpenAI（音声認識 API）")
+    #expect(disclosure.notSent.contains("辞書語"))
+  }
+
   @Test("AC-06: 文言は同意対象だけで決まり、同意の状態によって変わらない")
   func disclosureDependsOnlyOnScope() {
     var consent = ConsentState()

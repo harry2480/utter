@@ -105,6 +105,26 @@ public struct HUDPresentation: Hashable, Sendable {
     case .speechRecognitionNotConfigured: "音声認識が設定されていません"
     case .microphoneAccessDenied: "マイクの使用が許可されていません"
     case .refinementFellBack(let fallback): "\(reason(for: fallback))ため、ローカルで整形しました"
+    case .cloudSpeechRecognitionFailed(let failure):
+      "\(reason(for: failure))ため、クラウドで音声認識できませんでした"
+    }
+  }
+
+  /// クラウド STT で認識できなかった理由（4章, AC-06, AI-06）。種類ごとに利用者の対処が違うため分けて書く。エラー詳細は含めない
+  private static func reason(for failure: CloudSpeechRecognitionNotice) -> String {
+    switch failure {
+    case .consentNotGranted: "クラウド音声認識への音声の送信に同意していない"
+    case .apiKeyNotSet: "OpenAI API キーが保存されていない"
+    case .apiKeyUnavailable: "OpenAI API キーを読み出せない"
+    case .budgetUnavailable: "月次予算・単価表を確かめられない"
+    case .budgetExceeded: "月次予算の上限を超える"
+    case .audioLimitExceeded: "クラウドへ送れる音声の上限を超えた"
+    case .configurationUnavailable: "クラウド音声認識の設定を使えない"
+    case .timeout: "クラウド音声認識の応答が時間内に届かなかった"
+    case .authenticationExpired: "OpenAI API キーが無効になっている"
+    case .quotaExceeded: "クラウド音声認識の利用枠が不足している"
+    case .networkUnavailable: "ネットワークに接続できない"
+    case .invalidResponse: "クラウド音声認識の応答を解釈できなかった"
     }
   }
 

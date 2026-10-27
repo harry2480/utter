@@ -61,6 +61,11 @@ struct SettingsForm: Hashable, Sendable {
   var modelRetentionMode: ModelRetentionModeSetting
   var performanceRetentionAllowed: Bool
 
+  // MARK: 音声認識（4章）
+
+  /// 録音のセッションの音声認識にクラウド STT を使うか（#188, MVP 外）。既定は無効（ローカルのエンジン）
+  var cloudSpeechRecognitionEnabled: Bool
+
   // MARK: 整形（2.3節, 5章）
 
   var provider: RefinementProviderChoice
@@ -99,6 +104,7 @@ struct SettingsForm: Hashable, Sendable {
     maxRecordingSeconds = Self.text(seconds: settings.maxRecordingDuration)
     modelRetentionMode = settings.modelRetentionMode
     performanceRetentionAllowed = settings.performanceRetentionAllowed
+    cloudSpeechRecognitionEnabled = settings.cloudSpeechRecognitionEnabled
 
     provider = RefinementProviderChoice(engine: settings.refinementEngine)
     refinementMode = settings.refinementMode
@@ -238,6 +244,8 @@ struct SettingsForm: Hashable, Sendable {
     settings.inputMode = inputMode
     settings.modelRetentionMode = modelRetentionMode
     settings.performanceRetentionAllowed = performanceRetentionAllowed
+    // 選んでも、送るかは同意・API キー・予算で送る直前に決める（AC-06）。ここでは同意を変えない
+    settings.cloudSpeechRecognitionEnabled = cloudSpeechRecognitionEnabled
     if let seconds = Self.amount(maxRecordingSeconds),
       AppSettings.maxRecordingDurationRange.contains(seconds.doubleValue)
     {

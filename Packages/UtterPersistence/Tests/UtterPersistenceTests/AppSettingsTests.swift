@@ -114,6 +114,31 @@ struct AppSettingsTests {
     #expect(broken.historyEnabled)
   }
 
+  @Test("4章, #188: クラウド STT は既定で無効（ローカルのエンジン）")
+  func cloudSpeechRecognitionDefaultsToDisabled() {
+    #expect(!AppSettings().cloudSpeechRecognitionEnabled)
+  }
+
+  @Test("4章, #188: クラウド STT の選択を保存・復元でき、ない保存値・読めない値は無効で読む")
+  func cloudSpeechRecognitionRoundTripsAndMigrates() throws {
+    let decoded = try roundTrip(AppSettings(cloudSpeechRecognitionEnabled: true))
+    #expect(decoded.cloudSpeechRecognitionEnabled)
+
+    // クラウド STT の項目を足す前に保存した版 2 の値は、ほかの項目を変えずに無効で読む
+    let stored = try decode(#"{"version": 2, "historyEnabled": true}"#)
+    #expect(!stored.cloudSpeechRecognitionEnabled)
+    #expect(stored.historyEnabled)
+
+    let broken = try decode(
+      #"{"version": 2, "historyEnabled": true, "cloudSpeechRecognitionEnabled": "yes"}"#)
+    #expect(!broken.cloudSpeechRecognitionEnabled)
+    #expect(broken.historyEnabled)
+
+    // 版 1 にはない項目のため、版 1 の保存値では読まない
+    let version1 = try decode(#"{"version": 1, "cloudSpeechRecognitionEnabled": true}"#)
+    #expect(!version1.cloudSpeechRecognitionEnabled)
+  }
+
   @Test("2.2節, TXT-01: 入力モードは既定で Instant、整形モードは既定で Natural")
   func inputAndRefinementModeDefaults() {
     let settings = AppSettings()
@@ -816,7 +841,7 @@ struct AppSettingsTests {
     #expect(
       Set(object.keys) == [
         "version", "maxRecordingDuration", "recordingTrigger", "recordingShortcut",
-        "editModeShortcut", "inputMode",
+        "editModeShortcut", "inputMode", "cloudSpeechRecognitionEnabled",
         "refinementMode", "refinementEngine", "appStyleOverrides", "siteIdentificationAllowed",
         "siteStyleOverrides", "refinementModel",
         "priceTable", "monthlyBudget", "consentState", "historyEnabled", "modelRetentionMode",

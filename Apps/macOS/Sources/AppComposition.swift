@@ -10,6 +10,10 @@ import UtterSpeech
 ///
 /// 録音（`AVAudioEngineRecorder`）→ STT Worker → 整形（`SessionRefinementPipeline`）→ 挿入（`InsertionExecutor`）→ HUD と
 /// 入力履歴を `SessionCoordinator` でつなぎ、録音のショートカットとメニューの操作をそこへ渡す。
+/// 設定画面でクラウド STT（#188, MVP 外。既定は無効）を選んだセッションは、STT Worker を通さずに
+/// `CloudSpeechRecognitionPipeline` が作る `OpenAISpeechRecognizer` で認識する
+/// （同意・OpenAI API キー・予算がそろったときだけ）。
+/// 起動時の復旧と Edit Mode の指示の認識は、クラウド STT を選んでいても STT Worker を使う（音声をクラウドへ送らない）。
 /// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
@@ -40,8 +44,12 @@ final class AppComposition {
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
+  ///   - openAIAPIKeyStore: OpenAI API キーの保存先（API キーの画面と同じもの）。クラウド STT（#188）だけが使う
   ///   - database: 辞書・推定費用の累計・入力履歴のデータベース（入力履歴の画面と同じもの）
-  init(claudeAPIKeyStore: any APIKeyStore, database: AppDatabaseProvider) {
+  init(
+    claudeAPIKeyStore: any APIKeyStore, openAIAPIKeyStore: any APIKeyStore,
+    database: AppDatabaseProvider
+  ) {
     let hud = HUDController(
       presenter: HUDPanelPresenter(),
       scheduler: TaskHUDRefreshScheduler()
@@ -73,7 +81,9 @@ final class AppComposition {
       hud: hud,
       deadlineScheduler: TaskHUDRefreshScheduler(),
       audioRetention: audioQueue.map(TemporaryAudioRetention.init),
-      recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init))
+      recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init),
+      cloudRecognition: CloudSpeechRecognitionPipeline(
+        settingsStore: settingsStore, apiKeyStore: openAIAPIKeyStore, database: openDatabase))
     self.hud = hud
     self.session = session
     let retentionPolicy = ModelRetentionPolicy.fromSettings(initialSettings)

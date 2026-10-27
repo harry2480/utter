@@ -19,6 +19,12 @@ struct KeychainAPIKeyStore: APIKeyStore {
       service: bundle.bundleIdentifier ?? "utter", account: "claude-api-key")
   }
 
+  /// OpenAI API キー（クラウド STT, #188）の保存先。Claude API キーと同じ service で、account だけを分ける
+  static func openAI(bundle: Bundle = .main) -> KeychainAPIKeyStore {
+    KeychainAPIKeyStore(
+      service: bundle.bundleIdentifier ?? "utter", account: "openai-api-key")
+  }
+
   func load() throws(APIKeyStoreError) -> APIKey? {
     var query = baseQuery()
     query[kSecReturnData as String] = true

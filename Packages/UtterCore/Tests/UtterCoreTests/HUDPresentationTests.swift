@@ -148,6 +148,37 @@ struct HUDPresentationTests {
     #expect(texts.count == RefinementFallbackNotice.allCases.count)
   }
 
+  @Test(
+    "4章, AC-06, #188: クラウド STT で認識できなかった理由を、認識の失敗の2行目に出す",
+    arguments: [
+      (
+        CloudSpeechRecognitionNotice.consentNotGranted,
+        "クラウド音声認識への音声の送信に同意していないため、クラウドで音声認識できませんでした"
+      ),
+      (.apiKeyNotSet, "OpenAI API キーが保存されていないため、クラウドで音声認識できませんでした"),
+      (.budgetExceeded, "月次予算の上限を超えるため、クラウドで音声認識できませんでした"),
+    ])
+  func cloudSpeechRecognitionFailureText(
+    failure: CloudSpeechRecognitionNotice, text: String
+  ) throws {
+    let presentation = try #require(
+      HUDPresentation(
+        HUDContent(
+          status: .failed(.recognition), notice: .cloudSpeechRecognitionFailed(failure))))
+    #expect(presentation.indicator == .failure)
+    #expect(presentation.title == "認識に失敗しました")
+    #expect(presentation.messages == [text])
+  }
+
+  @Test("4章, AC-06, #188: クラウド STT で認識できなかった理由の種類ごとに文言が異なる")
+  func cloudSpeechRecognitionFailureTextsAreDistinct() {
+    let texts = Set(
+      CloudSpeechRecognitionNotice.allCases.map {
+        HUDPresentation.text(for: .cloudSpeechRecognitionFailed($0))
+      })
+    #expect(texts.count == CloudSpeechRecognitionNotice.allCases.count)
+  }
+
   @Test("REC-05, AC-16: 通知が重なったら、状態の下に通知を順に並べて続けて読む")
   func multipleNoticesWithStatus() throws {
     let presentation = try #require(

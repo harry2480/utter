@@ -2,57 +2,91 @@ import Security
 import SwiftUI
 import UtterAI
 
-/// Claude API キーの設定画面（設定画面の「API キー」タブ, AC-12）。状態と操作は `APIKeySettingsModel` が持つ。
+/// API キーの設定画面（設定画面の「API キー」タブ, AC-12）。Claude（整形・Edit Mode）と OpenAI（クラウド STT, #188）の
+/// キーを別の項目で持つ。状態と操作はキーごとの `APIKeySettingsModel` が持つ。
 ///
 /// - 入力欄は `SecureField`（伏せ字。コピー・切り取り・ドラッグで取り出せない）
 /// - 保存済みのキーは再表示しない。値に依存しない伏せ字で保存済みであることだけを示す
 /// - パスワードの自動入力・保存の候補に出さないよう `textContentType` を指定しない
 ///   （パスワード管理に保存されると iCloud で同期されうるため）
 /// - 画面を閉じたら入力を消す
-struct ClaudeAPIKeySettingsView: View {
-  @Bindable var model: APIKeySettingsModel
-  @State private var isConfirmingDeletion = false
+struct APIKeySettingsView: View {
+  /// Claude API キー（整形・Edit Mode）
+  let claude: APIKeySettingsModel
+  /// OpenAI API キー（クラウド STT, #188）
+  let openAI: APIKeySettingsModel
 
   var body: some View {
     Form {
-      Section {
-        LabeledContent("状態") {
-          Text(statusText)
-            .foregroundStyle(model.status == .saved ? .primary : .secondary)
-        }
-        SecureField("API キー", text: $model.input, prompt: Text("sk-ant-…"))
-          .autocorrectionDisabled()
-          .onSubmit(save)
-        HStack {
-          if let feedbackText {
-            Text(feedbackText)
-              .font(.callout)
-              .foregroundStyle(isFailure ? .red : .secondary)
-          }
-          Spacer()
-          Button("削除…", role: .destructive) { isConfirmingDeletion = true }
-            .disabled(!model.canDelete)
-          Button("保存", action: save)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!model.canSave)
-        }
-      } header: {
-        Text("Claude API キー")
-      } footer: {
-        Text("キーはこの Mac の Keychain にだけ保存し、iCloud で同期しません。保存したキーは表示しません。")
-          .font(.footnote)
-          .foregroundStyle(.secondary)
-      }
+      APIKeySection(model: claude, labels: .claude)
+      APIKeySection(model: openAI, labels: .openAI)
     }
     .formStyle(.grouped)
-    .onAppear { model.refresh() }
-    .onDisappear { model.clearInput() }
+    .onAppear {
+      claude.refresh()
+      openAI.refresh()
+    }
+    .onDisappear {
+      claude.clearInput()
+      openAI.clearInput()
+    }
+  }
+}
+
+/// キーごとの見出し・入力例・削除の説明
+private struct APIKeyLabels {
+  let title: String
+  let placeholder: String
+  let deletionMessage: String
+
+  static let claude = APIKeyLabels(
+    title: "Claude API キー", placeholder: "sk-ant-…",
+    deletionMessage: "削除すると Claude による整形と Edit Mode は使えなくなります。")
+  static let openAI = APIKeyLabels(
+    title: "OpenAI API キー（クラウド音声認識）", placeholder: "sk-…",
+    deletionMessage: "削除するとクラウド音声認識は使えなくなります。")
+}
+
+/// 1つのキーの状態・入力・保存・削除
+private struct APIKeySection: View {
+  @Bindable var model: APIKeySettingsModel
+  let labels: APIKeyLabels
+  @State private var isConfirmingDeletion = false
+
+  var body: some View {
+    Section {
+      LabeledContent("状態") {
+        Text(statusText)
+          .foregroundStyle(model.status == .saved ? .primary : .secondary)
+      }
+      SecureField("API キー", text: $model.input, prompt: Text(labels.placeholder))
+        .autocorrectionDisabled()
+        .onSubmit(save)
+      HStack {
+        if let feedbackText {
+          Text(feedbackText)
+            .font(.callout)
+            .foregroundStyle(isFailure ? .red : .secondary)
+        }
+        Spacer()
+        Button("削除…", role: .destructive) { isConfirmingDeletion = true }
+          .disabled(!model.canDelete)
+        Button("保存", action: save)
+          .disabled(!model.canSave)
+      }
+    } header: {
+      Text(labels.title)
+    } footer: {
+      Text("キーはこの Mac の Keychain にだけ保存し、iCloud で同期しません。保存したキーは表示しません。")
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+    }
     .confirmationDialog(
-      "Claude API キーを削除しますか？", isPresented: $isConfirmingDeletion
+      "\(labels.title)を削除しますか？", isPresented: $isConfirmingDeletion
     ) {
       Button("削除", role: .destructive) { model.delete() }
     } message: {
-      Text("削除すると Claude による整形は使えなくなります。")
+      Text(labels.deletionMessage)
     }
   }
 

@@ -25,6 +25,9 @@ import UtterSpeech
 /// - 録音のチャンクは一時音声の差し込み口にも渡す。STT Worker の異常終了で認識が失敗したら、録音が止まるのを待って
 ///   メモリ上の録音全体で1回だけ認識し直す（7章, AC-10）
 /// - 状態が変わるたびに `onPhaseChange` を呼ぶ（ショートカットの Esc の捕捉をセッション中だけ有効にするため, REC-01）
+/// - クラウド STT（#188, MVP 外）を選んでいれば、STT Worker を通さずにクラウド STT で認識する。使うかはセッションの開始時に決め、
+///   録音を始める前に同意・API キー・予算を確かめる。そろわなければマイクを開かずに理由を HUD に出す。
+///   クラウド STT の失敗では認識し直さない（Worker の異常終了の再処理は STT Worker のときだけ）
 @MainActor
 @Observable
 final class SessionCoordinator {
@@ -50,6 +53,7 @@ final class SessionCoordinator {
   @ObservationIgnored private let interruptionPolicy: RecordingInterruptionPolicy
   @ObservationIgnored private let audioRetention: (any SessionAudioRetaining)?
   @ObservationIgnored private let recognitionRecovery: (any SessionRecognitionRecovering)?
+  @ObservationIgnored private let cloudRecognition: (any SessionCloudSpeechRecognizing)?
   @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
 
   /// 進行中のセッションの非同期処理
@@ -68,7 +72,8 @@ final class SessionCoordinator {
   ///   - history: 入力履歴への保存（7章, AC-12）。`nil` なら保存しない
   ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。`nil` なら保存しない
   ///   - recognitionRecovery: 失敗した認識を録音音声でやり直すかの判断（7章, AC-10）。`nil`、または `audioRetention` が
-  ///     `nil` ならやり直さない
+  ///     `nil` ならやり直さない。クラウド STT のセッションでは使わない
+  ///   - cloudRecognition: クラウド STT（#188）。`nil`、または選んでいなければ `recognizer` を使う
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
   init(
     configuration: SessionConfiguration = SessionConfiguration(),
@@ -84,6 +89,7 @@ final class SessionCoordinator {
     interruptionPolicy: RecordingInterruptionPolicy = RecordingInterruptionPolicy(),
     audioRetention: (any SessionAudioRetaining)? = nil,
     recognitionRecovery: (any SessionRecognitionRecovering)? = nil,
+    cloudRecognition: (any SessionCloudSpeechRecognizing)? = nil,
     makeSessionID: @escaping @Sendable () -> SessionID = { SessionID() },
     now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
   ) {
@@ -103,6 +109,7 @@ final class SessionCoordinator {
     self.interruptionPolicy = interruptionPolicy
     self.audioRetention = audioRetention
     self.recognitionRecovery = audioRetention == nil ? nil : recognitionRecovery
+    self.cloudRecognition = cloudRecognition
     self.now = now
     hud.onErrorDisplayExpired = { [weak self] in
       guard let self else { return }
@@ -174,7 +181,9 @@ final class SessionCoordinator {
   func startRecording() {
     guard machine.phase == .idle, !isSuspended else { return }
     applyNextSettings()
-    guard let recognizer else {
+    // クラウド STT を使うかはセッションの開始時に決め、このセッションの間は変えない（設定の変更は次のセッションから）
+    let usesCloud = cloudRecognition?.isSelected == true
+    guard usesCloud || recognizer != nil else {
       failWithoutRecording(notice: .speechRecognitionNotConfigured)
       return
     }
@@ -186,7 +195,7 @@ final class SessionCoordinator {
     audioRetention?.begin(session)
     reflect()
     runTask = Task { [weak self] in
-      await self?.run(session: session, target: target, recognizer: recognizer)
+      await self?.run(session: session, target: target, usesCloud: usesCloud)
     }
   }
 
@@ -210,7 +219,7 @@ final class SessionCoordinator {
   // MARK: - セッションの処理
 
   private func run(
-    session: SessionID, target: RecordedInsertionTarget, recognizer: any SpeechRecognizer
+    session: SessionID, target: RecordedInsertionTarget, usesCloud: Bool
   ) async {
     // 前の録音の停止が終わってから始める（連打で2つ目の録音を始めない, REC-04）
     await recorderStop?.value
@@ -220,6 +229,10 @@ final class SessionCoordinator {
       abandon(session)
       return
     }
+    guard let recognizer = await sessionRecognizer(session, usesCloud: usesCloud) else { return }
+    // STT Worker の異常終了の再処理は、Worker のときだけ使う。クラウド STT は Worker を通さず、
+    // 失敗は通信・同意・予算などで同じ音声を送り直しても直らない（送り直すと費用もかかる）ため
+    let recovery = usesCloud ? nil : self.recognitionRecovery
 
     let recording: AudioRecording
     do {
@@ -257,7 +270,8 @@ final class SessionCoordinator {
     }
     defer { ends.cancel() }
 
-    let forwarding = forward(recording.chunks, session: session)
+    let forwarding = forward(
+      recording.chunks, session: session, keepsReading: recovery != nil)
     var text: String?
     var failure: SpeechRecognitionError?
     var completed = false
@@ -292,8 +306,8 @@ final class SessionCoordinator {
 
     // STT Worker の異常終了で失敗したら、録音音声で認識し直す（7章, AC-10）
     var recognizesAgain = false
-    if text == nil, let failure, let recognitionRecovery {
-      recognizesAgain = await recognitionRecovery.shouldRecognizeAgain(session, after: failure)
+    if text == nil, let failure, let recovery {
+      recognizesAgain = await recovery.shouldRecognizeAgain(session, after: failure)
       guard isActive(session) else { return }
     }
 
@@ -318,8 +332,9 @@ final class SessionCoordinator {
       guard isActive(session), machine.phase == .recognizing else { return }
     }
     guard let text else {
-      // 失敗、または終端イベントのないまま認識が終わった
-      fail(session, notice: nil)
+      // 失敗、または終端イベントのないまま認識が終わった。クラウド STT の失敗は理由を出す（#188）
+      let reason = usesCloud ? failure.flatMap { CloudSpeechRecognitionNotice($0) } : nil
+      fail(session, notice: reason.map { HUDNotice.cloudSpeechRecognitionFailed($0) })
       return
     }
     guard apply(.recognitionCompleted, session: session) else { return }
@@ -360,6 +375,36 @@ final class SessionCoordinator {
     endRetention(session, completed: true)
   }
 
+  /// このセッションで使う音声認識。録音を始める前に呼ぶ。
+  ///
+  /// クラウド STT なら同意・API キー・予算を確かめて認識器を作り、そろわなければ録音せずに理由を表示して `nil` を返す。
+  /// 確かめる間にキャンセル・停止されたら、何も処理せずに `nil` を返す
+  private func sessionRecognizer(
+    _ session: SessionID, usesCloud: Bool
+  ) async -> (any SpeechRecognizer)? {
+    guard usesCloud, let cloudRecognition else {
+      guard let recognizer else {
+        failBeforeRecording(session, notice: .speechRecognitionNotConfigured)
+        return nil
+      }
+      return recognizer
+    }
+    let preparation = await cloudRecognition.prepareRecognizer()
+    guard isActive(session) else { return nil }
+    guard machine.phase == .recording else {
+      // 確かめる間に停止された。録音を始めておらず音声がないため、何も処理せずに待機へ戻る
+      abandon(session)
+      return nil
+    }
+    switch preparation {
+    case .ready(let recognizer):
+      return recognizer
+    case .unavailable(let reason):
+      failBeforeRecording(session, notice: .cloudSpeechRecognitionFailed(reason))
+      return nil
+    }
+  }
+
   /// 録音のチャンクを一時音声の差し込み口に渡しながら、音声認識へ流す。録音が止まったら差し込み口に伝える。
   ///
   /// 音声認識がストリームを手放したら、認識し直せない構成では読むのをやめる（録音側は受け手の破棄として録音を止める）。
@@ -367,7 +412,7 @@ final class SessionCoordinator {
   /// 音声認識へのストリームのバッファは無制限のため、`SpeechRecognizer` の実装は、読まなくなったらストリームを手放す
   /// （`STTWorkerSpeechRecognizer` は終端イベントで手放す）。手放さなくても、溜まるのは最大録音時間の分まで
   private func forward(
-    _ chunks: AsyncStream<AudioChunk>, session: SessionID
+    _ chunks: AsyncStream<AudioChunk>, session: SessionID, keepsReading: Bool
   ) -> (audio: AsyncStream<AudioChunk>, task: Task<Void, Never>) {
     let (stream, continuation) = AsyncStream.makeStream(of: AudioChunk.self)
     let task = Task { [weak self] in
@@ -378,7 +423,7 @@ final class SessionCoordinator {
       continuation.finish()
       self?.finishRetaining(session)
     }
-    if recognitionRecovery == nil {
+    if !keepsReading {
       continuation.onTermination = { _ in task.cancel() }
     }
     return (stream, task)
@@ -461,6 +506,14 @@ final class SessionCoordinator {
     runTask = nil
     endRetention(session, completed: false)
     reflect(failureNotice: notice)
+  }
+
+  /// 録音を始める前に、認識の失敗として表示する（音声認識を使えないのに録音して、発話を失わせないため）
+  private func failBeforeRecording(_ session: SessionID, notice: HUDNotice) {
+    guard isActive(session) else { return }
+    // 録音の段階を終えてから失敗にする。録音はまだ始めていないため、録音側は止めない
+    machine.stopRecording(at: now())
+    fail(session, notice: notice)
   }
 
   /// 音声がないまま停止されたセッションを、何も処理せずに待機へ戻す

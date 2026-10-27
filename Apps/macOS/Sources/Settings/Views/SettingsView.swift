@@ -14,7 +14,10 @@ struct SettingsView: View {
   @Bindable var model: SettingsModel
   /// 「API キー」タブの状態。キーは Keychain に即時に保存し、下の「保存」とは別に扱う（AC-12）
   let apiKeyModel: APIKeySettingsModel
-  /// 「音声認識」タブに出すエンジン。ビルド設定で選び、この画面では変えない（未選択なら `nil`）
+  /// 「API キー」タブの OpenAI API キー（クラウド STT, #188）の状態
+  let openAIAPIKeyModel: APIKeySettingsModel
+  /// 「音声認識」タブに出すローカルのエンジン。ビルド設定で選び、この画面では変えない（未選択なら `nil`）。
+  /// ローカルのエンジンとクラウド STT のどちらを使うかは、このタブで選んで「保存」する（#188）
   let sttEngine: STTEngineKind?
   /// 「音声認識」タブのモデルの取得状態。モデルの取得はタブのボタンからだけ行う（PERM-03）
   let speechModel: SpeechModelSettingsModel?
@@ -38,15 +41,14 @@ struct SettingsView: View {
         ExcludedAppsSettingsTab(model: model)
           .tabItem { Label("除外アプリ", systemImage: "hand.raised") }
           .tag(SettingsTab.excludedApps)
-        SpeechRecognitionSettingsTab(engine: sttEngine, model: speechModel)
+        SpeechRecognitionSettingsTab(settings: model, engine: sttEngine, model: speechModel)
           .tabItem { Label("音声認識", systemImage: "waveform") }
           .tag(SettingsTab.speechRecognition)
-        ClaudeAPIKeySettingsView(model: apiKeyModel)
+        APIKeySettingsView(claude: apiKeyModel, openAI: openAIAPIKeyModel)
           .tabItem { Label("API キー", systemImage: "key") }
           .tag(SettingsTab.apiKey)
       }
-      // API キーのタブは独自の保存・削除を持ち、音声認識のタブは保存する項目を持たないため、
-      // 設定の「保存」「元に戻す」を出さない
+      // API キーのタブは独自の保存・削除を持つため、設定の「保存」「元に戻す」を出さない
       if selection.showsSaveActions {
         Divider()
         SettingsFooter(model: model)
@@ -73,8 +75,8 @@ private enum SettingsTab: Hashable {
   /// 設定の「保存」「元に戻す」を出すタブか
   var showsSaveActions: Bool {
     switch self {
-    case .recording, .refinement, .cost, .style, .excludedApps: true
-    case .speechRecognition, .apiKey: false
+    case .recording, .refinement, .cost, .style, .excludedApps, .speechRecognition: true
+    case .apiKey: false
     }
   }
 }

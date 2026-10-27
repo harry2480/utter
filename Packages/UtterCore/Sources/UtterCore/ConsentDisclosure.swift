@@ -28,9 +28,10 @@ public struct ConsentDisclosure: Hashable, Sendable {
     case .transmission(.speechRecognition):
       title = "クラウド音声認識"
       content = "録音した音声"
-      destination = "クラウド音声認識サービス"
-      notSent = Self.contextNotSent
-      note = "文章整形への同意とは別の同意です。"
+      // 送信先は OpenAI の音声認識 API だけ（#188。ほかのクラウド STT は持たない）
+      destination = "OpenAI（音声認識 API）"
+      notSent = ["辞書語"] + Self.contextNotSent
+      note = "文章整形・選択テキストの編集への同意とは別の同意です。設定画面でクラウド音声認識を選んだときだけ送信します。"
     case .transmission(.editSelection(let provider)):
       title = "\(Self.name(of: provider)) による選択テキストの編集"
       content = "選択したテキストと、音声による編集の指示・辞書語"

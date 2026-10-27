@@ -100,3 +100,23 @@ protocol SessionRecognitionRecovering: Sendable {
   /// 認識が `error` で失敗した `session` を、録音音声で認識し直すか。受け手が失敗を受け取った後に呼ぶ
   func shouldRecognizeAgain(_ session: SessionID, after error: SpeechRecognitionError) async -> Bool
 }
+
+/// 録音のセッションの音声認識にクラウド STT を使うときの準備（4章, AC-06, AI-04, #188）。
+///
+/// 本番は `CloudSpeechRecognitionPipeline`（同意・API キー・予算を確かめて `OpenAISpeechRecognizer` を作る）。
+/// クラウド STT は STT Worker を通さない `SpeechRecognizer` として `SessionCoordinator` に渡す。
+@MainActor
+protocol SessionCloudSpeechRecognizing: AnyObject {
+  /// クラウド STT を選んでいるか。セッションの開始時に1回だけ読み、そのセッションの間は変えない（設定の変更は次のセッションから）
+  var isSelected: Bool { get }
+  /// クラウド STT の認識器を作る。録音を始める前に呼ぶ。条件がそろわなければ認識器を作らず、送らない理由を返す
+  func prepareRecognizer() async -> CloudSpeechRecognitionPreparation
+}
+
+/// クラウド STT の準備の結果。
+enum CloudSpeechRecognitionPreparation: Sendable {
+  /// 同意・API キー・予算がそろった。送信の直前にも認識器が同意と予算を確かめる
+  case ready(any SpeechRecognizer)
+  /// 条件がそろわないため送らない
+  case unavailable(CloudSpeechRecognitionNotice)
+}
