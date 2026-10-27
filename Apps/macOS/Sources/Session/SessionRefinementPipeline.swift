@@ -16,8 +16,10 @@ import UtterText
 /// 6. 予算上限を確かめられる（AI-04, AI-05。月次予算・単価表・今月の累計から `BudgetGuard` を作れる）
 ///
 /// クラウド整形の失敗・上限時間の超過・検証失敗・予算超過は、`RefinementRouter` がローカル整形の結果に退避する（4.1節）。
-/// クラウドへ送るのは整形モード・スタイル区分・辞書語・本文だけで、bundle ID・URL・ウィンドウタイトルは送らない（CTX-03）。
-/// サイト別のスタイル（CTX-02）は前面のブラウザの URL を取得していないため使わない。
+/// クラウドへ送るのは整形モード・スタイル区分・辞書語・本文だけで、bundle ID・URL・ホスト名・ウィンドウタイトルは送らない（CTX-03）。
+/// スタイルは `ContextStyleResolver`（サイト別 → アプリ別 → 既定）で選ぶ（CTX-01, CTX-02）。サイト単位の識別が許可され、
+/// サイト別の上書きがあるときだけ、前面のブラウザで表示中のページのホスト名を `FrontmostSiteHostReading` で読む。
+/// ホスト名はスタイルの判定にだけ使い、保持・送信・記録しない。
 /// 推定費用の累計を保存できなかった（`BudgetGuard.hasPersistenceFailure`）後は、累計が実際より少ない可能性があるため、
 /// アプリを起動し直すまでクラウドへ送らない（安全側）。
 @MainActor
@@ -31,6 +33,7 @@ final class SessionRefinementPipeline: SessionRefining {
   private let database: @MainActor () async throws -> UtterDatabase
   private let makeProvider: MakeProvider
   private let localRefiner: any LocalRefiner
+  private let siteHostReader: any FrontmostSiteHostReading
   private let timeout: Duration
   private let now: @Sendable () -> Date
   private let calendar: Calendar
@@ -41,6 +44,7 @@ final class SessionRefinementPipeline: SessionRefining {
   ///   - settingsStore: 処理系・整形モード・モデル名・予算・同意の保存先。設定画面・同意の画面と同じものを渡す
   ///   - apiKeyStore: Claude API キーの保存先。API キーの画面と同じものを渡す
   ///   - database: 辞書と推定費用の累計を保存するデータベース
+  ///   - siteHostReader: 前面のブラウザで表示中のホスト名を読む口（CTX-02）。サイト単位の識別が許可されたときだけ呼ぶ
   ///   - timeout: クラウド整形の応答待ちの上限時間（4.1節）
   ///   - now: 実時刻（費用を計上する月の判定）
   ///   - calendar: 費用を計上する月の判定に使う暦。設定画面の推定費用の表示と同じものを使う
@@ -52,6 +56,7 @@ final class SessionRefinementPipeline: SessionRefining {
       ClaudeProvider(apiKeyStore: store, configuration: configuration)
     },
     localRefiner: any LocalRefiner = LocalBasicRefiner(),
+    siteHostReader: any FrontmostSiteHostReading = AccessibilitySiteHostReader(),
     timeout: Duration = RefinementRouter.defaultTimeout,
     now: @escaping @Sendable () -> Date = { Date() },
     calendar: Calendar = .current
@@ -61,6 +66,7 @@ final class SessionRefinementPipeline: SessionRefining {
     self.database = database
     self.makeProvider = makeProvider
     self.localRefiner = localRefiner
+    self.siteHostReader = siteHostReader
     self.timeout = timeout
     self.now = now
     self.calendar = calendar
@@ -73,21 +79,30 @@ final class SessionRefinementPipeline: SessionRefining {
   ) async throws(CancellationError) -> SessionRefinementResult {
     let settings = settingsStore.load()
     let mode = RefinementMode(settings.refinementMode)
-    let styleResolver = AppStyleResolver(overrides: settings.appStyleOverrides)
-    // Raw は整形も置換もしないため、辞書を読まず、送らない
+    // Raw は整形も置換もしないため、辞書を読まず、送らない。スタイルを使わないため、ホスト名も読まない
     guard mode != .raw else {
       return SessionRefinementResult(text: transcript, route: .localOnly(.rawMode))
     }
+    let styleResolver = settings.contextStyleResolver
+    // 録音が終わった直後の表示中のページで判定する。ホスト名はこの判定の後に保持しない
+    let siteHost = Self.siteHost(
+      reader: siteHostReader, resolver: styleResolver.site, frontmostApp: frontmostApp)
+    let style = styleResolver.style(forBundleID: frontmostApp, siteHost: siteHost)
     let dictionary = await loadDictionary()
     if Task.isCancelled { throw CancellationError() }
     let request: RefinementRequest
     if let dictionary {
-      request = RefinementRequestPreparer(dictionary: dictionary, styleResolver: styleResolver)
-        .prepare(transcript: transcript, mode: mode, frontmostBundleID: frontmostApp)
+      // 置換と辞書語は `RefinementRequestPreparer` で作り、スタイルはサイト別を含めて選んだ値に差し替える
+      let preparer = RefinementRequestPreparer(
+        dictionary: dictionary, styleResolver: styleResolver.app)
+      let prepared = preparer.prepare(
+        transcript: transcript, mode: mode, frontmostBundleID: frontmostApp)
+      request = RefinementRequest(
+        text: prepared.text, mode: prepared.mode, style: style,
+        dictionaryTerms: prepared.dictionaryTerms)
     } else {
       // 辞書を読めなければ、置換・辞書語なしで整形を続ける（発話を失わない）
-      request = RefinementRequest(
-        text: transcript, mode: mode, style: styleResolver.style(forBundleID: frontmostApp))
+      request = RefinementRequest(text: transcript, mode: mode, style: style)
     }
 
     func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
@@ -154,6 +169,16 @@ final class SessionRefinementPipeline: SessionRefining {
     case .localFallback(let reason):
       return SessionRefinementResult(text: outcome.text, route: .cloudFallback(reason))
     }
+  }
+
+  /// スタイルの判定に使う、前面のブラウザで表示中のページのホスト名（CTX-02）。
+  /// サイト単位の識別が許可されていない・サイト別の上書きがない（`needsSiteHost` が `false`）・前面アプリが
+  /// 特定できないときは、`reader` を呼ばずに `nil`（アプリ別のスタイルを使う）
+  static func siteHost(
+    reader: any FrontmostSiteHostReading, resolver: SiteStyleResolver, frontmostApp: String?
+  ) -> SiteHost? {
+    guard resolver.needsSiteHost, let frontmostApp else { return nil }
+    return reader.siteHost(inFrontmostApp: frontmostApp)
   }
 
   /// 同意の画面（`ConsentSettingsController`）が保存した最新の同意状態
