@@ -81,6 +81,29 @@ struct ConsentScreenStateTests {
     #expect(screen.rows.map(\.statusLabel) == ["未同意", "撤回済み"])
   }
 
+  @Test("AC-06, #188: クラウド STT のある画面では、音声の送信の行を整形・選択テキストの行とは別に表示する")
+  func cloudSpeechRecognitionScopesAreShownSeparately() {
+    var screen = ConsentScreenState(
+      additionalScopes: ConsentScreenState.editModeScopes
+        + ConsentScreenState.cloudSpeechRecognitionScopes)
+
+    #expect(
+      screen.rows.map(\.scope) == [
+        .transmission(.textRefinement(.claude)), .transmission(.editSelection(.claude)),
+        .transmission(.speechRecognition),
+      ])
+
+    screen.setGranted(true, for: .transmission(.speechRecognition))
+    #expect(screen.consent.allows(.speechRecognition))
+    #expect(!screen.consent.allows(.textRefinement(.claude)))
+    #expect(!screen.consent.allows(.editSelection(.claude)))
+    #expect(screen.rows.map(\.statusLabel) == ["未同意", "未同意", "同意済み"])
+
+    screen.setGranted(false, for: .transmission(.speechRecognition))
+    #expect(!screen.consent.allows(.speechRecognition))
+    #expect(screen.rows.map(\.statusLabel) == ["未同意", "未同意", "撤回済み"])
+  }
+
   @Test("AC-06: 画面ごとの対象を重ねて渡しても、同じ行を二重に表示しない")
   func additionalScopesAreNotDuplicated() {
     let expected = ConsentScreenState.presentedScopes + ConsentScreenState.editModeScopes

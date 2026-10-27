@@ -29,6 +29,7 @@ struct SettingsFormTests {
       recordingTrigger: .pushToTalk,
       recordingShortcut: KeyCombination(key: .space, modifiers: [.option, .command]),
       inputMode: .realtimePreview,
+      cloudSpeechRecognitionEnabled: true,
       refinementMode: .structured,
       refinementEngine: .cloudAI,
       appStyleOverrides: ["com.apple.terminal": .command],
@@ -95,6 +96,26 @@ struct SettingsFormTests {
     let base = AppSettings(recordingShortcut: combination)
 
     #expect(issues(SettingsForm(settings: base), base: base) == [.recordingShortcut])
+  }
+
+  // MARK: - クラウド STT（#188）
+
+  @Test("4章, AC-06, #188: クラウド STT は既定で無効のまま保存し、選んだら保存する。同意は変えない")
+  func cloudSpeechRecognitionIsApplied() throws {
+    let untouched = try SettingsForm(settings: AppSettings()).applied(to: AppSettings())
+    #expect(!untouched.cloudSpeechRecognitionEnabled)
+
+    var form = SettingsForm(settings: AppSettings())
+    form.cloudSpeechRecognitionEnabled = true
+    let saved = try form.applied(to: AppSettings())
+    #expect(saved.cloudSpeechRecognitionEnabled)
+    // 選ぶだけでは音声の送信に同意しない（同意は同意の画面で別に行う, AC-06）
+    #expect(!saved.consentState.allows(.speechRecognition))
+
+    var cleared = SettingsForm(settings: saved)
+    #expect(cleared.cloudSpeechRecognitionEnabled)
+    cleared.cloudSpeechRecognitionEnabled = false
+    #expect(try cleared.applied(to: saved).cloudSpeechRecognitionEnabled == false)
   }
 
   // MARK: - Edit Mode のショートカット（AC-14）

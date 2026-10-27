@@ -1,11 +1,16 @@
 import SwiftUI
 import UtterSpeech
 
-/// 設定画面の「音声認識」タブ。使っているエンジンと、モデルの取得状態・取得の操作を出す（4章, PERM-03）。
+/// 設定画面の「音声認識」タブ。ローカルのエンジンとクラウド STT の選択、使っているローカルのエンジン、
+/// モデルの取得状態・取得の操作を出す（4章, PERM-03, #188）。
 ///
-/// エンジンはビルド設定（Config/Local.xcconfig の `UTTER_MAC_STT_ENGINE`）で選び、この画面では変えない。
+/// ローカルのエンジンはビルド設定（Config/Local.xcconfig の `UTTER_MAC_STT_ENGINE`）で選び、この画面では変えない。
+/// クラウド STT（MVP 外）は既定で無効で、ここで選んで「保存」すると次のセッションから使う。選んでも、同意の画面での
+/// 音声の送信への同意・OpenAI API キー・月次予算と単価表がそろわなければ送らない（AC-06, AI-04）。
 /// モデルは「モデルを取得」ボタンを押したときだけ取得する。タブを開いただけでは状態を確かめるだけで、ネットワークを使わない。
 struct SpeechRecognitionSettingsTab: View {
+  /// 設定画面の入力。クラウド STT を使うかを持つ
+  @Bindable var settings: SettingsModel
   /// 使っているエンジン。未選択なら `nil`（`AppComposition.selectedEngine()`）
   let engine: STTEngineKind?
   /// モデルの取得状態。OS が管理するモデルを使うエンジンを選んでいるときだけ（`STTEngineSetting.makeModelAssets`）
@@ -13,7 +18,23 @@ struct SpeechRecognitionSettingsTab: View {
 
   var body: some View {
     Form {
-      Section("音声認識") {
+      Section {
+        Picker("使う音声認識", selection: $settings.form.cloudSpeechRecognitionEnabled) {
+          Text("ローカルのエンジン（Mac の中で認識）").tag(false)
+          Text("クラウド音声認識（OpenAI）").tag(true)
+        }
+      } header: {
+        Text("認識の場所")
+      } footer: {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("クラウド音声認識は、録音した音声を OpenAI へ送って認識します（MVP 外）。")
+          Text("送るには、同意の画面の「クラウド音声認識」への同意（整形とは別）と、「API キー」タブの OpenAI API キーが要ります。")
+          Text("「費用」タブの月次予算と、単価表のモデル \(CloudSpeechRecognitionPipeline.model) の単価も要ります。")
+          Text("そろわなければ送らず、HUD に理由を出します。変更は次の録音から使います。")
+        }
+        .font(.caption).foregroundStyle(.secondary)
+      }
+      Section("ローカルの音声認識") {
         LabeledContent("エンジン", value: Self.label(of: engine))
         if engine == nil {
           VStack(alignment: .leading, spacing: 4) {

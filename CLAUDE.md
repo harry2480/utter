@@ -36,7 +36,7 @@ Loopを使う場合は [docs/loop-engineering.md](docs/loop-engineering.md) の�
 
 ### 現在のフェーズ
 
-Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐する macOS アプリターゲット（`Apps/macOS`。XPC STT Worker `Workers/macOSSTT` を組み込む。STT は既定で未選択で Local.xcconfig の `UTTER_MAC_STT_ENGINE` で SpeechAnalyzer を選んだときだけ使う。MVP 外の Edit Mode は、録音とは別のショートカットを割り当て、選択テキストの送信に同意したときだけ使える）と、iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き。録音・Local Basic 整形・共有結果の保存と救済画面まで。STT は既定で未設定で Local.xcconfig で SpeechAnalyzer を選んだときだけ結線）と、iOS カスタムキーボード拡張（`Extensions/iOSKeyboard`。文字入力と共有結果のプレビュー・挿入、本体アプリの状態による案内）がある。iOS の App Group は #56 判定待ちで、Local.xcconfig で設定したときだけ有効（本体アプリは共有結果と本体アプリの状態だけを書き、秘密情報・生音声は置かない）。iOS 側のクラウド整形は、処理系に Claude を選び、同意・API キー（本体アプリの Keychain）・月次予算と単価表がそろったときだけ Claude へ送る経路と、整形と予算（処理系・月次予算・単価表・今月の推定費用）・同意・API キーの設定画面まで（既定は Local Basic で送信しない）。
+Phase 0 / i0（技術検証）。共通の Swift Package（`Packages/`）と、メニューバーに常駐する macOS アプリターゲット（`Apps/macOS`。XPC STT Worker `Workers/macOSSTT` を組み込む。STT は既定で未選択で Local.xcconfig の `UTTER_MAC_STT_ENGINE` で SpeechAnalyzer を選んだときだけ使う。MVP 外の Edit Mode は、録音とは別のショートカットを割り当て、選択テキストの送信に同意したときだけ使える。MVP 外のクラウド STT は既定で無効で、設定画面で選び、音声の送信への同意・OpenAI API キー・予算がそろったときだけ Worker を通さずに OpenAI へ送る）と、iOS アプリターゲット（`Apps/iOS`、最低 iOS 26 は #54 判定までの仮置き。録音・Local Basic 整形・共有結果の保存と救済画面まで。STT は既定で未設定で Local.xcconfig で SpeechAnalyzer を選んだときだけ結線）と、iOS カスタムキーボード拡張（`Extensions/iOSKeyboard`。文字入力と共有結果のプレビュー・挿入、本体アプリの状態による案内）がある。iOS の App Group は #56 判定待ちで、Local.xcconfig で設定したときだけ有効（本体アプリは共有結果と本体アプリの状態だけを書き、秘密情報・生音声は置かない）。iOS 側のクラウド整形は、処理系に Claude を選び、同意・API キー（本体アプリの Keychain）・月次予算と単価表がそろったときだけ Claude へ送る経路と、整形と予算（処理系・月次予算・単価表・今月の推定費用）・同意・API キーの設定画面まで（既定は Local Basic で送信しない）。
 検証結果で要件定義11章・14章の判定基準に従って方針が変わるため、検証前の前提でコードを広げない。
 
 ### アーキテクチャ

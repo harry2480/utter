@@ -8,24 +8,29 @@ import UtterSpeech
 /// 設定画面は1つの Settings シーンにまとめ、項目はタブで分ける（API キーなどの画面もタブとして足す）
 struct SettingsScene: Scene {
   @State private var model: SettingsModel
-  /// 「API キー」タブの状態（AC-12）
+  /// 「API キー」タブの Claude API キーの状態（AC-12）
   @State private var apiKeyModel: APIKeySettingsModel
+  /// 「API キー」タブの OpenAI API キーの状態（クラウド STT, #188）
+  @State private var openAIAPIKeyModel: APIKeySettingsModel
   /// 「音声認識」タブのモデルの取得状態。OS が管理するモデルを使うエンジンを選んだときだけ（PERM-03）
   @State private var speechModel: SpeechModelSettingsModel?
   private let sttEngine: STTEngineKind?
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先。整形（`SessionRefinementPipeline`）と同じものを渡す
+  ///   - openAIAPIKeyStore: OpenAI API キーの保存先。クラウド STT（`CloudSpeechRecognitionPipeline`）と同じものを渡す
   ///   - database: アプリで1つだけ開くデータベース。推定費用の累計を読む（辞書・入力履歴と共有する）
   ///   - sttEngine: 使っている STT エンジン（`AppComposition.selectedEngine()`）。未選択なら `nil`
   init(
-    claudeAPIKeyStore: any APIKeyStore, database: AppDatabaseProvider, sttEngine: STTEngineKind?
+    claudeAPIKeyStore: any APIKeyStore, openAIAPIKeyStore: any APIKeyStore,
+    database: AppDatabaseProvider, sttEngine: STTEngineKind?
   ) {
     _model = State(
       initialValue: SettingsModel(
         store: AppSettingsStore(defaults: .standard),
         openUsageStore: { MonthlyUsageStore(database: try await database.database()) }))
     _apiKeyModel = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
+    _openAIAPIKeyModel = State(initialValue: APIKeySettingsModel(store: openAIAPIKeyStore))
     // 作るだけで、状態の確認はタブを開いたときにする（どちらもネットワークを使わない）
     let modelAssets = STTEngineSetting.makeModelAssets(for: sttEngine)
     _speechModel = State(initialValue: modelAssets.map { SpeechModelSettingsModel(assets: $0) })
@@ -35,7 +40,8 @@ struct SettingsScene: Scene {
   var body: some Scene {
     Settings {
       SettingsView(
-        model: model, apiKeyModel: apiKeyModel, sttEngine: sttEngine, speechModel: speechModel)
+        model: model, apiKeyModel: apiKeyModel, openAIAPIKeyModel: openAIAPIKeyModel,
+        sttEngine: sttEngine, speechModel: speechModel)
     }
   }
 }

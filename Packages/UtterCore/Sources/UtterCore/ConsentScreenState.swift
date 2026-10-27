@@ -5,14 +5,21 @@
 public struct ConsentScreenState: Hashable, Sendable {
   /// 画面に常に表示する同意対象（macOS・iOS 共通）。送信する機能がある対象に限る。
   ///
-  /// 送信する機能がまだないもの（ChatGPT への整形、別のクラウド AI への自動切り替え、クラウド音声認識）は
-  /// 同意を求めない。それらは機能を実装するときにここへ加える。
+  /// 送信する機能がまだないもの（ChatGPT への整形、別のクラウド AI への自動切り替え）は
+  /// 同意を求めない。それらは機能を実装するときにここへ加える。クラウド音声認識は macOS だけにあるため、
+  /// 画面ごとの対象（`cloudSpeechRecognitionScopes`）で足す。
   /// 同意済みの状態を読んだ場合だけ、撤回できるよう行を表示する
   public static let presentedScopes: [ConsentScope] = [.transmission(.textRefinement(.claude))]
 
   /// Edit Mode（AC-14）がある画面（macOS）で、`presentedScopes` の後ろに常に表示する同意対象。
   /// 選択テキストの送信は、整形の送信とは別に同意・撤回する。Edit Mode のない iOS では表示しない
   public static let editModeScopes: [ConsentScope] = [.transmission(.editSelection(.claude))]
+
+  /// クラウド STT（#188）がある画面（macOS）で、`presentedScopes` の後ろに常に表示する同意対象。
+  /// 音声の送信は、整形・選択テキストの送信とは別に同意・撤回する（AC-06）。クラウド STT のない iOS では表示しない
+  public static let cloudSpeechRecognitionScopes: [ConsentScope] = [
+    .transmission(.speechRecognition)
+  ]
 
   /// 画面全体の説明（7章, CTX-03）
   public static let summary =

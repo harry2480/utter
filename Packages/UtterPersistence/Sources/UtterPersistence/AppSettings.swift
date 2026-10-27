@@ -16,7 +16,8 @@ public struct AppSettings: Hashable, Sendable {
   ///   版 1 の項目はそのまま引き継ぎ（旧既定の整形用モデル名だけ新しい既定値に置き換える）、追加した項目は既定値で補う。
   ///   サイト別の項目は版 2 のリリース前に足した。ない保存値は既定値（許可なし・上書きなし）で読むため、版を分けない。
   ///   Edit Mode のショートカット（AC-14）も版 2 に足した。ない保存値は未割り当てで読み、既存の項目は変えないため版を分けない
-  ///   （版を上げると、上げる前のアプリが新しい保存値を未知の版としてすべて既定値で読むため）
+  ///   （版を上げると、上げる前のアプリが新しい保存値を未知の版としてすべて既定値で読むため）。
+  ///   クラウド STT を使うか（#188）も同じ理由で版 2 に足した。ない保存値は無効で読む
   public static let currentVersion = 2
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
@@ -60,6 +61,11 @@ public struct AppSettings: Hashable, Sendable {
 
   /// 入力モード（2.2節）。既定は Instant（MVP 標準）
   public var inputMode: InputMode
+
+  /// 録音のセッションの音声認識にクラウド STT を使うか（4章, #188, MVP 外）。既定は無効（ローカルのエンジン）。
+  ///
+  /// 有効にしても、音声送信の同意（`.transmission(.speechRecognition)`）・API キー・予算がそろわなければ送らない（AC-06）
+  public var cloudSpeechRecognitionEnabled: Bool
 
   /// 整形モード（Raw / Natural / Structured, TXT-01）。既定は Natural
   public var refinementMode: RefinementModeSetting
@@ -119,6 +125,7 @@ public struct AppSettings: Hashable, Sendable {
     recordingShortcut: KeyCombination? = nil,
     editModeShortcut: KeyCombination? = nil,
     inputMode: InputMode = .instant,
+    cloudSpeechRecognitionEnabled: Bool = false,
     refinementMode: RefinementModeSetting = .natural,
     refinementEngine: RefinementEngine = .localBasic,
     appStyleOverrides: [String: RefinementStyle] = [:],
@@ -138,6 +145,7 @@ public struct AppSettings: Hashable, Sendable {
     self.recordingShortcut = recordingShortcut
     self.editModeShortcut = editModeShortcut
     self.inputMode = inputMode
+    self.cloudSpeechRecognitionEnabled = cloudSpeechRecognitionEnabled
     self.refinementMode = refinementMode
     self.refinementEngine = refinementEngine
     self.appStyleOverrides = Self.normalizedOverrides(appStyleOverrides)
@@ -210,6 +218,7 @@ extension AppSettings: Codable {
     case recordingShortcut
     case editModeShortcut
     case inputMode
+    case cloudSpeechRecognitionEnabled
     case refinementMode
     case refinementEngine
     case appStyleOverrides
@@ -287,6 +296,9 @@ extension AppSettings: Codable {
     // 読めない・ない Edit Mode のショートカットは未割り当てに戻す（AC-14。割り当てを推測で作らない）
     editModeShortcut = value(KeyCombination.self, .editModeShortcut)
     inputMode = value(InputMode.self, .inputMode) ?? inputMode
+    // 読めない・ない値は無効に倒す（#188。明示的に選んだときだけクラウド STT を使う）
+    cloudSpeechRecognitionEnabled =
+      value(Bool.self, .cloudSpeechRecognitionEnabled) ?? cloudSpeechRecognitionEnabled
     refinementMode = value(RefinementModeSetting.self, .refinementMode) ?? refinementMode
     modelRetentionMode =
       value(ModelRetentionModeSetting.self, .modelRetentionMode) ?? modelRetentionMode
@@ -334,6 +346,7 @@ extension AppSettings: Codable {
     try container.encodeIfPresent(recordingShortcut, forKey: .recordingShortcut)
     try container.encodeIfPresent(editModeShortcut, forKey: .editModeShortcut)
     try container.encode(inputMode, forKey: .inputMode)
+    try container.encode(cloudSpeechRecognitionEnabled, forKey: .cloudSpeechRecognitionEnabled)
     try container.encode(refinementMode, forKey: .refinementMode)
     try container.encode(refinementEngine, forKey: .refinementEngine)
     try container.encode(appStyleOverrides, forKey: .appStyleOverrides)

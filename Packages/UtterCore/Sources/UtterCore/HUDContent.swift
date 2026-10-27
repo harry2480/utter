@@ -62,6 +62,8 @@ public enum HUDNotice: Hashable, Sendable {
   case microphoneAccessDenied
   /// クラウド整形をせず、ローカル整形の結果に退避した（4.1節, AC-16）
   case refinementFellBack(RefinementFallbackNotice)
+  /// 失敗の理由: クラウド STT を選んでいるが、送る条件がそろわない・認識できなかった（4章, AC-06, #188）
+  case cloudSpeechRecognitionFailed(CloudSpeechRecognitionNotice)
 
   /// 録音の停止理由に対応する通知。利用者の停止操作では `nil`。
   public init?(stopReason: RecordingStopReason) {
@@ -72,6 +74,38 @@ public enum HUDNotice: Hashable, Sendable {
     case .interrupted(let cause): self = .recordingInterrupted(cause)
     }
   }
+}
+
+/// クラウド STT（#188）で認識できなかった理由のうち、HUD で区別して知らせる種類（4章, AC-06, AI-04, AI-06）。
+///
+/// 送る前の条件（同意・API キー・予算）と、送った後の失敗（AI-06 と同じ分け方）を分ける。
+/// UtterSpeech の失敗の種類から導く（UtterCore は UtterSpeech に依存しないため、通知用に区分だけを持つ）。
+/// 音声・認識テキスト・API キー・エラー詳細は持たない。
+public enum CloudSpeechRecognitionNotice: Hashable, Sendable, CaseIterable {
+  /// 音声送信の同意がない（AC-06）。送信していない
+  case consentNotGranted
+  /// API キーが保存されていない。送信していない
+  case apiKeyNotSet
+  /// API キーを読み出せない（Mac のロック中・署名のないビルドなど）。送信していない
+  case apiKeyUnavailable
+  /// 予算上限を確かめられない（予算・単価表が未設定、単価表にないモデル、通貨の不一致、累計を読み書きできない）。送信していない
+  case budgetUnavailable
+  /// 利用者が設定した予算上限を超える（AI-04）。送信していない
+  case budgetExceeded
+  /// 送れる音声の上限（長さ・サイズ）を超えた。送信していない
+  case audioLimitExceeded
+  /// クラウド STT の設定（モデル名など）を使えない。送信していない
+  case configurationUnavailable
+  /// 応答待ちが上限時間を超えた
+  case timeout
+  /// API キーが失効・無効になった
+  case authenticationExpired
+  /// 利用枠（レート制限・クォータ）が不足している
+  case quotaExceeded
+  /// ネットワークに接続できない
+  case networkUnavailable
+  /// 応答を解釈できなかった
+  case invalidResponse
 }
 
 /// ローカル整形へ退避した理由のうち、HUD で区別して知らせる種類（4.1節, AC-16, AI-06）。
