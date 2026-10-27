@@ -9,7 +9,7 @@ public struct HUDPresentation: Hashable, Sendable {
   public let indicator: HUDIndicator
   /// 1行目に出す文言。状態があれば状態、通知だけを残しているときは先頭の通知
   public let title: String
-  /// 2行目以降に1件ずつ出す通知の文言。`HUDContent.notices` の順（録音停止または失敗の理由、整形の退避）
+  /// 2行目以降に1件ずつ出す通知の文言。`HUDContent.notices` の順（録音停止または失敗の理由、Realtime Direct の無効化、整形の退避）
   public let messages: [String]
   /// Realtime Preview の確定済み・暫定テキスト。録音中・認識中で、表示する文字があるときだけ持つ
   public let transcript: HUDTranscript?
@@ -107,6 +107,23 @@ public struct HUDPresentation: Hashable, Sendable {
     case .refinementFellBack(let fallback): "\(reason(for: fallback))ため、ローカルで整形しました"
     case .cloudSpeechRecognitionFailed(let failure):
       "\(reason(for: failure))ため、クラウドで音声認識できませんでした"
+    case .realtimeDirectDisabled(let fallback): realtimeDirectText(for: fallback)
+    }
+  }
+
+  /// Realtime Direct を無効にした理由と、その後の入力のしかた（2.2節, AC-15）。入力欄の内容・アプリ名は含めない
+  private static func realtimeDirectText(for fallback: RealtimeDirectFallbackNotice) -> String {
+    switch fallback {
+    case .unsupportedTarget:
+      "この入力先は Realtime Direct に対応していないため、停止後にまとめて入力します"
+    case .sensitiveInput:
+      "入力先が機密入力のため、Realtime Direct を使いません"
+    case .cloudSpeechRecognition:
+      "クラウド音声認識では Realtime Direct を使えないため、停止後にまとめて入力します"
+    case .stoppedBeforeWriting:
+      "入力欄の変更などを検知したため、Realtime Direct をやめて停止後にまとめて入力します"
+    case .stoppedAfterWriting:
+      "入力欄の変更などを検知したため、Realtime Direct の入力を途中でやめました"
     }
   }
 

@@ -458,6 +458,55 @@ struct HUDStateTests {
     #expect(hud.errorDismissDeadline == t0.advanced(by: hud.configuration.errorDisplayDuration))
   }
 
+  // MARK: - Realtime Direct
+
+  @Test("AC-15: 録音中に Realtime Direct を無効にしたら、録音中から挿入中まで通知を出し、完了後もしばらく残す")
+  func showsRealtimeDirectFallbackUntilCompletion() throws {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    hud.update(from: machine, at: t0)
+    let session = try #require(machine.activeSession)
+
+    hud.recordRealtimeDirectFallback(.unsupportedTarget, for: session.id)
+    let notice = HUDNotice.realtimeDirectDisabled(.unsupportedTarget)
+    #expect(hud.content(at: t0) == HUDContent(status: .recording, notice: notice))
+
+    machine.stopRecording(at: t0)
+    _ = try machine.handle(event(machine, .recognitionCompleted))
+    hud.update(from: machine, at: t0)
+    hud.recordRefinementFallback(.timeout, for: session.id)
+    #expect(
+      hud.content(at: t0)
+        == HUDContent(status: .refining, notices: [notice, .refinementFellBack(.timeout)]))
+
+    _ = try machine.handle(event(machine, .refinementCompleted))
+    hud.update(from: machine, at: t0)
+    _ = try machine.handle(event(machine, .insertionCompleted))
+    hud.update(from: machine, at: t0)
+    #expect(
+      hud.content(at: t0)
+        == HUDContent(status: nil, notices: [notice, .refinementFellBack(.timeout)]))
+  }
+
+  @Test("AC-15: 別のセッション・待機中の Realtime Direct の通知は反映せず、次のセッションに残さない")
+  func ignoresRealtimeDirectFallbackForInactiveSession() throws {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    hud.recordRealtimeDirectFallback(.sensitiveInput, for: SessionID())
+    machine.start(at: t0)
+    hud.update(from: machine, at: t0)
+    hud.recordRealtimeDirectFallback(.sensitiveInput, for: SessionID())
+    #expect(hud.content(at: t0) == HUDContent(status: .recording, notice: nil))
+
+    hud.recordRealtimeDirectFallback(.sensitiveInput, for: try #require(machine.activeSession).id)
+    _ = machine.cancel()
+    hud.update(from: machine, at: t0)
+    machine.start(at: t0)
+    hud.update(from: machine, at: t0)
+    #expect(hud.content(at: t0) == HUDContent(status: .recording, notice: nil))
+  }
+
   // MARK: - Helpers
 
   enum Stop {

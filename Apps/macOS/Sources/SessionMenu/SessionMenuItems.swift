@@ -1,7 +1,8 @@
 import SwiftUI
 import UtterCore
 
-/// メニューの「録音を開始」「録音を停止」と「キャンセル」（REC-01, REC-06）
+/// メニューの「録音を開始」「録音を停止」と「キャンセル」（REC-01, REC-06）。
+/// Realtime Direct（AC-15）で書き込んだ直後だけ、書き込んだテキストを取り除く項目を出す
 struct SessionMenuItems: View {
   @Environment(AppComposition.self) private var composition
 
@@ -16,6 +17,11 @@ struct SessionMenuItems: View {
       session.cancel()
     }
     .disabled(!session.canCancel)
+    if session.canUndoRealtimeDirect {
+      Button("Realtime Direct の入力を取り消す") {
+        session.undoRealtimeDirect()
+      }
+    }
   }
 
   private static func toggleTitle(_ phase: SessionPhase) -> String {

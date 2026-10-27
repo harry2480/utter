@@ -11,8 +11,18 @@ extension SessionSettings {
       (try? SessionConfiguration(maxRecordingDuration: .seconds(settings.maxRecordingDuration)))
       ?? SessionConfiguration()
     return SessionSettings(
-      configuration: configuration,
-      showsRealtimePreview: settings.inputMode == .realtimePreview)
+      configuration: configuration, inputMode: SessionInputMode(settings.inputMode))
+  }
+}
+
+extension SessionInputMode {
+  /// 保存された入力モードから作る（2.2節）。Realtime Direct は利用者が明示的に選んだときだけ（既定は Instant）
+  init(_ mode: InputMode) {
+    switch mode {
+    case .instant: self = .instant
+    case .realtimePreview: self = .realtimePreview
+    case .realtimeDirect: self = .realtimeDirect
+    }
   }
 }
 

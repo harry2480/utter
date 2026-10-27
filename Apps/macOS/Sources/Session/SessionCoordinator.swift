@@ -2,6 +2,7 @@ import Observation
 import UtterAI
 import UtterCore
 import UtterSpeech
+import UtterText
 
 /// 録音 → 音声認識 → 整形 → 挿入 → HUD を1つのセッションとして進める調停役（REC-01〜06, INS-01, AC-02, AC-09）。
 ///
@@ -18,7 +19,7 @@ import UtterSpeech
 /// - キャンセルは録音〜整形中と失敗の表示中だけ受け付ける。挿入が始まったら取り消さない（REC-01）
 /// - 処理中の開始操作は無視する（REC-06）
 /// - 入力モードが Realtime Preview なら、認識の `partial` / `confirmed` を `TranscriptPreview` に溜めて HUD に出す（2.2節, AC-03）。
-///   Instant（既定）では出さない。入力欄への挿入はどちらも停止後に一括で行う
+///   Instant（既定）と Realtime Direct では出さない。Instant と Realtime Preview の入力欄への挿入は停止後に一括で行う
 /// - 最大録音時間と入力モードは、`useSettings(_:)` で渡した値を次のセッションの開始時から使う。録音中・処理中のセッションは変えない
 /// - 発話本文はログに出さない。HUD に出すのは Realtime Preview の録音中・認識中の認識テキストだけ。
 ///   挿入できなければ挿入側がコピー可能なプレビューへ退避する（AC-09）
@@ -28,6 +29,12 @@ import UtterSpeech
 /// - クラウド STT（#188, MVP 外）を選んでいれば、STT Worker を通さずにクラウド STT で認識する。使うかはセッションの開始時に決め、
 ///   録音を始める前に同意・API キー・予算を確かめる。そろわなければマイクを開かずに理由を HUD に出す。
 ///   クラウド STT の失敗では認識し直さない（Worker の異常終了の再処理は STT Worker のときだけ）
+/// - 入力モードが Realtime Direct（実験機能・MVP 外, AC-15）なら、録音開始時に `SessionRealtimeDirectWriting` で使えるか確かめ、
+///   録音中の認識イベントを渡して確定済みチャンクを入力欄へ逐次書き込む（整形はしない）。許可リストにないアプリ・機密入力・
+///   クラウド STT では自動で無効にして HUD で知らせ、Instant と同じく停止後に整形して一括挿入する。書き込む前の照合に
+///   失敗した場合も同じ。書き込んだ後に照合に失敗したら、書き込みを残して全体をプレビューに出す（書き込み側が出す）。
+///   キャンセルでは書き込んだ範囲を照合のうえ取り除き、完了後は `undoRealtimeDirect()` で取り除ける。
+///   Realtime Direct のセッションでは、STT Worker の異常終了で認識し直さない（書き込んだ範囲と食い違うため）
 @MainActor
 @Observable
 final class SessionCoordinator {
@@ -35,14 +42,16 @@ final class SessionCoordinator {
   private(set) var phase: SessionPhase = .idle
   /// 状態が変わるたびに呼ぶ。Esc のイベントタップのコールバックの中からも同期的に呼ばれるため、重い処理をしない
   @ObservationIgnored var onPhaseChange: (@MainActor () -> Void)?
+  /// 直前の Realtime Direct のセッションで書き込んだテキストを取り除けるか（AC-15）。メニューの表示に使う
+  private(set) var canUndoRealtimeDirect = false
 
   @ObservationIgnored private var machine: SessionStateMachine
   @ObservationIgnored private let recorder: any AudioRecorder
   @ObservationIgnored private let recognizer: (any SpeechRecognizer)?
   @ObservationIgnored private let refiner: any SessionRefining
   @ObservationIgnored private let refinementReporter: (any SessionRefinementReporting)?
-  /// 進行中のセッションの入力モードが Realtime Preview か。セッションの開始時に `nextSettings` から決める
-  @ObservationIgnored private var showsRealtimePreview: Bool
+  /// 進行中のセッションの入力モード。セッションの開始時に `nextSettings` から決める
+  @ObservationIgnored private var inputMode: SessionInputMode
   /// 次のセッションから使う設定（`useSettings(_:)`）
   @ObservationIgnored private var nextSettings: SessionSettings
   @ObservationIgnored private let makeSessionID: @Sendable () -> SessionID
@@ -54,6 +63,7 @@ final class SessionCoordinator {
   @ObservationIgnored private let audioRetention: (any SessionAudioRetaining)?
   @ObservationIgnored private let recognitionRecovery: (any SessionRecognitionRecovering)?
   @ObservationIgnored private let cloudRecognition: (any SessionCloudSpeechRecognizing)?
+  @ObservationIgnored private let realtimeDirect: (any SessionRealtimeDirectWriting)?
   @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
 
   /// 進行中のセッションの非同期処理
@@ -68,12 +78,13 @@ final class SessionCoordinator {
   ///   - refiner: 整形（TXT-01, AI-01, AI-03）。録音開始時の前面アプリをスタイル区分の判定に渡す（CTX-01）
   ///   - refinementReporter: 整形の経路を知らせる差し込み口（AC-16）。退避の HUD 通知はこれによらず `hud` に出す
   ///   - configuration: 起動時の最大録音時間など（REC-05）。設定画面の変更は `useSettings(_:)` で渡す
-  ///   - showsRealtimePreview: 起動時の入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）
+  ///   - inputMode: 起動時の入力モード（2.2節）。既定は Instant（MVP 標準）
   ///   - history: 入力履歴への保存（7章, AC-12）。`nil` なら保存しない
   ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。`nil` なら保存しない
   ///   - recognitionRecovery: 失敗した認識を録音音声でやり直すかの判断（7章, AC-10）。`nil`、または `audioRetention` が
   ///     `nil` ならやり直さない。クラウド STT のセッションでは使わない
   ///   - cloudRecognition: クラウド STT（#188）。`nil`、または選んでいなければ `recognizer` を使う
+  ///   - realtimeDirect: Realtime Direct の書き込み（AC-15）。`nil` なら入力モードが Realtime Direct でも使えない扱いにする
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
   init(
     configuration: SessionConfiguration = SessionConfiguration(),
@@ -81,7 +92,7 @@ final class SessionCoordinator {
     recognizer: (any SpeechRecognizer)?,
     refiner: any SessionRefining,
     refinementReporter: (any SessionRefinementReporting)? = nil,
-    showsRealtimePreview: Bool = false,
+    inputMode: SessionInputMode = .instant,
     inserter: any SessionTextInserting,
     history: (any SessionHistoryRecording)? = nil,
     hud: HUDController,
@@ -90,6 +101,7 @@ final class SessionCoordinator {
     audioRetention: (any SessionAudioRetaining)? = nil,
     recognitionRecovery: (any SessionRecognitionRecovering)? = nil,
     cloudRecognition: (any SessionCloudSpeechRecognizing)? = nil,
+    realtimeDirect: (any SessionRealtimeDirectWriting)? = nil,
     makeSessionID: @escaping @Sendable () -> SessionID = { SessionID() },
     now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
   ) {
@@ -98,9 +110,8 @@ final class SessionCoordinator {
     self.recognizer = recognizer
     self.refiner = refiner
     self.refinementReporter = refinementReporter
-    self.showsRealtimePreview = showsRealtimePreview
-    nextSettings = SessionSettings(
-      configuration: configuration, showsRealtimePreview: showsRealtimePreview)
+    self.inputMode = inputMode
+    nextSettings = SessionSettings(configuration: configuration, inputMode: inputMode)
     self.makeSessionID = makeSessionID
     self.inserter = inserter
     self.history = history
@@ -110,6 +121,7 @@ final class SessionCoordinator {
     self.audioRetention = audioRetention
     self.recognitionRecovery = audioRetention == nil ? nil : recognitionRecovery
     self.cloudRecognition = cloudRecognition
+    self.realtimeDirect = realtimeDirect
     self.now = now
     hud.onErrorDisplayExpired = { [weak self] in
       guard let self else { return }
@@ -193,9 +205,14 @@ final class SessionCoordinator {
     let target = inserter.recordTarget()
     retainedSession = session
     audioRetention?.begin(session)
+    // 前のセッションの書き込みは、次のセッションを始めたら取り消せない（入力欄の状態を確かめ直せないため）
+    canUndoRealtimeDirect = false
     reflect()
+    // 入力対象を記録した直後に、同じ入力欄で Realtime Direct を使えるか確かめる
+    let writesDirectly = beginRealtimeDirect(session, target: target, usesCloud: usesCloud)
     runTask = Task { [weak self] in
-      await self?.run(session: session, target: target, usesCloud: usesCloud)
+      await self?.run(
+        session: session, target: target, usesCloud: usesCloud, writesDirectly: writesDirectly)
     }
   }
 
@@ -211,6 +228,8 @@ final class SessionCoordinator {
     guard let session = machine.cancel() else { return }
     runTask?.cancel()
     runTask = nil
+    // Realtime Direct で書き込んだテキストを照合のうえ取り除く（別のセッションなら何もしない, AC-15）
+    realtimeDirect?.cancel(session)
     stopRecorder()
     endRetention(session, completed: false)
     reflect()
@@ -219,7 +238,7 @@ final class SessionCoordinator {
   // MARK: - セッションの処理
 
   private func run(
-    session: SessionID, target: RecordedInsertionTarget, usesCloud: Bool
+    session: SessionID, target: RecordedInsertionTarget, usesCloud: Bool, writesDirectly: Bool
   ) async {
     // 前の録音の停止が終わってから始める（連打で2つ目の録音を始めない, REC-04）
     await recorderStop?.value
@@ -231,8 +250,9 @@ final class SessionCoordinator {
     }
     guard let recognizer = await sessionRecognizer(session, usesCloud: usesCloud) else { return }
     // STT Worker の異常終了の再処理は、Worker のときだけ使う。クラウド STT は Worker を通さず、
-    // 失敗は通信・同意・予算などで同じ音声を送り直しても直らない（送り直すと費用もかかる）ため
-    let recovery = usesCloud ? nil : self.recognitionRecovery
+    // 失敗は通信・同意・予算などで同じ音声を送り直しても直らない（送り直すと費用もかかる）ため。
+    // Realtime Direct は、認識し直した全体と書き込んだ範囲を突き合わせられないため使わない
+    let recovery = usesCloud || writesDirectly ? nil : self.recognitionRecovery
 
     let recording: AudioRecording
     do {
@@ -283,9 +303,11 @@ final class SessionCoordinator {
     for await event in recognizer.recognize(forwarding.audio, session: session) {
       guard isActive(session) else { return }
       guard filter.accept(event) == nil else { continue }
+      // Realtime Direct では、確定済みチャンクと終端のイベントで入力欄へ書き込む（暫定の結果は書き込まない）
+      if writesDirectly { realtimeDirect?.handle(event) }
       switch event.kind {
       case .partial, .confirmed:
-        if showsRealtimePreview {
+        if inputMode == .realtimePreview {
           preview.apply(event.kind)
           hud.updateTranscript(
             HUDTranscript(
@@ -337,7 +359,21 @@ final class SessionCoordinator {
       fail(session, notice: reason.map { HUDNotice.cloudSpeechRecognitionFailed($0) })
       return
     }
+    // Realtime Direct で書き込んだら、整形・一括挿入をしない。何も書き込まないうちにやめたら Instant と同じく続ける
+    let directCompletion = writesDirectly ? realtimeDirect?.completion : nil
+    if case .stoppedBeforeWriting = directCompletion {
+      hud.recordRealtimeDirectFallback(.stoppedBeforeWriting, for: session)
+    }
     guard apply(.recognitionCompleted, session: session) else { return }
+    switch directCompletion {
+    case .finished, .stoppedAfterWriting:
+      await finishRealtimeDirect(
+        session, text: text, completion: directCompletion, target: target,
+        forwarding: forwarding.task)
+      return
+    case .stoppedBeforeWriting, nil:
+      break
+    }
 
     // 整形。クラウドへ送るかは整形側が設定・同意・API キー・予算・入力先で決め、送れなければローカル整形にする
     let inserter = inserter
@@ -372,6 +408,78 @@ final class SessionCoordinator {
     }
     // 録音のチャンクをすべて差し込み口に渡し終えてから終わりを伝える
     await forwarding.task.value
+    endRetention(session, completed: true)
+  }
+
+  // MARK: - Realtime Direct
+
+  /// 直前の Realtime Direct のセッションで書き込んだテキストを、照合のうえ取り除く（AC-15）。
+  ///
+  /// 待機中で、直前のセッションが全体を書き込んで終えたときだけ行う（一度だけ）。フォーカスが一時的に別の入力欄にあるだけなら、
+  /// 入力欄に触れずに `unavailable` を返し、戻ってから取り消せるようにする。行わなければ `nil`
+  @discardableResult
+  func undoRealtimeDirect() -> RealtimeDirectUndoOutcome? {
+    guard machine.phase == .idle, canUndoRealtimeDirect, let realtimeDirect else { return nil }
+    let outcome = realtimeDirect.undo()
+    switch outcome {
+    case .unavailable(.targetChanged), .unavailable(.targetMissing):
+      break
+    case .reverted, .nothingToRevert, .unavailable, .writeFailed, .noSession:
+      canUndoRealtimeDirect = false
+    }
+    return outcome
+  }
+
+  /// 入力モードが Realtime Direct なら、録音開始時の入力対象で使えるか確かめて始める。使えなければ理由を HUD に出す。
+  /// 始めたら `true`。状態機械を録音へ進めて HUD に反映した後に呼ぶ
+  private func beginRealtimeDirect(
+    _ session: SessionID, target: RecordedInsertionTarget, usesCloud: Bool
+  ) -> Bool {
+    guard inputMode == .realtimeDirect else { return false }
+    let notice: RealtimeDirectFallbackNotice
+    if usesCloud {
+      // クラウド STT は一括認識で、録音中に確定済みチャンクを流さない（#188）
+      notice = .cloudSpeechRecognition
+    } else if let realtimeDirect {
+      // 入力モードで Realtime Direct を選んだことを、実験機能の有効化とみなす
+      let failure = realtimeDirect.begin(
+        sessionID: session, recordedTarget: target.id, isEnabled: true)
+      switch failure {
+      case nil: return true
+      case .sensitiveInput: notice = .sensitiveInput
+      case .unavailable: notice = .unsupportedTarget
+      }
+    } else {
+      notice = .unsupportedTarget
+    }
+    hud.recordRealtimeDirectFallback(notice, for: session)
+    return false
+  }
+
+  /// Realtime Direct で書き込んだセッションを、整形・一括挿入をせずに終える。
+  ///
+  /// 全体を書き込んだら、入力履歴（有効で機密入力でないとき）に認識テキストを保存し、取り消せるようにする。
+  /// 途中でやめたら、書き込み側が全体をプレビューに出しているため HUD で知らせるだけにする
+  private func finishRealtimeDirect(
+    _ session: SessionID, text: String, completion: RealtimeDirectCompletion?,
+    target: RecordedInsertionTarget, forwarding: Task<Void, Never>
+  ) async {
+    let finished = completion == .finished
+    if !finished {
+      hud.recordRealtimeDirectFallback(.stoppedAfterWriting, for: session)
+    }
+    guard apply(.refinementCompleted, session: session),
+      apply(.insertionCompleted, session: session)
+    else { return }
+    // 待機に戻ったため、以降に次のセッションが始まりうる。次のセッションのタスクを消さないよう先に外す
+    runTask = nil
+    canUndoRealtimeDirect = finished
+    if finished, !text.isEmpty {
+      let inserter = inserter
+      await history?.record(
+        text, session: session, sensitivity: { inserter.sensitiveInputContext(for: target) })
+    }
+    await forwarding.value
     endRetention(session, completed: true)
   }
 
@@ -569,7 +677,7 @@ final class SessionCoordinator {
 
   /// 次のセッションから使う設定を反映する。待機中（進行中のセッションがない）ときだけ呼ぶ
   private func applyNextSettings() {
-    showsRealtimePreview = nextSettings.showsRealtimePreview
+    inputMode = nextSettings.inputMode
     guard nextSettings.configuration != machine.configuration else { return }
     // 状態機械の構成は変えられないため作り直す。待機中は進行中のセッションを持たないので、作り直しても失うものはない
     machine = SessionStateMachine(

@@ -25,7 +25,7 @@ struct SessionRealtimePreviewTests {
       recorder: recorder,
       recognizer: recognizer,
       refiner: StubSessionRefiner(),
-      showsRealtimePreview: realtimePreview,
+      inputMode: realtimePreview ? .realtimePreview : .instant,
       inserter: inserter,
       hud: hud,
       deadlineScheduler: deadlineScheduler,
@@ -89,7 +89,7 @@ struct SessionRealtimePreviewTests {
     let session = coordinator(realtimePreview: false)
     session.toggle()
     #expect(await eventually { recognizer.runCount == 1 && recorder.isRecording })
-    session.useSettings(SessionSettings(showsRealtimePreview: true))
+    session.useSettings(SessionSettings(inputMode: .realtimePreview))
 
     // 録音中のセッションは Instant のまま、認識テキストを HUD に出さない
     recognizer.send(.partial("きょうは"), to: 0)

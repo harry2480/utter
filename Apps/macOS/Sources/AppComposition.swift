@@ -22,6 +22,9 @@ import UtterSpeech
 /// 録音の設定（録音ショートカット・録音の操作方式・最大録音時間・入力モード）は起動時に保存値を読み、
 /// 設定画面で変わったら次のセッションから使う（`followRecordingSettings`）。
 /// 端末の状態（メモリ圧迫・低電力モード・電源）は起動から終了まで監視し、STT Worker へ送る（`DeviceResourceMonitoring`, 6章, AC-11）。
+/// 入力モードが Realtime Direct（AC-15, 実験機能・MVP 外。既定は Instant）のセッションは、
+/// 挿入と同じ `AccessibilityInsertionTarget` を使う `RealtimeDirectWriter` で確定済みチャンクを書き込む。
+/// 許可リスト（`RealtimeDirectAllowlist.launchConfigured()`）にないアプリでは使わない。
 /// Edit Mode（AC-14）は録音のセッションと同じ録音・STT Worker・API キー・データベースを使い、`EditModeController` で
 /// 録音のセッションと1つずつ調停する。Edit Mode のショートカットは録音とは別のキーで、未割り当て（既定）なら何も登録しない。
 @MainActor
@@ -55,7 +58,9 @@ final class AppComposition {
       scheduler: TaskHUDRefreshScheduler()
     )
     let preview = InsertionPreviewPanel()
-    let insertion = InsertionExecutor.system(preview: preview)
+    // 挿入と Realtime Direct は、録音開始時に記録した入力対象を同じ AX のアダプターで共有する（INS-01, AC-15）
+    let target = AccessibilityInsertionTarget()
+    let insertion = InsertionExecutor.system(preview: preview, target: target)
     let engine = Self.selectedEngine()
     self.sttEngine = engine
     // エンジンが選ばれていなければ STT Worker を作らない（SessionCoordinator が「音声認識が設定されていません」を表示する）
@@ -75,7 +80,7 @@ final class AppComposition {
       recognizer: recognizer,
       refiner: SessionRefinementPipeline(
         settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase),
-      showsRealtimePreview: sessionSettings.showsRealtimePreview,
+      inputMode: sessionSettings.inputMode,
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       history: InputHistoryRecorder.standard(database: openDatabase),
       hud: hud,
@@ -83,7 +88,9 @@ final class AppComposition {
       audioRetention: audioQueue.map(TemporaryAudioRetention.init),
       recognitionRecovery: recognizer.map(STTWorkerRecognitionRecovery.init),
       cloudRecognition: CloudSpeechRecognitionPipeline(
-        settingsStore: settingsStore, apiKeyStore: openAIAPIKeyStore, database: openDatabase))
+        settingsStore: settingsStore, apiKeyStore: openAIAPIKeyStore, database: openDatabase),
+      realtimeDirect: RealtimeDirectWriter.system(
+        target: target, preview: preview, sensitivePolicy: Self.savedSensitivePolicy))
     self.hud = hud
     self.session = session
     let retentionPolicy = ModelRetentionPolicy.fromSettings(initialSettings)
@@ -157,10 +164,7 @@ final class AppComposition {
       clock: ContinuousInsertionClock(),
       sender: EditModeRequestPipeline(
         settingsStore: settingsStore, apiKeyStore: apiKeyStore, database: database),
-      sensitivePolicy: {
-        let excludedApps = AppSettingsStore(defaults: .standard).load().excludedApps
-        return SensitiveInputPolicy(excludedApps: Set(excludedApps))
-      })
+      sensitivePolicy: savedSensitivePolicy)
     let controller = EditModeController(
       coordinator: coordinator, recorder: recorder, recognizer: recognizer, gate: session,
       presenter: panel)
@@ -170,6 +174,12 @@ final class AppComposition {
     }
     panel.onCancel = { [weak controller] in controller?.cancel() }
     return controller
+  }
+
+  /// 機密入力の判定。保存済みの除外アプリを呼ぶたびに読む（7章, AC-12）
+  private static func savedSensitivePolicy() -> SensitiveInputPolicy {
+    let excludedApps = AppSettingsStore(defaults: .standard).load().excludedApps
+    return SensitiveInputPolicy(excludedApps: Set(excludedApps))
   }
 
   /// 設定画面で Edit Mode のショートカット（または録音ショートカット）が変わったら登録し直す（AC-14）。
@@ -255,13 +265,14 @@ final class AppComposition {
   /// セッションに使う録音・入力の設定。保存された設定から作る（`SessionSettings.fromSettings`）。
   ///
   /// Debug ビルドに限り、入力モードは起動引数が保存値より優先する:
-  /// `-UtterDebugInputMode realtimePreview`（または `instant`）
+  /// `-UtterDebugInputMode realtimePreview`（または `instant` / `realtimeDirect`）
   private static func sessionSettings(from settings: AppSettings) -> SessionSettings {
     var result = SessionSettings.fromSettings(settings)
     #if DEBUG
       switch debugArgument("UtterDebugInputMode") {
-      case "realtimePreview": result.showsRealtimePreview = true
-      case "instant": result.showsRealtimePreview = false
+      case "realtimePreview": result.inputMode = .realtimePreview
+      case "instant": result.inputMode = .instant
+      case "realtimeDirect": result.inputMode = .realtimeDirect
       default: break
       }
     #endif

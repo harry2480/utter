@@ -9,6 +9,7 @@ struct RecordingSettingsTests {
     let settings = SessionSettings.fromSettings(AppSettings())
     #expect(settings.configuration == SessionConfiguration())
     #expect(!settings.showsRealtimePreview)
+    #expect(settings.inputMode == .instant)
   }
 
   @Test("REC-05: 最大録音時間を秒から換算する（端数も含める）")
@@ -23,10 +24,18 @@ struct RecordingSettingsTests {
   func mapsInputMode(mode: InputMode) {
     var settings = AppSettings()
     settings.inputMode = mode
-    let shows = SessionSettings.fromSettings(settings).showsRealtimePreview
+    let session = SessionSettings.fromSettings(settings)
     switch mode {
-    case .instant: #expect(!shows)
-    case .realtimePreview: #expect(shows)
+    case .instant:
+      #expect(session.inputMode == .instant)
+      #expect(!session.showsRealtimePreview)
+    case .realtimePreview:
+      #expect(session.inputMode == .realtimePreview)
+      #expect(session.showsRealtimePreview)
+    case .realtimeDirect:
+      // Realtime Direct は認識テキストを HUD に出さず、入力欄へ逐次書き込む（AC-15）
+      #expect(session.inputMode == .realtimeDirect)
+      #expect(!session.showsRealtimePreview)
     }
   }
 

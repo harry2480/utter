@@ -227,6 +227,24 @@ struct AppSettingsTests {
     }
   }
 
+  @Test("2.2節, AC-15: 入力モードの Realtime Direct は保存値 realtimeDirect で読み書きする（既定は Instant）")
+  func realtimeDirectInputModeIsStored() throws {
+    #expect(AppSettings().inputMode == .instant)
+    #expect(InputMode.realtimeDirect.rawValue == "realtimeDirect")
+    let settings = try decode(#"{"version": 2, "inputMode": "realtimeDirect"}"#)
+    #expect(settings.inputMode == .realtimeDirect)
+  }
+
+  @Test(
+    "2.2節, AC-15: 知らない入力モードの保存値は Instant に倒す（Realtime Direct を推測で選ばない）",
+    arguments: [#""realtimeDirectV2""#, #""RealtimeDirect""#, "1", "null"])
+  func unknownInputModeFallsBackToInstant(value: String) throws {
+    let settings = try decode(
+      #"{"version": 2, "historyEnabled": true, "inputMode": \#(value)}"#)
+    #expect(settings.inputMode == .instant)
+    #expect(settings.historyEnabled)
+  }
+
   @Test("AC-06: 撤回した同意は撤回のまま復元される")
   func revokedConsentRoundTrips() throws {
     var consentState = grantedConsent()
