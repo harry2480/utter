@@ -202,6 +202,10 @@ struct SessionCloudSpeechRecognitionTests {
     local.send(.completed("ローカルの結果"), to: 0)
     #expect(await eventually { session.phase == .idle })
     #expect(transport.count == 0)
+    // 1回目の録音の停止は別のタスクで進み、待機に戻った時点で終わっているとは限らない。
+    // 終わる前に次のセッションを始めると、`isRecording` が1回目の録音を指したまま真になり、
+    // 2回目の音声を1回目の録音に渡して、録音を始める前に停止したセッションとして捨ててしまう（#193）
+    #expect(await eventually { !recorder.isRecording })
 
     // 次のセッションからクラウド STT を使う
     session.toggle()
