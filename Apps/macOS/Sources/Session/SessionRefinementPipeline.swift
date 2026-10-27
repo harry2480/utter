@@ -23,16 +23,28 @@ import UtterText
 /// 推定費用の累計を保存できなかった（`BudgetGuard.hasPersistenceFailure`）後は、累計が実際より少ない可能性があるため、
 /// アプリを起動し直すまでクラウドへ送らない（安全側）。
 /// 計測器（`PerfIntervalMeasuring`）を渡すと、送信先の `refine` を `LLMComplete` の区間として計測する（6章, #52）。
+///
+/// クラウド AI の送信先に Sign in with ChatGPT（#50）を選んだときは、Claude の代わりに次がそろったときだけ
+/// `ChatGPTPlanProvider` へ1回だけ送る（1・5 は Claude と同じ）。予算は使わない（利用者の ChatGPT プランの利用枠, AI-05）。
+/// - ChatGPT の整形用モデルを選んでいる（未選択なら送らない。モデル名をコードに固定しない）
+/// - ChatGPT（OpenAI）への整形の送信に同意している（AC-06）
+/// - サインインしていて、プラン利用が許可されている（S3, S7）
+/// 失敗したら Local Basic へ退避し、Claude や OpenAI API キー方式へは切り替えない（AI-04, S7）。
 @MainActor
 final class SessionRefinementPipeline: SessionRefining {
   /// 送信先のプロバイダーを作る。本番は `ClaudeProvider(apiKeyStore:configuration:)`、テストは Stub の送信部を使う
   typealias MakeProvider =
     @Sendable (ClaudeProvider.Configuration, any APIKeyStore) -> any AIProvider
+  /// Sign in with ChatGPT の送信先を作る。本番は `ChatGPTPlanProvider`、テストは Stub の送信部を使う
+  typealias MakeChatGPTProvider =
+    @Sendable (ChatGPTPlanProvider.Configuration, ChatGPTAccountSession) -> any AIProvider
 
   private let settingsStore: AppSettingsStore
   private let apiKeyStore: any APIKeyStore
   private let database: @MainActor () async throws -> UtterDatabase
   private let makeProvider: MakeProvider
+  private let chatGPTAccount: ChatGPTAccountSession?
+  private let makeChatGPTProvider: MakeChatGPTProvider
   private let localRefiner: any LocalRefiner
   private let siteHostReader: any FrontmostSiteHostReading
   private let timeout: Duration
@@ -46,6 +58,7 @@ final class SessionRefinementPipeline: SessionRefining {
   ///   - settingsStore: 処理系・整形モード・モデル名・予算・同意の保存先。設定画面・同意の画面と同じものを渡す
   ///   - apiKeyStore: Claude API キーの保存先。API キーの画面と同じものを渡す
   ///   - database: 辞書と推定費用の累計を保存するデータベース
+  ///   - chatGPTAccount: Sign in with ChatGPT のアカウント（#50）。設定画面と同じものを渡す。`nil` なら ChatGPT へは送らない
   ///   - siteHostReader: 前面のブラウザで表示中のホスト名を読む口（CTX-02）。サイト単位の識別が許可されたときだけ呼ぶ
   ///   - timeout: クラウド整形の応答待ちの上限時間（4.1節）
   ///   - now: 実時刻（費用を計上する月の判定）
@@ -58,6 +71,10 @@ final class SessionRefinementPipeline: SessionRefining {
     makeProvider: @escaping MakeProvider = { configuration, store in
       ClaudeProvider(apiKeyStore: store, configuration: configuration)
     },
+    chatGPTAccount: ChatGPTAccountSession? = nil,
+    makeChatGPTProvider: @escaping MakeChatGPTProvider = { configuration, account in
+      ChatGPTPlanProvider(account: account, configuration: configuration)
+    },
     localRefiner: any LocalRefiner = LocalBasicRefiner(),
     siteHostReader: any FrontmostSiteHostReading = AccessibilitySiteHostReader(),
     timeout: Duration = RefinementRouter.defaultTimeout,
@@ -69,6 +86,8 @@ final class SessionRefinementPipeline: SessionRefining {
     self.apiKeyStore = apiKeyStore
     self.database = database
     self.makeProvider = makeProvider
+    self.chatGPTAccount = chatGPTAccount
+    self.makeChatGPTProvider = makeChatGPTProvider
     self.localRefiner = localRefiner
     self.siteHostReader = siteHostReader
     self.timeout = timeout
@@ -119,6 +138,9 @@ final class SessionRefinementPipeline: SessionRefining {
       SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
     }
     guard settings.refinementEngine == .cloudAI else { return local(.localEngineSelected) }
+    if settings.cloudRefinementProvider == .chatGPTSignIn {
+      return try await refineWithChatGPT(request, settings: settings, sensitivity: sensitivity)
+    }
     guard !hasUsagePersistenceFailure else { return local(.budgetUnavailable) }
     guard let configuration = try? ClaudeProvider.Configuration(model: settings.refinementModel)
     else { return local(.cloudUnavailable) }
@@ -149,7 +171,9 @@ final class SessionRefinementPipeline: SessionRefining {
 
     // 予算の確認を待つ間の変更も反映するよう、送る直前に最新の設定・同意・入力先を読み直す
     let latest = settingsStore.load()
-    guard latest.refinementEngine == .cloudAI else { return local(.localEngineSelected) }
+    guard latest.refinementEngine == .cloudAI, latest.cloudRefinementProvider == .claude else {
+      return local(.localEngineSelected)
+    }
     let consent = currentConsent()
     // `RefinementRouter` は同期的に同意と判定を求めるため、ここで読み直した同意と判定した値を渡す。Router は予約を
     // 待った後にも求めるが、入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の
@@ -165,7 +189,53 @@ final class SessionRefinementPipeline: SessionRefining {
       throw error
     }
     await noteUsagePersistence(of: budget.guard)
+    return Self.result(of: outcome)
+  }
 
+  /// Sign in with ChatGPT へ送る（#50）。予算は使わず、サインインとプラン利用の許可を確かめてから送る
+  private func refineWithChatGPT(
+    _ request: RefinementRequest, settings: AppSettings,
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+  ) async throws(CancellationError) -> SessionRefinementResult {
+    func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
+      SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
+    }
+    guard let chatGPTAccount,
+      let configuration = try? ChatGPTPlanProvider.Configuration(
+        model: settings.chatGPTRefinementModel)
+    else { return local(.cloudUnavailable) }
+    let provider = measured(makeChatGPTProvider(configuration, chatGPTAccount))
+    guard currentConsent().allows(.textRefinement(provider.destination)) else {
+      return local(.consentNotGranted)
+    }
+    // サインインしていない・プラン利用が許可されていなければ送らない（トークンの更新もしない）
+    let status = await chatGPTAccount.status()
+    if Task.isCancelled { throw CancellationError() }
+    guard case .signedIn(_, let planUsage) = status, planUsage != .notGranted else {
+      return local(.chatGPTNotSignedIn)
+    }
+    guard Self.decide(sensitivity(), settings: settings).allowsCloudTransmission else {
+      return local(.sensitiveInput)
+    }
+    guard
+      let router = try? RefinementRouter(
+        provider: provider, localRefiner: localRefiner, timeout: timeout)
+    else { return local(.cloudUnavailable) }
+
+    // 状態の確認を待つ間の変更も反映するよう、送る直前に最新の設定・同意・入力先を読み直す
+    let latest = settingsStore.load()
+    guard latest.refinementEngine == .cloudAI, latest.cloudRefinementProvider == .chatGPTSignIn
+    else { return local(.localEngineSelected) }
+    let consent = currentConsent()
+    let decision = Self.decide(sensitivity(), settings: latest)
+    // トークン課金ではないため予算は渡さない（`ChatGPTPlanProvider.isTokenBilled == false`）
+    let outcome = try await router.refine(
+      request, consent: { consent }, budget: nil, sensitivity: { decision })
+    return Self.result(of: outcome)
+  }
+
+  /// `RefinementRouter` の結果を、セッションの整形の経路にする
+  private static func result(of outcome: RefinementOutcome) -> SessionRefinementResult {
     switch outcome.source {
     case .cloud:
       return SessionRefinementResult(text: outcome.text, route: .cloud)
@@ -300,6 +370,8 @@ enum SessionRefinementRoute: Hashable, Sendable {
     case sensitiveInput
     /// 予算上限を確かめられない（予算・単価表が未設定、通貨の不一致、累計を読み書きできない）
     case budgetUnavailable
+    /// Sign in with ChatGPT でサインインしていない、またはプラン利用が許可されていない（#50）
+    case chatGPTNotSignedIn
   }
 }
 

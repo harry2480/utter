@@ -16,6 +16,8 @@ struct SettingsView: View {
   let apiKeyModel: APIKeySettingsModel
   /// 「API キー」タブの OpenAI API キー（クラウド STT, #188）の状態
   let openAIAPIKeyModel: APIKeySettingsModel
+  /// 「整形」タブの Sign in with ChatGPT（#50）の状態。サインインは Keychain に即時に保存し、下の「保存」とは別に扱う
+  let chatGPTAccount: ChatGPTAccountSettingsModel
   /// 「音声認識」タブに出すローカルのエンジン。ビルド設定で選び、この画面では変えない（未選択なら `nil`）。
   /// ローカルのエンジンとクラウド STT のどちらを使うかは、このタブで選んで「保存」する（#188）
   let sttEngine: STTEngineKind?
@@ -29,7 +31,7 @@ struct SettingsView: View {
         RecordingSettingsTab(model: model)
           .tabItem { Label("録音", systemImage: "mic") }
           .tag(SettingsTab.recording)
-        RefinementSettingsTab(model: model)
+        RefinementSettingsTab(model: model, chatGPTAccount: chatGPTAccount)
           .tabItem { Label("整形", systemImage: "text.badge.checkmark") }
           .tag(SettingsTab.refinement)
         CostSettingsTab(model: model)
@@ -205,6 +207,7 @@ private struct RecordingSettingsTab: View {
 
 private struct RefinementSettingsTab: View {
   @Bindable var model: SettingsModel
+  let chatGPTAccount: ChatGPTAccountSettingsModel
 
   var body: some View {
     Form {
@@ -216,20 +219,35 @@ private struct RefinementSettingsTab: View {
         }
         .pickerStyle(.radioGroup)
         IssueText(issues: model.issues(in: [.providerUnavailable]))
-        Text("ChatGPT は利用条件の確認（Phase 0）が終わるまで選べません。")
+        Text("ChatGPT は、ChatGPT プランを使う Sign in with ChatGPT と、OpenAI API キー方式（準備中）を別々に選びます。")
           .font(.caption).foregroundStyle(.secondary)
-        if model.form.provider == .claude {
+        switch model.form.provider {
+        case .claude:
           Text("クラウド AI へは、送信の同意がない間は送信しません。API キーと同意は別の画面で設定します。")
             .font(.caption).foregroundStyle(.secondary)
+        case .chatGPTSignIn:
+          Text("ChatGPT へは、送信の同意とサインインがそろうまで送信しません。同意は別の画面で設定します。")
+            .font(.caption).foregroundStyle(.secondary)
+        case .localBasic, .openAIAPIKey:
+          EmptyView()
         }
       } header: {
         Text("処理系")
+      }
+      if model.form.provider == .chatGPTSignIn {
+        ChatGPTAccountSection(
+          account: chatGPTAccount, modelName: $model.form.chatGPTRefinementModel)
+        if model.form.notices.contains(.chatGPTModelNotSelected) {
+          Section {
+            NoticeText(notice: .chatGPTModelNotSelected)
+          }
+        }
       }
       Section("整形") {
         Picker("整形モード", selection: $model.form.refinementMode) {
           ForEach(RefinementModeSetting.allCases, id: \.self) { Text($0.label).tag($0) }
         }
-        TextField("整形用モデル名", text: $model.form.refinementModel)
+        TextField("Claude の整形用モデル名", text: $model.form.refinementModel)
         IssueText(issues: model.issues(in: [.refinementModelEmpty]))
         Text("既定は \(AppSettings.defaultRefinementModel)。モデルの廃止・改名に合わせて変更できます。")
           .font(.caption).foregroundStyle(.secondary)
@@ -257,7 +275,7 @@ private struct CostSettingsTab: View {
         }
         TextField("通貨（例: USD）", text: $model.form.currencyCode)
         IssueText(issues: model.issues(in: [.currencyCode]))
-        ForEach(model.form.notices.filter { $0 != .performanceRetentionNotAllowed }, id: \.self) {
+        ForEach(model.form.notices.filter(\.isCostNotice), id: \.self) {
           NoticeText(notice: $0)
         }
       }

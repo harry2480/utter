@@ -257,3 +257,29 @@ public final class StubChatGPTSignInFlow: ChatGPTLoopbackServer, ChatGPTBrowserO
     }
   }
 }
+
+extension StubChatGPTAccountStore {
+  /// サインイン済みの記録を持つ保存先（アプリのテスト用）。トークン・クライアントID は仮の値
+  ///
+  /// - Parameters:
+  ///   - email: ID トークンのメールアドレス
+  ///   - planUsage: プラン利用（`chatgpt.tokens.use.direct`）が許可されているか
+  ///   - expiresAt: アクセストークンの期限
+  public static func signedIn(
+    email: String? = "user@example.com", planUsage: Bool = true,
+    expiresAt: Date = .distantFuture
+  ) -> StubChatGPTAccountStore {
+    var scopes = ["openid", "profile", "email", "offline_access", "resource.invoke"]
+    if planUsage {
+      scopes.append(ChatGPTSignIn.planUsageScope)
+    }
+    let record = ChatGPTAccountRecord(
+      hostID: ChatGPTHostID(rawValue: "urn:uuid:00000000-0000-4000-8000-000000000000"),
+      registration: ChatGPTRegistration(
+        clientID: "oaiapp_stub", subject: "stub-subject", email: email),
+      tokens: ChatGPTTokens(
+        accessToken: "stub-access-token", refreshToken: "stub-refresh-token",
+        idToken: "stub-id-token", expiresAt: expiresAt, scopes: scopes))
+    return StubChatGPTAccountStore(record: record)
+  }
+}

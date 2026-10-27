@@ -390,6 +390,11 @@ public struct ChatGPTModel: Hashable, Sendable, Identifiable {
   /// 画面に出す名前
   public let displayName: String
 
+  public init(slug: String, displayName: String) {
+    self.slug = slug
+    self.displayName = displayName
+  }
+
   public var id: String { slug }
 }
 
