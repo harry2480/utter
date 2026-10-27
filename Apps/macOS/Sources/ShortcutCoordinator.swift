@@ -8,6 +8,8 @@ import UtterCore
 /// ショートカット以外の要因でセッションの状態が変わったら `sessionPhaseDidChange()` を呼ぶ
 /// （Esc の捕捉をセッション中だけ有効にするため）。
 ///
+/// 割当は設定（版2設定）の録音ショートカットと録音の操作方式で、設定画面で変わったら `updateSetting(_:)` で受け取り、
+/// 進行中のセッションが終わってから登録し直す。
 /// 修飾キー単独と Esc 捕捉（#51 の判定待ち）は既定で無効（`ShortcutCapabilities.keyCombinationsOnly`）。
 @MainActor
 @Observable
@@ -18,18 +20,24 @@ final class ShortcutCoordinator {
   @ObservationIgnored private var controller: GlobalShortcutController?
   @ObservationIgnored private var resetObservers: [any NSObjectProtocol] = []
   @ObservationIgnored private var permissionTimer: Timer?
+  /// 起動引数の割当（Debug ビルドだけ）を使い、設定の変更に従わないか
+  @ObservationIgnored private let usesDebugSetting: Bool
 
   /// 権限の取り消し・許可を確かめる間隔（仮置き。権限の変化を検出する OS の通知がないため定期的に確かめる。
   /// CGPreflightListenEventAccess・AXIsProcessTrusted は軽い呼び出しで、イベントタップを使う機能が有効なときだけ動かす）
   private static let permissionCheckInterval: TimeInterval = 5
 
   /// - Parameters:
+  ///   - setting: 起動時の割当（保存された設定から作る）。`nil` なら何も登録しない
   ///   - currentPhase: セッションの現在の状態
   ///   - perform: 実行するセッション操作
   init(
+    setting: GlobalShortcutSetting?,
     currentPhase: @escaping @MainActor () -> SessionPhase,
     perform: @escaping @MainActor (ShortcutCommand) -> Void
   ) {
+    let debugSetting = Self.debugSetting()
+    usesDebugSetting = debugSetting != nil
     let controller = GlobalShortcutController(
       registrar: CarbonHotKeyRegistrar(),
       tapFactory: CGKeyEventTapFactory(),
@@ -50,7 +58,7 @@ final class ShortcutCoordinator {
         MainActor.assumeIsolated { self?.controller?.reset() }
       }
     }
-    controller.apply(Self.initialSetting())
+    controller.apply(debugSetting ?? setting)
     syncStatus()
     // イベントタップを使わないなら権限を確かめない（PERM-01）
     if controller.usesEventTaps {
@@ -96,6 +104,15 @@ final class ShortcutCoordinator {
     controller?.requestPermission(permission)
   }
 
+  /// 設定画面で割当（録音ショートカット・録音の操作方式）が変わったときに呼ぶ。
+  ///
+  /// 待機中ならすぐに、セッション中なら待機に戻ってから登録し直す。同じ割当なら何もしない。
+  /// 起動引数で割り当てたとき（Debug ビルドだけ）は、その割当のまま変えない
+  func updateSetting(_ setting: GlobalShortcutSetting?) {
+    guard !usesDebugSetting else { return }
+    controller?.update(setting)
+  }
+
   /// セッションの状態が、ショートカット以外の要因（認識の完了・自動停止・メニューの操作など）で変わったときに呼ぶ
   func sessionPhaseDidChange() {
     controller?.sessionPhaseDidChange()
@@ -125,12 +142,12 @@ final class ShortcutCoordinator {
     #endif
   }
 
-  /// 起動時の割当。設定の保存（版2設定）が入るまでは割当なしで、何も登録しない。
+  /// 起動引数の割当。保存された設定より優先する。Release ビルドと、起動引数がないときは `nil`。
   ///
   /// Debug ビルドに限り、実機確認のため起動引数で割り当てられる:
   /// `open utter.app --args -UtterDebugRecordShortcut ctrl+option+k -UtterDebugRecordShortcutMode ptt`
   /// 修飾キー単独は `fn`・`right-option` 等（`-UtterDebugModifierOnlyShortcut YES` も必要）
-  private static func initialSetting() -> GlobalShortcutSetting? {
+  private static func debugSetting() -> GlobalShortcutSetting? {
     #if DEBUG
       // 保存済みの設定（defaults write）は読まず、起動引数だけを見る
       let arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)

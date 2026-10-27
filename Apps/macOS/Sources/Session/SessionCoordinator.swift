@@ -19,6 +19,7 @@ import UtterSpeech
 /// - 処理中の開始操作は無視する（REC-06）
 /// - 入力モードが Realtime Preview なら、認識の `partial` / `confirmed` を `TranscriptPreview` に溜めて HUD に出す（2.2節, AC-03）。
 ///   Instant（既定）では出さない。入力欄への挿入はどちらも停止後に一括で行う
+/// - 最大録音時間と入力モードは、`useSettings(_:)` で渡した値を次のセッションの開始時から使う。録音中・処理中のセッションは変えない
 /// - 発話本文はログに出さない。HUD に出すのは Realtime Preview の録音中・認識中の認識テキストだけ。
 ///   挿入できなければ挿入側がコピー可能なプレビューへ退避する（AC-09）
 /// - 録音のチャンクは一時音声の差し込み口にも渡す。STT Worker の異常終了で認識が失敗したら、録音が止まるのを待って
@@ -37,7 +38,11 @@ final class SessionCoordinator {
   @ObservationIgnored private let recognizer: (any SpeechRecognizer)?
   @ObservationIgnored private let refiner: any SessionRefining
   @ObservationIgnored private let refinementReporter: (any SessionRefinementReporting)?
-  @ObservationIgnored private let showsRealtimePreview: Bool
+  /// 進行中のセッションの入力モードが Realtime Preview か。セッションの開始時に `nextSettings` から決める
+  @ObservationIgnored private var showsRealtimePreview: Bool
+  /// 次のセッションから使う設定（`useSettings(_:)`）
+  @ObservationIgnored private var nextSettings: SessionSettings
+  @ObservationIgnored private let makeSessionID: @Sendable () -> SessionID
   @ObservationIgnored private let inserter: any SessionTextInserting
   @ObservationIgnored private let history: (any SessionHistoryRecording)?
   @ObservationIgnored private let hud: HUDController
@@ -58,8 +63,8 @@ final class SessionCoordinator {
   ///   - recognizer: 音声認識。エンジンが選ばれていなければ `nil`（Phase 0 の判定待ちで既定のエンジンを持たない）
   ///   - refiner: 整形（TXT-01, AI-01, AI-03）。録音開始時の前面アプリをスタイル区分の判定に渡す（CTX-01）
   ///   - refinementReporter: 整形の経路を知らせる差し込み口（AC-16）。退避の HUD 通知はこれによらず `hud` に出す
-  ///   - showsRealtimePreview: 入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）。
-  ///     入力モードの設定（#130）を結線するまでは構成値で選ぶ
+  ///   - configuration: 起動時の最大録音時間など（REC-05）。設定画面の変更は `useSettings(_:)` で渡す
+  ///   - showsRealtimePreview: 起動時の入力モードが Realtime Preview か（2.2節）。`false` は Instant（MVP 標準）
   ///   - history: 入力履歴への保存（7章, AC-12）。`nil` なら保存しない
   ///   - audioRetention: 一時音声の保存の差し込み口（7章, AC-10）。`nil` なら保存しない
   ///   - recognitionRecovery: 失敗した認識を録音音声でやり直すかの判断（7章, AC-10）。`nil`、または `audioRetention` が
@@ -88,6 +93,9 @@ final class SessionCoordinator {
     self.refiner = refiner
     self.refinementReporter = refinementReporter
     self.showsRealtimePreview = showsRealtimePreview
+    nextSettings = SessionSettings(
+      configuration: configuration, showsRealtimePreview: showsRealtimePreview)
+    self.makeSessionID = makeSessionID
     self.inserter = inserter
     self.history = history
     self.hud = hud
@@ -119,6 +127,13 @@ final class SessionCoordinator {
   /// `suspendIfIdle()` で止めた開始操作を受け付け直す
   func resume() {
     isSuspended = false
+  }
+
+  /// 設定画面で保存した最大録音時間と入力モードを、次のセッションの開始時から使う（REC-05, 2.2節）。
+  ///
+  /// 録音中・処理中のセッションの最大録音時間のタイマー・音声バッファ・HUD の表示は変えない
+  func useSettings(_ settings: SessionSettings) {
+    nextSettings = settings
   }
 
   /// 進行中のセッション。テストと表示の確認に使う
@@ -158,6 +173,7 @@ final class SessionCoordinator {
   /// 起動時の復旧が音声認識を使っている間（`suspendIfIdle()` から `resume()` まで）も無視する
   func startRecording() {
     guard machine.phase == .idle, !isSuspended else { return }
+    applyNextSettings()
     guard let recognizer else {
       failWithoutRecording(notice: .speechRecognitionNotConfigured)
       return
@@ -496,6 +512,15 @@ final class SessionCoordinator {
 
   private func isActive(_ session: SessionID) -> Bool {
     machine.activeSession?.id == session
+  }
+
+  /// 次のセッションから使う設定を反映する。待機中（進行中のセッションがない）ときだけ呼ぶ
+  private func applyNextSettings() {
+    showsRealtimePreview = nextSettings.showsRealtimePreview
+    guard nextSettings.configuration != machine.configuration else { return }
+    // 状態機械の構成は変えられないため作り直す。待機中は進行中のセッションを持たないので、作り直しても失うものはない
+    machine = SessionStateMachine(
+      configuration: nextSettings.configuration, makeSessionID: makeSessionID)
   }
 
   /// 状態機械の変化を HUD・最大録音時間のタイマー・表示へ反映する

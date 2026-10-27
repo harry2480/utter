@@ -212,6 +212,89 @@ struct GlobalShortcutControllerTests {
     // 録音中の押下は取りこぼしからの回復として停止する（ShortcutInterpreter）
     #expect(harness.commands == [.startRecording, .stopRecording])
   }
+
+  // MARK: 設定画面の変更（update）
+
+  @Test("REC-01: 待機中に設定で割当が変わったら、すぐに登録し直す")
+  func updateWhileIdleAppliesImmediately() throws {
+    let harness = Harness()
+    harness.controller.apply(try setting("ctrl+option+k"))
+    let target = try setting("ctrl+option+j", .pushToTalk)
+    harness.controller.update(target)
+    #expect(harness.controller.status == .active(target))
+    #expect(
+      Array(harness.registrar.registered.values)
+        == [
+          CarbonHotKeySpec(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey))
+        ])
+  }
+
+  @Test("REC-02: 同じ割当なら登録し直さず、登録失敗の表示もそのまま残す")
+  func updateWithSameSettingKeepsRegistration() throws {
+    let harness = Harness()
+    let target = try setting("ctrl+option+k")
+    harness.registrar.nextFailure = .alreadyRegistered
+    let failed = harness.controller.apply(target)
+    harness.controller.update(target)
+    #expect(harness.controller.status == failed)
+    #expect(harness.registrar.registered.isEmpty)
+    #expect(harness.systemShortcutLoads == 1)
+  }
+
+  @Test("REC-02: セッション中に割当が変わったら、待機に戻ってから登録し直す（押下中の Push-to-talk を保つ）")
+  func updateDuringSessionWaitsForIdle() throws {
+    let harness = Harness()
+    let original = try setting("ctrl+option+k", .pushToTalk)
+    harness.controller.apply(original)
+    harness.registrar.send(.pressed)
+    #expect(harness.phase == .recording)
+
+    let target = try setting("ctrl+option+j", .toggle)
+    harness.controller.update(target)
+    harness.controller.sessionPhaseDidChange()
+    #expect(harness.controller.status == .active(original))
+    #expect(harness.registrar.unregisteredIDs.isEmpty)
+
+    // 押下中の Push-to-talk は元の割当のまま、解放で停止する
+    harness.registrar.send(.released)
+    #expect(harness.commands == [.startRecording, .stopRecording])
+    harness.controller.sessionPhaseDidChange()
+    #expect(harness.controller.status == .active(original))
+
+    harness.phase = .idle
+    harness.controller.sessionPhaseDidChange()
+    #expect(harness.controller.status == .active(target))
+    #expect(harness.registrar.unregisteredIDs.count == 1)
+  }
+
+  @Test("REC-01: セッション中に割当が外されたら、待機に戻ってから登録を解除する")
+  func updateToUnassignedDuringSession() throws {
+    let harness = Harness()
+    harness.controller.apply(try setting("ctrl+option+k"))
+    harness.registrar.send(.pressed)
+    harness.controller.update(nil)
+    #expect(!harness.registrar.registered.isEmpty)
+
+    harness.phase = .idle
+    harness.controller.sessionPhaseDidChange()
+    #expect(harness.controller.status == .unassigned)
+    #expect(harness.registrar.registered.isEmpty)
+  }
+
+  @Test("REC-01: セッション中に割当を元に戻したら、待機に戻っても登録し直さない")
+  func updateRevertedDuringSession() throws {
+    let harness = Harness()
+    let original = try setting("ctrl+option+k")
+    harness.controller.apply(original)
+    harness.registrar.send(.pressed)
+    harness.controller.update(try setting("ctrl+option+j"))
+    harness.controller.update(original)
+
+    harness.phase = .idle
+    harness.controller.sessionPhaseDidChange()
+    #expect(harness.controller.status == .active(original))
+    #expect(harness.registrar.unregisteredIDs.isEmpty)
+  }
 }
 
 struct HotKeyEventTranslatorTests {
