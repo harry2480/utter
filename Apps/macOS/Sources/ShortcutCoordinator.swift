@@ -29,17 +29,19 @@ final class ShortcutCoordinator {
 
   /// - Parameters:
   ///   - setting: 起動時の割当（保存された設定から作る）。`nil` なら何も登録しない
+  ///   - registrar: ホットキーの登録。Edit Mode のショートカット（`EditModeShortcut`）と同じものを渡す
   ///   - currentPhase: セッションの現在の状態
   ///   - perform: 実行するセッション操作
   init(
     setting: GlobalShortcutSetting?,
+    registrar: any HotKeyRegistering,
     currentPhase: @escaping @MainActor () -> SessionPhase,
     perform: @escaping @MainActor (ShortcutCommand) -> Void
   ) {
     let debugSetting = Self.debugSetting()
     usesDebugSetting = debugSetting != nil
     let controller = GlobalShortcutController(
-      registrar: CarbonHotKeyRegistrar(),
+      registrar: registrar,
       tapFactory: CGKeyEventTapFactory(),
       permissions: SystemEventTapPermissions(),
       capabilities: Self.capabilities(),

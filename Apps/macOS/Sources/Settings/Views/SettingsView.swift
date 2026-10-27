@@ -131,6 +131,13 @@ private struct NoticeText: View {
 private struct RecordingSettingsTab: View {
   @Bindable var model: SettingsModel
 
+  /// Edit Mode のショートカットの説明（AC-14, AC-06）
+  static let editModeCaption = [
+    "録音とは別のキーを割り当てます。未割り当ての間は Edit Mode を使いません。",
+    "押すと選択テキストを読み、指示を録音します。もう一度押すと録音を止め、選択テキストと指示を Claude へ送って編集案を表示します。",
+    "送るには、クラウド送信の同意の画面で「選択テキストの編集」への同意と、Claude API キー・月次予算・単価表が要ります。",
+  ].joined()
+
   var body: some View {
     Form {
       Section("録音") {
@@ -147,6 +154,12 @@ private struct RecordingSettingsTab: View {
           }
         }
         IssueText(issues: model.issues(in: [.maxRecordingDuration]))
+      }
+      Section("Edit Mode（選択テキストを音声の指示で編集）") {
+        RecordingShortcutRow(
+          model: model, title: "Edit Mode のショートカット", shortcut: \.editModeShortcut,
+          issueKinds: [.editModeShortcut, .editModeShortcutSameAsRecording],
+          caption: Self.editModeCaption)
       }
       Section("入力") {
         Picker("入力モード", selection: $model.form.inputMode) {

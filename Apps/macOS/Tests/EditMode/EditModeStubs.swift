@@ -73,6 +73,8 @@ final class StubEditPresenter: EditModePresenting {
   }
 
   var events: [Event] = []
+  /// 進行中の表示の移り変わり（`nil` は閉じた）。`events` とは分けて記録する
+  var statuses: [EditModeStatus?] = []
 
   var proposals: [String] {
     events.compactMap { if case .proposal(let text) = $0 { text } else { nil } }
@@ -100,5 +102,14 @@ final class StubEditPresenter: EditModePresenting {
 
   func showFallback(text: String, cause: EditFallbackCause) {
     events.append(.fallback(text, cause))
+  }
+
+  func showStatus(_ status: EditModeStatus?) {
+    statuses.append(status)
+  }
+
+  /// 最後の進行中の表示
+  var currentStatus: EditModeStatus? {
+    statuses.last ?? nil
   }
 }

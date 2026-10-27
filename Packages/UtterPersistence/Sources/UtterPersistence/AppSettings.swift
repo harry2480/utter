@@ -14,7 +14,9 @@ public struct AppSettings: Hashable, Sendable {
   /// - 版 2：録音の操作方式・録音ショートカット・入力モード・整形モード・モデル保持モード、
   ///   サイト単位の識別の許可とサイト別のスタイル上書き（CTX-02）を追加。
   ///   版 1 の項目はそのまま引き継ぎ（旧既定の整形用モデル名だけ新しい既定値に置き換える）、追加した項目は既定値で補う。
-  ///   サイト別の項目は版 2 のリリース前に足した。ない保存値は既定値（許可なし・上書きなし）で読むため、版を分けない
+  ///   サイト別の項目は版 2 のリリース前に足した。ない保存値は既定値（許可なし・上書きなし）で読むため、版を分けない。
+  ///   Edit Mode のショートカット（AC-14）も版 2 に足した。ない保存値は未割り当てで読み、既存の項目は変えないため版を分けない
+  ///   （版を上げると、上げる前のアプリが新しい保存値を未知の版としてすべて既定値で読むため）
   public static let currentVersion = 2
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
@@ -49,6 +51,12 @@ public struct AppSettings: Hashable, Sendable {
   /// 保存時は割り当てられるかを判定しない。修飾キー単独を使えるか・競合・Esc の予約は、
   /// 利用時に `ShortcutValidator`（`ShortcutCapabilities`）で判定する
   public var recordingShortcut: KeyCombination?
+
+  /// Edit Mode（AC-14）を始めるショートカット。録音ショートカットとは別のキーにする。既定は未割り当て（`nil`）で、
+  /// 割り当てるまで Edit Mode を使わない。
+  ///
+  /// 録音ショートカットと同じキーかは保存時（設定画面）と登録時に判定し、同じなら登録しない
+  public var editModeShortcut: KeyCombination?
 
   /// 入力モード（2.2節）。既定は Instant（MVP 標準）
   public var inputMode: InputMode
@@ -109,6 +117,7 @@ public struct AppSettings: Hashable, Sendable {
     maxRecordingDuration: Double = AppSettings.defaultMaxRecordingDuration,
     recordingTrigger: ShortcutTriggerMode = .toggle,
     recordingShortcut: KeyCombination? = nil,
+    editModeShortcut: KeyCombination? = nil,
     inputMode: InputMode = .instant,
     refinementMode: RefinementModeSetting = .natural,
     refinementEngine: RefinementEngine = .localBasic,
@@ -127,6 +136,7 @@ public struct AppSettings: Hashable, Sendable {
     self.maxRecordingDuration = Self.normalizedMaxRecordingDuration(maxRecordingDuration)
     self.recordingTrigger = recordingTrigger
     self.recordingShortcut = recordingShortcut
+    self.editModeShortcut = editModeShortcut
     self.inputMode = inputMode
     self.refinementMode = refinementMode
     self.refinementEngine = refinementEngine
@@ -198,6 +208,7 @@ extension AppSettings: Codable {
     case maxRecordingDuration
     case recordingTrigger
     case recordingShortcut
+    case editModeShortcut
     case inputMode
     case refinementMode
     case refinementEngine
@@ -273,6 +284,8 @@ extension AppSettings: Codable {
       value(ShortcutTriggerMode.self, .recordingTrigger) ?? recordingTrigger
     // 読めないショートカットは未設定に戻す（割り当てを推測で作らない）
     recordingShortcut = value(KeyCombination.self, .recordingShortcut)
+    // 読めない・ない Edit Mode のショートカットは未割り当てに戻す（AC-14。割り当てを推測で作らない）
+    editModeShortcut = value(KeyCombination.self, .editModeShortcut)
     inputMode = value(InputMode.self, .inputMode) ?? inputMode
     refinementMode = value(RefinementModeSetting.self, .refinementMode) ?? refinementMode
     modelRetentionMode =
@@ -319,6 +332,7 @@ extension AppSettings: Codable {
     try container.encode(maxRecordingDuration, forKey: .maxRecordingDuration)
     try container.encode(recordingTrigger, forKey: .recordingTrigger)
     try container.encodeIfPresent(recordingShortcut, forKey: .recordingShortcut)
+    try container.encodeIfPresent(editModeShortcut, forKey: .editModeShortcut)
     try container.encode(inputMode, forKey: .inputMode)
     try container.encode(refinementMode, forKey: .refinementMode)
     try container.encode(refinementEngine, forKey: .refinementEngine)

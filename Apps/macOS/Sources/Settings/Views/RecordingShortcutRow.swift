@@ -3,19 +3,29 @@ import Observation
 import SwiftUI
 import UtterCore
 
-/// 設定画面の「ショートカット」の行（REC-01, REC-02）。現在の割当と、「記録」「解除」のボタンを出す。
+/// 設定画面の「ショートカット」の行（REC-01, REC-02, AC-14）。現在の割当と、「記録」「解除」のボタンを出す。
 ///
-/// 記録した組み合わせは `SettingsForm.recordingShortcut` に入れるだけで、ほかの項目と同じ「保存」で保存する。
+/// 録音ショートカットと Edit Mode のショートカットで共有する。どの項目を編集するかは `shortcut` で選ぶ。
+/// 記録した組み合わせは `SettingsForm` の `shortcut` の項目に入れるだけで、ほかの項目と同じ「保存」で保存する。
 /// 記録中だけ設定ウインドウのキー入力を受け取り、画面が消えたとき（ウインドウを閉じた・タブを移った）、
 /// 設定ウインドウがキーウインドウでなくなったとき（辞書などほかのウインドウに移った）、
 /// アプリが前面でなくなったときに記録をやめる。
 struct RecordingShortcutRow: View {
   @Bindable var model: SettingsModel
+  /// 行の見出し
+  var title = "ショートカット"
+  /// 編集する項目
+  var shortcut: WritableKeyPath<SettingsForm, KeyCombination?> = \.recordingShortcut
+  /// この行の下に出す保存時の問題
+  var issueKinds: Set<SettingsIssue> = [.recordingShortcut]
+  /// 行の下に出す説明
+  var caption =
+    "Command・Option・Control のいずれかを含む組み合わせか、F1〜F20 を割り当てられます。変更は「保存」で反映します。"
   @State private var recording = ShortcutRecordingMonitor()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      LabeledContent("ショートカット") {
+      LabeledContent(title) {
         HStack {
           Text(shortcutText)
             .foregroundStyle(recording.isRecording ? Color.secondary : Color.primary)
@@ -27,21 +37,21 @@ struct RecordingShortcutRow: View {
               recording.start(
                 systemShortcuts: SystemShortcuts.loadEnabledBindings(), in: NSApp.keyWindow
               ) {
-                model.form.recordingShortcut = $0
+                model.form[keyPath: shortcut] = $0
               }
             }
-            Button("解除") { model.form.recordingShortcut = nil }
-              .disabled(model.form.recordingShortcut == nil)
+            Button("解除") { model.form[keyPath: shortcut] = nil }
+              .disabled(model.form[keyPath: shortcut] == nil)
           }
         }
       }
       if let issue = recording.issue {
         Text(issue.message).font(.caption).foregroundStyle(.red)
       }
-      ForEach(model.issues(in: [.recordingShortcut]), id: \.self) { issue in
+      ForEach(model.issues(in: issueKinds), id: \.self) { issue in
         Text(issue.message).font(.caption).foregroundStyle(.red)
       }
-      Text("Command・Option・Control のいずれかを含む組み合わせか、F1〜F20 を割り当てられます。変更は「保存」で反映します。")
+      Text(caption)
         .font(.caption).foregroundStyle(.secondary)
     }
     // ウインドウを閉じた・タブを移ったときに、記録中のモニターを外す
@@ -55,7 +65,7 @@ struct RecordingShortcutRow: View {
     if recording.isRecording {
       return ShortcutRecorder.promptText
     }
-    return ShortcutRecorder.displayText(for: model.form.recordingShortcut)
+    return ShortcutRecorder.displayText(for: model.form[keyPath: shortcut])
   }
 }
 

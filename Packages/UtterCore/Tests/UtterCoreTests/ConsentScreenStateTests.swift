@@ -61,6 +61,35 @@ struct ConsentScreenStateTests {
     #expect(!screen.consent.allowsFallback(from: .claude, to: .chatGPT))
   }
 
+  @Test("AC-06, AC-14: Edit Mode のある画面では、選択テキストの送信の行を整形の行とは別に表示する")
+  func editModeScopesAreShownSeparately() {
+    var screen = ConsentScreenState(additionalScopes: ConsentScreenState.editModeScopes)
+
+    #expect(
+      screen.rows.map(\.scope) == [
+        .transmission(.textRefinement(.claude)), .transmission(.editSelection(.claude)),
+      ])
+    #expect(screen.rows.allSatisfy { $0.status == .notGranted })
+
+    screen.setGranted(true, for: .transmission(.editSelection(.claude)))
+    #expect(screen.consent.allows(.editSelection(.claude)))
+    #expect(!screen.consent.allows(.textRefinement(.claude)))
+    #expect(screen.rows.map(\.statusLabel) == ["未同意", "同意済み"])
+
+    screen.setGranted(false, for: .transmission(.editSelection(.claude)))
+    #expect(!screen.consent.allows(.editSelection(.claude)))
+    #expect(screen.rows.map(\.statusLabel) == ["未同意", "撤回済み"])
+  }
+
+  @Test("AC-06: 画面ごとの対象を重ねて渡しても、同じ行を二重に表示しない")
+  func additionalScopesAreNotDuplicated() {
+    let expected = ConsentScreenState.presentedScopes + ConsentScreenState.editModeScopes
+    let screen = ConsentScreenState(
+      additionalScopes: expected + ConsentScreenState.editModeScopes)
+
+    #expect(screen.shownScopes == expected)
+  }
+
   @Test(
     "AC-06: 送信機能のない対象に同意済みの状態を読んだら、撤回できるよう行を表示する",
     arguments: [

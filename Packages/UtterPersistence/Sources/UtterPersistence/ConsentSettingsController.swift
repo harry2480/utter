@@ -8,14 +8,18 @@ import UtterCore
 /// `AppSettingsStore` と同じく `Sendable` にしない。アプリ側で1つの隔離領域（`@MainActor` など）から使う。
 public struct ConsentSettingsController {
   private let store: AppSettingsStore
+  private let additionalScopes: [ConsentScope]
 
-  public init(store: AppSettingsStore) {
+  /// - Parameter additionalScopes: 画面に常に表示する、その画面の機能の同意対象
+  ///   （`ConsentScreenState.init(consent:additionalScopes:)`。macOS の Edit Mode など）
+  public init(store: AppSettingsStore, additionalScopes: [ConsentScope] = []) {
     self.store = store
+    self.additionalScopes = additionalScopes
   }
 
   /// 保存済みの同意状態から画面の状態を作る。未保存・読めない値ならすべて未同意
   public func load() -> ConsentScreenState {
-    ConsentScreenState(consent: currentConsent())
+    ConsentScreenState(consent: currentConsent(), additionalScopes: additionalScopes)
   }
 
   /// 保存済みの最新の同意状態
@@ -29,7 +33,8 @@ public struct ConsentSettingsController {
   @discardableResult
   public func setGranted(_ granted: Bool, for scope: ConsentScope) throws -> ConsentScreenState {
     var settings = store.load()
-    var screen = ConsentScreenState(consent: settings.consentState)
+    var screen = ConsentScreenState(
+      consent: settings.consentState, additionalScopes: additionalScopes)
     screen.setGranted(granted, for: scope)
     settings.consentState = screen.consent
     try store.save(settings)

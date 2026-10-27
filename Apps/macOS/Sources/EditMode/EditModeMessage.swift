@@ -7,6 +7,12 @@ enum EditModeMessage {
     switch notice {
     case .couldNotStart(let failure): text(for: failure)
     case .notEdited(let reason): text(for: reason)
+    case .notSent(let reason): text(for: reason)
+    case .speechRecognitionNotConfigured:
+      // 録音のセッションの HUD（`HUDNotice.speechRecognitionNotConfigured`）と同じ文言
+      "音声認識が設定されていません"
+    case .sessionInProgress: "音声入力の処理中のため、Edit を始めませんでした。終わってからもう一度押してください。"
+    case .instructionNotRecorded(let failure): text(for: failure)
     case .replaced(verified: true): "選択範囲を置き換えました。"
     case .replaced(verified: false):
       "選択範囲を置き換えましたが、反映を確認できませんでした。入力欄を確かめてください。"
@@ -41,6 +47,35 @@ enum EditModeMessage {
     case .providerFailed: "編集案を取得できませんでした。選択範囲は変えていません。"
     case .validationFailed(.unchanged): "編集案が選択テキストと変わらなかったため、編集しませんでした。"
     case .validationFailed: "編集案として使えない応答だったため、編集しませんでした。選択範囲は変えていません。"
+    }
+  }
+
+  static func text(for reason: EditSendUnavailableReason) -> String {
+    switch reason {
+    case .apiKeyNotSet:
+      "Claude API キーが保存されていないため、送信しませんでした。設定画面の「API キー」で保存してください。"
+    case .apiKeyUnavailable: "Claude API キーを読み出せないため、送信しませんでした。選択範囲は変えていません。"
+    case .cloudUnavailable: "送信の設定（整形用モデル名）を使えないため、送信しませんでした。選択範囲は変えていません。"
+    case .budgetUnavailable:
+      "予算の上限を確かめられないため、送信しませんでした。設定画面の「費用」で月次予算と単価表を設定してください。"
+    }
+  }
+
+  static func text(for failure: EditInstructionFailure) -> String {
+    switch failure {
+    case .microphoneAccessDenied:
+      "マイクの使用が許可されていないため、指示を録音できません。システム設定で utter を許可してください。"
+    case .recordingFailed: "指示を録音できませんでした。選択範囲は変えていません。"
+    case .recognitionFailed: "指示を認識できませんでした。選択範囲は変えていません。"
+    }
+  }
+
+  /// 進行中の表示
+  static func text(for status: EditModeStatus) -> String {
+    switch status {
+    case .listening: "指示を話してください。終わったら、もう一度 Edit Mode のショートカットを押します。"
+    case .recognizing: "指示を認識しています…"
+    case .requesting: "編集案を待っています…"
     }
   }
 

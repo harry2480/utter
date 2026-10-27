@@ -97,6 +97,54 @@ struct SettingsFormTests {
     #expect(issues(SettingsForm(settings: base), base: base) == [.recordingShortcut])
   }
 
+  // MARK: - Edit Mode のショートカット（AC-14）
+
+  @Test("AC-14: Edit Mode のショートカットは既定で未割り当てのまま保存し、記録・解除を保存する")
+  func editModeShortcutIsApplied() throws {
+    let untouched = try SettingsForm(settings: AppSettings()).applied(to: AppSettings())
+    #expect(untouched.editModeShortcut == nil)
+
+    let e = try #require(ShortcutKey(rawValue: "e"))
+    let recorded = KeyCombination(key: e, modifiers: [.option, .command])
+    var form = SettingsForm(settings: AppSettings())
+    form.editModeShortcut = recorded
+
+    let saved = try form.applied(to: AppSettings())
+    #expect(saved.editModeShortcut == recorded)
+    #expect(saved.recordingShortcut == nil)
+
+    var cleared = SettingsForm(settings: saved)
+    #expect(cleared.editModeShortcut == recorded)
+    cleared.editModeShortcut = nil
+    #expect(try cleared.applied(to: saved).editModeShortcut == nil)
+  }
+
+  @Test("AC-14: 録音ショートカットと同じキーは Edit Mode に割り当てず、問題にする")
+  func editModeShortcutSameAsRecordingIsRejected() throws {
+    let shortcut = KeyCombination(key: .space, modifiers: [.option, .command])
+    var form = SettingsForm(settings: AppSettings())
+    form.recordingShortcut = shortcut
+    form.editModeShortcut = shortcut
+
+    #expect(issues(form) == [.editModeShortcutSameAsRecording])
+
+    form.editModeShortcut = KeyCombination(key: .space, modifiers: [.control, .command])
+    #expect(issues(form).isEmpty)
+  }
+
+  @Test(
+    "AC-14: 登録できない保存済みの Edit Mode のショートカットは保存せず、問題にする",
+    arguments: [
+      KeyCombination(modifierOnly: .option),
+      KeyCombination(key: .space),
+      KeyCombination.escape,
+    ])
+  func unsupportedEditModeShortcutIsRejected(_ combination: KeyCombination?) {
+    let base = AppSettings(editModeShortcut: combination)
+
+    #expect(issues(SettingsForm(settings: base), base: base) == [.editModeShortcut])
+  }
+
   // MARK: - 除外アプリ（7章, AC-12）
 
   @Test("7章, AC-12: 保存済みの除外アプリを順に一覧にし、そのまま保存すると同じ値になる")

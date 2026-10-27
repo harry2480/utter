@@ -8,6 +8,8 @@ import Carbon.HIToolbox
 ///
 /// 排他登録（kEventHotKeyExclusive）にして、他のプロセスが同じ組み合わせを排他登録済みなら
 /// eventHotKeyExistsErr で失敗させ、競合として扱う。
+/// 録音と Edit Mode（AC-14）のショートカットは1つの登録者で登録する。登録者が複数あっても取りこぼさないよう、
+/// 自分が登録していない ID のイベントは処理済みにせず、ほかのハンドラへ渡す。
 @MainActor
 final class CarbonHotKeyRegistrar: HotKeyRegistering {
   private var eventHandler: EventHandlerRef?
@@ -63,8 +65,11 @@ final class CarbonHotKeyRegistrar: HotKeyRegistering {
     UnregisterEventHotKey(registered.ref)
   }
 
-  fileprivate func dispatch(id: UInt32, phase: HotKeyPhase) {
-    hotKeys[id]?.handler(phase)
+  /// 自分が登録した ID なら `handler` を呼んで `true`。登録していない ID なら `false`
+  fileprivate func dispatch(id: UInt32, phase: HotKeyPhase) -> Bool {
+    guard let registered = hotKeys[id] else { return false }
+    registered.handler(phase)
+    return true
   }
 
   private func installEventHandlerIfNeeded() -> OSStatus {
@@ -117,10 +122,10 @@ private func carbonHotKeyCallback(
   let address = UInt(bitPattern: userInfo)
   // アプリケーションのイベントターゲットへの配送はメインスレッドで行われる。
   // userInfo の登録者はハンドラを外すまで生存する（deinit で RemoveEventHandler する）
-  MainActor.assumeIsolated {
-    guard let pointer = UnsafeRawPointer(bitPattern: address) else { return }
-    Unmanaged<CarbonHotKeyRegistrar>.fromOpaque(pointer).takeUnretainedValue()
+  let handled = MainActor.assumeIsolated { () -> Bool in
+    guard let pointer = UnsafeRawPointer(bitPattern: address) else { return false }
+    return Unmanaged<CarbonHotKeyRegistrar>.fromOpaque(pointer).takeUnretainedValue()
       .dispatch(id: id, phase: phase)
   }
-  return noErr
+  return handled ? noErr : OSStatus(eventNotHandledErr)
 }

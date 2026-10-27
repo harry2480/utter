@@ -8,15 +8,17 @@ import UtterText
 /// 前面のアプリからフォーカスを奪わない浮動パネルにする（入力欄の選択範囲を保つため）。
 /// 自動で置き換え・復元できなかった文字列は `InsertionPreviewPanel` のコピーできるパネルへ退避する。
 /// HUD（#141）とは独立した最小限の表示で、HUD ができたら通知は HUD に寄せる。
+/// 音声指示の録音中・認識中・応答待ちは、キャンセルできる表示（`showStatus(_:)`）を次の表示まで出す。
 @MainActor
 final class EditModePanel: EditModePresenting {
   /// 確定ボタン。組み立て時に `EditModeCoordinator.commit()` へつなぐ
   var onCommit: (() -> Void)?
-  /// キャンセルボタン。組み立て時に `EditModeCoordinator.cancel()` へつなぐ
+  /// キャンセルボタン（差分プレビューと進行中の表示）。組み立て時に `EditModeController.cancel()` へつなぐ
   var onCancel: (() -> Void)?
 
   private let fallback: InsertionPreviewPanel
   private var proposalPanel: NSPanel?
+  private var statusPanel: NSPanel?
   private var noticePanel: NSPanel?
   private var noticeDismissal: Task<Void, Never>?
 
@@ -75,6 +77,27 @@ final class EditModePanel: EditModePresenting {
     fallback.showPreview(text: text, message: EditModeMessage.text(for: cause))
   }
 
+  func showStatus(_ status: EditModeStatus?) {
+    guard let status else {
+      statusPanel?.contentView = nil
+      statusPanel?.orderOut(nil)
+      statusPanel = nil
+      return
+    }
+    let panel =
+      statusPanel
+      ?? Self.makePanel(title: "utter — Edit", size: NSSize(width: 360, height: 110))
+    panel.contentView = NSHostingView(
+      rootView: EditStatusView(
+        text: EditModeMessage.text(for: status),
+        cancel: { [weak self] in self?.onCancel?() }))
+    if statusPanel == nil {
+      panel.center()
+      statusPanel = panel
+    }
+    panel.orderFrontRegardless()
+  }
+
   private static func makePanel(title: String, size: NSSize) -> NSPanel {
     let panel = NSPanel(
       contentRect: NSRect(origin: .zero, size: size),
@@ -89,6 +112,25 @@ final class EditModePanel: EditModePresenting {
     panel.becomesKeyOnlyIfNeeded = true
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     return panel
+  }
+}
+
+/// 録音中・認識中・応答待ちの表示と、キャンセルのボタン。
+private struct EditStatusView: View {
+  let text: String
+  let cancel: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text(text)
+        .fixedSize(horizontal: false, vertical: true)
+      HStack {
+        Spacer()
+        Button("キャンセル", action: cancel)
+      }
+    }
+    .padding(16)
+    .frame(minWidth: 320, alignment: .leading)
   }
 }
 
