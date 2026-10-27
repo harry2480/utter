@@ -33,7 +33,7 @@ public struct ConsentDisclosure: Hashable, Sendable {
       note = "文章整形への同意とは別の同意です。"
     case .transmission(.editSelection(let provider)):
       title = "\(Self.name(of: provider)) による選択テキストの編集"
-      content = "選択したテキストと、音声による編集の指示"
+      content = "選択したテキストと、音声による編集の指示・辞書語"
       destination = Self.destination(of: provider)
       notSent = ["音声"] + Self.contextNotSent
       note = "音声入力の整形への同意とは別の同意です。"

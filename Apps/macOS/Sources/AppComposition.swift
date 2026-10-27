@@ -18,6 +18,8 @@ import UtterSpeech
 /// 録音の設定（録音ショートカット・録音の操作方式・最大録音時間・入力モード）は起動時に保存値を読み、
 /// 設定画面で変わったら次のセッションから使う（`followRecordingSettings`）。
 /// 端末の状態（メモリ圧迫・低電力モード・電源）は起動から終了まで監視し、STT Worker へ送る（`DeviceResourceMonitoring`, 6章, AC-11）。
+/// Edit Mode（AC-14）は録音のセッションと同じ録音・STT Worker・API キー・データベースを使い、`EditModeController` で
+/// 録音のセッションと1つずつ調停する。Edit Mode のショートカットは録音とは別のキーで、未割り当て（既定）なら何も登録しない。
 @MainActor
 @Observable
 final class AppComposition {
@@ -31,6 +33,10 @@ final class AppComposition {
   let resourceMonitoring: DeviceResourceMonitoring?
   /// 使う STT エンジン。未選択なら `nil`（`selectedEngine()`）。設定画面の「音声認識」タブに出す
   let sttEngine: STTEngineKind?
+  /// Edit Mode の流れ（AC-14）。メニューのキャンセル・元に戻すに使う
+  let editMode: EditModeController
+  /// Edit Mode のショートカットの登録（AC-14）。メニューの表示に使う
+  let editModeShortcut: EditModeShortcut
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
@@ -53,9 +59,11 @@ final class AppComposition {
     let audioQueue = TemporaryAudioStoreQueue.applicationStore().map(TemporaryAudioStoreQueue.init)
     let initialSettings = settingsStore.load()
     let sessionSettings = Self.sessionSettings(from: initialSettings)
+    // 録音は同時に1つだけのため、録音のセッションと Edit Mode で同じものを使う
+    let recorder = AVAudioEngineRecorder()
     let session = SessionCoordinator(
       configuration: sessionSettings.configuration,
-      recorder: AVAudioEngineRecorder(),
+      recorder: recorder,
       recognizer: recognizer,
       refiner: SessionRefinementPipeline(
         settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase),
@@ -88,8 +96,11 @@ final class AppComposition {
     // セッションの保存より先に整理と候補の取得をキューに積む（起動後に録音した音声を候補に含めない）
     launchRecovery?.start()
     let shortcutSetting = GlobalShortcutSetting.fromSettings(initialSettings)
+    // 録音と Edit Mode のショートカットは1つの登録者で登録する
+    let registrar = CarbonHotKeyRegistrar()
     let shortcuts = ShortcutCoordinator(
       setting: shortcutSetting,
+      registrar: registrar,
       currentPhase: { [weak session] in session?.phase ?? .idle },
       perform: { [weak session] command in session?.perform(command) })
     self.shortcuts = shortcuts
@@ -99,6 +110,73 @@ final class AppComposition {
     Self.followRecordingSettings(
       session: session, shortcuts: shortcuts,
       from: RecordingSettingsSnapshot(session: sessionSettings, shortcut: shortcutSetting))
+
+    let editMode = Self.makeEditMode(
+      session: session, recorder: recorder, recognizer: recognizer,
+      settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase,
+      preview: preview)
+    self.editMode = editMode
+    let editModeShortcut = EditModeShortcut(
+      registrar: registrar, systemShortcuts: SystemShortcuts.loadEnabledBindings,
+      onPress: { [weak editMode] in editMode?.toggle() })
+    // 未割り当て（既定）なら何も登録しない
+    editModeShortcut.apply(
+      initialSettings.editModeShortcut, recordingShortcut: initialSettings.recordingShortcut)
+    self.editModeShortcut = editModeShortcut
+    Self.followEditModeShortcut(editModeShortcut)
+  }
+
+  /// Edit Mode の組み立て（AC-14）。選択範囲の読み取り・置き換えは挿入と同じ AX のアダプター、退避は挿入と同じパネルを使う。
+  ///
+  /// 送信は `EditModeRequestPipeline` が、整形と同じ設定・同意の画面・API キー・データベースを送るたびに読み直して行う。
+  /// 機密入力の判定は、判定のたびに保存済みの除外アプリを読む（7章, AC-12）
+  private static func makeEditMode(
+    session: SessionCoordinator, recorder: any AudioRecorder,
+    recognizer: (any SpeechRecognizer)?, settingsStore: AppSettingsStore,
+    apiKeyStore: any APIKeyStore,
+    database: @escaping @MainActor () async throws -> UtterDatabase,
+    preview: InsertionPreviewPanel
+  ) -> EditModeController {
+    let target = AccessibilityInsertionTarget()
+    let panel = EditModePanel(fallback: preview)
+    let coordinator = EditModeCoordinator(
+      inspector: target,
+      field: target,
+      permissions: SystemInsertionPermissions(),
+      presenter: panel,
+      clock: ContinuousInsertionClock(),
+      sender: EditModeRequestPipeline(
+        settingsStore: settingsStore, apiKeyStore: apiKeyStore, database: database),
+      sensitivePolicy: {
+        let excludedApps = AppSettingsStore(defaults: .standard).load().excludedApps
+        return SensitiveInputPolicy(excludedApps: Set(excludedApps))
+      })
+    let controller = EditModeController(
+      coordinator: coordinator, recorder: recorder, recognizer: recognizer, gate: session,
+      presenter: panel)
+    panel.onCommit = { [weak controller] in
+      guard let controller else { return }
+      Task { await controller.commit() }
+    }
+    panel.onCancel = { [weak controller] in controller?.cancel() }
+    return controller
+  }
+
+  /// 設定画面で Edit Mode のショートカット（または録音ショートカット）が変わったら登録し直す（AC-14）。
+  ///
+  /// 録音の設定と同じく UserDefaults の変更の通知で読み直す。同じ割当なら登録し直さない（`EditModeShortcut.apply`）。
+  /// 押下は始める・止めるだけのため、Edit の途中で登録し直しても進行中の Edit は変えない
+  private static func followEditModeShortcut(_ shortcut: EditModeShortcut) {
+    // アプリの終了まで登録したままにするため、戻り値（登録の解除に使う）は持たない
+    _ = NotificationCenter.default.addObserver(
+      forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+    ) { [weak shortcut] _ in
+      MainActor.assumeIsolated {
+        guard let shortcut else { return }
+        let settings = AppSettingsStore(defaults: .standard).load()
+        shortcut.apply(settings.editModeShortcut, recordingShortcut: settings.recordingShortcut)
+      }
+    }
   }
 
   /// アプリの終了時に端末の状態の監視をやめる（通知の登録を残さない）

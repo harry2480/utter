@@ -438,19 +438,4 @@ struct EditModeCoordinatorTests {
     #expect(EditModeCoordinator.text(in: "a👍🏽b", at: .init(location: 1, length: 4)) == "👍🏽")
     #expect(EditModeCoordinator.text(in: "abc", at: .init(location: 2, length: 2)) == nil)
   }
-
-  // MARK: 有効化
-
-  @Test("AC-14: Edit Mode は明示的に有効にしない限り無効")
-  func featureDisabledByDefault() throws {
-    let suite = "EditModeFeatureTests.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
-
-    #expect(!EditModeFeature.isEnabled(in: defaults))
-    defaults.set("YES", forKey: EditModeFeature.defaultsKey)
-    #expect(EditModeFeature.isEnabled(in: defaults))
-    defaults.set(false, forKey: EditModeFeature.defaultsKey)
-    #expect(!EditModeFeature.isEnabled(in: defaults))
-  }
 }

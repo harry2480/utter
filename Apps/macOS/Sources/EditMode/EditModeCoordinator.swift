@@ -8,6 +8,8 @@ enum EditSubmitResult: Hashable, Sendable {
   case proposed
   /// 編集案を得られなかった。選択範囲は変えず、同じ選択で音声指示をやり直せる
   case notEdited(EditFailureReason)
+  /// アプリ側の条件（API キー・予算など）がそろわず、送らなかった。選択範囲は変えない
+  case notSent(EditSendUnavailableReason)
   /// 進行中の Edit がない（始めていない・確定済み・キャンセル済み）
   case noActiveEdit
   /// 前の音声指示の応答を待っている
@@ -40,11 +42,12 @@ enum EditUndoResult: Hashable, Sendable {
 
 /// Edit Mode のアプリ側の流れ（AC-14, 2.2節）。
 ///
-/// 選択範囲の取得 → 音声指示 → `EditRouter` → `EditSession` の差分プレビュー → 確定で置き換え／キャンセル → 元に戻す、を進める。
+/// 選択範囲の取得 → 音声指示 → 送信（`EditRequestSending`。本番は `EditRouter` で Claude へ）→ `EditSession` の差分プレビュー
+/// → 確定で置き換え／キャンセル → 元に戻す、を進める。録音・STT と、録音のセッションとの調停は `EditModeController` が行う。
 /// - 選択テキストは、フォーカス中の入力欄の `kAXSelectedTextAttribute` と、値・選択範囲から切り出した文字列が一致する場合だけ使う。
 ///   置き換えの読み戻しと元に戻す前の確認に値と範囲が要るため、読めない入力欄では始めない
 /// - 送信の前に `EditSession.cloudTransmission(to:consent:)` で、送信先への選択テキストの送信の同意（`editSelection`）を
-///   最新の同意状態で確かめる。`EditRouter` も同じ同意を確かめる（AC-06）
+///   最新の同意状態で確かめる。送信側（`EditRouter`）も送る直前に同じ同意を確かめる（AC-06）
 /// - 確定時は、録音開始時と同じ要素の同じ範囲に元の選択テキストが残っていることを確かめてから `kAXSelectedTextAttribute` に書き込み、
 ///   読み戻す。範囲の文字列が変わっていた・書き込めなかった・変化がなかった場合は、編集案をコピーできるパネルへ退避する
 /// - 元に戻すときは、該当範囲が確定したテキストのままなら元の選択テキストへ書き戻す。書き換えられていれば上書きせず、元のテキストを退避する
@@ -89,11 +92,8 @@ final class EditModeCoordinator {
   private let permissions: any InsertionPermissions
   private let presenter: any EditModePresenting
   private let clock: any InsertionClock
-  private let router: EditRouter
-  private let consent: @MainActor () -> ConsentState
-  private let budget: @MainActor () -> RefinementBudget?
-  private let dictionaryTerms: @MainActor () -> [String]
-  private let sensitivePolicy: SensitiveInputPolicy
+  private let sender: any EditRequestSending
+  private let sensitivePolicy: @MainActor () -> SensitiveInputPolicy
   private let timing: InsertionTiming
 
   private var active: ActiveEdit?
@@ -103,10 +103,35 @@ final class EditModeCoordinator {
   private var requestingGeneration: Int?
 
   /// - Parameters:
+  ///   - sender: 選択テキストと音声指示の送信。同意・機密入力・予算の確認を含む
+  ///   - sensitivePolicy: 機密入力の判定。利用者の除外アプリを反映するため、判定のたびに呼ぶ（7章, AC-12）
+  init(
+    inspector: any InsertionTargetInspector,
+    field: any EditFieldAccess,
+    permissions: any InsertionPermissions,
+    presenter: any EditModePresenting,
+    clock: any InsertionClock,
+    sender: any EditRequestSending,
+    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() },
+    timing: InsertionTiming = InsertionTiming()
+  ) {
+    self.inspector = inspector
+    self.field = field
+    self.permissions = permissions
+    self.presenter = presenter
+    self.clock = clock
+    self.sender = sender
+    self.sensitivePolicy = sensitivePolicy
+    self.timing = timing
+  }
+
+  /// `EditRouter` へ直接送る。テストと、設定を読まない組み立てに使う
+  ///
+  /// - Parameters:
   ///   - consent: 送信の直前に呼び、最新の同意状態を返す
   ///   - budget: 予算上限の設定（AI-04, AI-05）。未設定なら `nil`
   ///   - dictionaryTerms: 表記を保つ辞書語
-  init(
+  convenience init(
     inspector: any InsertionTargetInspector,
     field: any EditFieldAccess,
     permissions: any InsertionPermissions,
@@ -119,21 +144,22 @@ final class EditModeCoordinator {
     sensitivePolicy: SensitiveInputPolicy = SensitiveInputPolicy(),
     timing: InsertionTiming = InsertionTiming()
   ) {
-    self.inspector = inspector
-    self.field = field
-    self.permissions = permissions
-    self.presenter = presenter
-    self.clock = clock
-    self.router = router
-    self.consent = consent
-    self.budget = budget
-    self.dictionaryTerms = dictionaryTerms
-    self.sensitivePolicy = sensitivePolicy
-    self.timing = timing
+    self.init(
+      inspector: inspector, field: field, permissions: permissions, presenter: presenter,
+      clock: clock,
+      sender: RouterEditSender(
+        router: router, consent: consent, budget: budget, dictionaryTerms: dictionaryTerms),
+      sensitivePolicy: { sensitivePolicy }, timing: timing)
   }
 
   /// 音声指示を受け付けている（または応答を待っている・差分を確認している）Edit があるか
   var hasActiveEdit: Bool { active != nil }
+
+  /// 確認中の編集案（差分プレビュー）があるか
+  var hasProposal: Bool {
+    guard let active, case .reviewing = active.session.state else { return false }
+    return true
+  }
 
   /// 元に戻せる Edit があるか
   var canUndo: Bool { committed != nil }
@@ -193,33 +219,45 @@ final class EditModeCoordinator {
     let transmission: EditSelectionTransmission
     do {
       transmission = try edit.session.cloudTransmission(
-        to: router.provider.destination, consent: consent())
+        to: sender.destination, consent: sender.currentConsent())
     } catch .transmissionNotConsented {
       return notEdited(.consentNotGranted)
     } catch {
       return .noActiveEdit
     }
-    let request = EditRequest(
-      transmission, instruction: instruction, dictionaryTerms: dictionaryTerms())
 
     requestingGeneration = edit.generation
     defer {
       if requestingGeneration == edit.generation { requestingGeneration = nil }
     }
-    let outcome: EditOutcome
+    let terms = await sender.dictionaryTerms()
+    // 辞書を読む間にキャンセル・やり直しされていたら送らない
+    guard active?.generation == edit.generation else { return .superseded }
+    let request = EditRequest(transmission, instruction: instruction, dictionaryTerms: terms)
+    // 送る直前に、選択範囲を読んだ入力欄と開始時の前面アプリで判定し直す（AC-12）
+    let target = edit.target
+    let app = edit.app
+    let sensitivity: @MainActor () -> SensitiveInputDecision = { [weak self] in
+      // 判定できなければ送らない（7章）
+      guard let self else { return Self.undeterminedDecision }
+      return sensitiveDecision(secureField: field.secureField(of: target), app: app)
+    }
+    let result: EditSendResult
     do {
-      // `EditRouter` は同期的に同意と判定を求めるため、送る直前にここで読んだ値を渡す。Router は予約を待った後にも求めるが、
-      // 同意と入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の変化はここまでしか反映しない
-      let consentState = consent()
-      let decision = sensitiveDecision(
-        secureField: field.secureField(of: edit.target), app: edit.app)
-      outcome = try await router.edit(
-        request, consent: { consentState }, budget: budget(), sensitivity: { decision })
+      result = try await sender.send(request, sensitivity: sensitivity)
     } catch {
       return .superseded
     }
     // 応答を待つ間にキャンセル・やり直しされていたら、古い Edit の編集案は表示しない
     guard var current = active, current.generation == edit.generation else { return .superseded }
+    let outcome: EditOutcome
+    switch result {
+    case .unavailable(let reason):
+      presenter.showNotice(.notSent(reason))
+      return .notSent(reason)
+    case .outcome(let value):
+      outcome = value
+    }
     if let reason = outcome.failureReason {
       return notEdited(reason)
     }
@@ -394,7 +432,13 @@ final class EditModeCoordinator {
   {
     let context = SensitiveInputContext(
       secureField: secureField, secureEventInput: inspector.secureEventInput(), app: app)
-    return sensitivePolicy.decide(context)
+    return sensitivePolicy().decide(context)
+  }
+
+  /// 入力先を判定できないときの結果。送らない・書き込まない
+  private static var undeterminedDecision: SensitiveInputDecision {
+    SensitiveInputPolicy().decide(
+      SensitiveInputContext(secureField: .unknown, secureEventInput: .unknown, app: nil))
   }
 
   /// `value` の `range`（UTF-16 単位）の文字列。範囲が値の外か、文字（`Character`）の境界でない位置
@@ -409,5 +453,51 @@ final class EditModeCoordinator {
       return nil
     }
     return String(value[lower..<upper])
+  }
+}
+
+/// `EditRouter` へ直接送る送信部。同意・予算・辞書語は渡されたクロージャから読む。
+///
+/// 設定・API キーを読まないため、本番の結線（`EditModeRequestPipeline`）ではなく、テストと実機確認の組み立てに使う。
+@MainActor
+final class RouterEditSender: EditRequestSending {
+  private let router: EditRouter
+  private let consent: @MainActor () -> ConsentState
+  private let budget: @MainActor () -> RefinementBudget?
+  private let terms: @MainActor () -> [String]
+
+  init(
+    router: EditRouter,
+    consent: @escaping @MainActor () -> ConsentState,
+    budget: @escaping @MainActor () -> RefinementBudget? = { nil },
+    dictionaryTerms: @escaping @MainActor () -> [String] = { [] }
+  ) {
+    self.router = router
+    self.consent = consent
+    self.budget = budget
+    terms = dictionaryTerms
+  }
+
+  var destination: CloudAIProviderKind { router.provider.destination }
+
+  func currentConsent() -> ConsentState {
+    consent()
+  }
+
+  func dictionaryTerms() async -> [String] {
+    terms()
+  }
+
+  func send(
+    _ request: EditRequest,
+    sensitivity: @escaping @MainActor () -> SensitiveInputDecision
+  ) async throws(CancellationError) -> EditSendResult {
+    // `EditRouter` は同期的に同意と判定を求めるため、送る直前にここで読んだ値を渡す。Router は予約を待った後にも求めるが、
+    // 同意と入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の変化はここまでしか反映しない
+    let consentState = consent()
+    let decision = sensitivity()
+    let outcome = try await router.edit(
+      request, consent: { consentState }, budget: budget(), sensitivity: { decision })
+    return .outcome(outcome)
   }
 }

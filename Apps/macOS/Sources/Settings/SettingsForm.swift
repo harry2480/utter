@@ -52,6 +52,8 @@ struct SettingsForm: Hashable, Sendable {
 
   /// 録音ショートカット（REC-01）。未設定なら `nil`。画面の「記録」（`ShortcutRecorder`）で受け付けた組み合わせを入れる
   var recordingShortcut: KeyCombination?
+  /// Edit Mode を始めるショートカット（AC-14）。未割り当てなら `nil`（Edit Mode を使わない）。録音ショートカットとは別のキーにする
+  var editModeShortcut: KeyCombination?
   var recordingTrigger: ShortcutTriggerMode
   var inputMode: InputMode
   /// 最大録音時間（秒, REC-05）
@@ -91,6 +93,7 @@ struct SettingsForm: Hashable, Sendable {
   /// 保存済みの設定から入力欄の値を作る
   init(settings: AppSettings) {
     recordingShortcut = settings.recordingShortcut
+    editModeShortcut = settings.editModeShortcut
     recordingTrigger = settings.recordingTrigger
     inputMode = settings.inputMode
     maxRecordingSeconds = Self.text(seconds: settings.maxRecordingDuration)
@@ -230,6 +233,7 @@ struct SettingsForm: Hashable, Sendable {
     } else {
       settings.recordingShortcut = recordingShortcut
     }
+    applyEditModeShortcut(to: &settings, issues: &issues)
     settings.recordingTrigger = recordingTrigger
     settings.inputMode = inputMode
     settings.modelRetentionMode = modelRetentionMode
@@ -263,6 +267,23 @@ struct SettingsForm: Hashable, Sendable {
       throw SettingsValidationError(issues: issues)
     }
     return settings
+  }
+
+  /// Edit Mode のショートカット（AC-14）。録音ショートカットと同じキーは、どちらの操作か決められないため保存しない
+  private func applyEditModeShortcut(
+    to settings: inout AppSettings, issues: inout [SettingsIssue]
+  ) {
+    guard let shortcut = editModeShortcut else {
+      settings.editModeShortcut = nil
+      return
+    }
+    if ShortcutRecorder.issue(for: shortcut, systemShortcuts: []) != nil {
+      issues.append(.editModeShortcut)
+    } else if shortcut == recordingShortcut {
+      issues.append(.editModeShortcutSameAsRecording)
+    } else {
+      settings.editModeShortcut = shortcut
+    }
   }
 
   private func applyCost(to settings: inout AppSettings, issues: inout [SettingsIssue]) {
@@ -427,6 +448,10 @@ struct SettingsValidationError: Error, Hashable, Sendable {
 enum SettingsIssue: Hashable, Sendable {
   /// 録音ショートカットが登録できない組み合わせ（修飾キー単独・Fn を含む等, REC-01）
   case recordingShortcut
+  /// Edit Mode のショートカットが登録できない組み合わせ（AC-14）
+  case editModeShortcut
+  /// Edit Mode のショートカットが録音ショートカットと同じ（AC-14）
+  case editModeShortcutSameAsRecording
   /// 最大録音時間が数でない、または範囲外（REC-05）
   case maxRecordingDuration
   /// 選べない処理系（ChatGPT）が選ばれている（AC-05）
@@ -469,6 +494,10 @@ enum SettingsIssue: Hashable, Sendable {
     switch self {
     case .recordingShortcut:
       return "このショートカットは割り当てられません。記録し直すか、解除してください。"
+    case .editModeShortcut:
+      return "このショートカットは Edit Mode に割り当てられません。記録し直すか、解除してください。"
+    case .editModeShortcutSameAsRecording:
+      return "Edit Mode のショートカットは、録音のショートカットとは別のキーにしてください。"
     case .maxRecordingDuration:
       let range = AppSettings.maxRecordingDurationRange
       return "最大録音時間は \(Int(range.lowerBound))〜\(Int(range.upperBound)) 秒の数で入力してください。"

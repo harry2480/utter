@@ -1,12 +1,17 @@
 import SwiftUI
+import UtterCore
 import UtterPersistence
 
 /// クラウド送信の同意の画面（AC-06）。
+///
+/// 整形の送信に加え、Edit Mode（AC-14）の選択テキストの送信の同意を、整形とは別の行で同意・撤回できるようにする。
 struct ConsentSettingsScene: Scene {
   static let windowID = "consentSettings"
 
   @State private var model = ConsentSettingsModel(
-    controller: ConsentSettingsController(store: AppSettingsStore(defaults: .standard)))
+    controller: ConsentSettingsController(
+      store: AppSettingsStore(defaults: .standard),
+      additionalScopes: ConsentScreenState.editModeScopes))
 
   var body: some Scene {
     Window("クラウド送信の同意", id: Self.windowID) {

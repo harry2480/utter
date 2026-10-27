@@ -80,6 +80,40 @@ struct AppSettingsTests {
     #expect(settings.recordingShortcut == nil)
   }
 
+  @Test("AC-14: Edit Mode のショートカットは既定で未割り当て（Edit Mode を使わない）")
+  func editModeShortcutDefaultsToUnassigned() {
+    #expect(AppSettings().editModeShortcut == nil)
+  }
+
+  @Test("AC-14: Edit Mode のショートカットを保存・復元でき、ない保存値・読めない値は未割り当てで読む")
+  func editModeShortcutRoundTripsAndMigrates() throws {
+    let shortcut = KeyCombination(key: .space, modifiers: [.option, .control])
+    let decoded = try roundTrip(
+      AppSettings(
+        recordingShortcut: KeyCombination(key: .space, modifiers: [.option]),
+        editModeShortcut: shortcut))
+    #expect(decoded.editModeShortcut == shortcut)
+    #expect(decoded.recordingShortcut == KeyCombination(key: .space, modifiers: [.option]))
+
+    // Edit Mode のショートカットを足す前に保存した版 2 の値は、ほかの項目を変えずに未割り当てで読む
+    let stored = try decode(
+      """
+      {
+        "version": 2,
+        "historyEnabled": true,
+        "recordingShortcut": {"key": "space", "modifiers": 2}
+      }
+      """)
+    #expect(stored.editModeShortcut == nil)
+    #expect(stored.historyEnabled)
+    #expect(stored.recordingShortcut == KeyCombination(key: .space, modifiers: [.option]))
+
+    let broken = try decode(
+      #"{"version": 2, "historyEnabled": true, "editModeShortcut": {"key": "", "modifiers": 0}}"#)
+    #expect(broken.editModeShortcut == nil)
+    #expect(broken.historyEnabled)
+  }
+
   @Test("2.2節, TXT-01: 入力モードは既定で Instant、整形モードは既定で Natural")
   func inputAndRefinementModeDefaults() {
     let settings = AppSettings()
@@ -396,6 +430,7 @@ struct AppSettingsTests {
         "historyEnabled": true,
         "recordingTrigger": "pushToTalk",
         "recordingShortcut": {"key": "space", "modifiers": 2},
+        "editModeShortcut": {"key": "space", "modifiers": 6},
         "inputMode": "realtimePreview",
         "refinementMode": "raw",
         "modelRetentionMode": "performance",
@@ -771,13 +806,17 @@ struct AppSettingsTests {
   func storedKeysAreFixed() throws {
     let budget = try #require(MonthlyBudgetSetting(limitAmount: 1, currencyCode: "USD"))
     let data = try JSONEncoder().encode(
-      AppSettings(recordingShortcut: KeyCombination(key: .space), monthlyBudget: budget))
+      AppSettings(
+        recordingShortcut: KeyCombination(key: .space),
+        editModeShortcut: KeyCombination(key: .space, modifiers: [.command, .option]),
+        monthlyBudget: budget))
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
     // 項目を足すときは、秘密情報（API キー・OAuth トークン）でないことを確認してからここに足す
     #expect(
       Set(object.keys) == [
-        "version", "maxRecordingDuration", "recordingTrigger", "recordingShortcut", "inputMode",
+        "version", "maxRecordingDuration", "recordingTrigger", "recordingShortcut",
+        "editModeShortcut", "inputMode",
         "refinementMode", "refinementEngine", "appStyleOverrides", "siteIdentificationAllowed",
         "siteStyleOverrides", "refinementModel",
         "priceTable", "monthlyBudget", "consentState", "historyEnabled", "modelRetentionMode",

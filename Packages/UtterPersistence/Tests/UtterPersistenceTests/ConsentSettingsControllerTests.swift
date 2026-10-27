@@ -46,6 +46,27 @@ struct ConsentSettingsControllerTests {
     #expect(!restored.consent.allows(.textRefinement(.chatGPT)))
   }
 
+  @Test("AC-06, AC-14: 画面ごとの対象（選択テキストの送信）を、整形とは別に同意・撤回して保存する")
+  func savesEditSelectionConsentSeparately() throws {
+    let suite = try TestDefaults("editSelection")
+    let store = AppSettingsStore(defaults: suite.defaults)
+    let controller = ConsentSettingsController(
+      store: store, additionalScopes: ConsentScreenState.editModeScopes)
+    #expect(
+      controller.load().rows.map(\.scope) == [
+        .transmission(.textRefinement(.claude)), .transmission(.editSelection(.claude)),
+      ])
+
+    let screen = try controller.setGranted(true, for: .transmission(.editSelection(.claude)))
+
+    #expect(screen.shownScopes.contains(.transmission(.editSelection(.claude))))
+    #expect(store.load().consentState.allows(.editSelection(.claude)))
+    #expect(!store.load().consentState.allows(.textRefinement(.claude)))
+
+    try controller.setGranted(false, for: .transmission(.editSelection(.claude)))
+    #expect(!controller.currentConsent().allows(.editSelection(.claude)))
+  }
+
   @Test("AC-06: 撤回は保存した時点で、保存済みの同意状態から送信不可になる")
   func revokeIsPersistedImmediately() throws {
     let suite = try TestDefaults("revoke")
