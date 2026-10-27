@@ -1,16 +1,33 @@
+import Foundation
 import Testing
 import UtterAI
 
 /// 計測区間の名前・区間の記録・整形の送信の計測（6章, #52）。
 @MainActor
 struct PerfIntervalTests {
+  /// PerfProbe の区間名の定義。このテストのソースからリポジトリの根へ辿る
+  private static let perfProbeIntervalSource = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()  // Tests/Performance
+    .deletingLastPathComponent()  // Tests
+    .deletingLastPathComponent()  // Apps/macOS
+    .deletingLastPathComponent()  // Apps
+    .deletingLastPathComponent()  // リポジトリの根
+    .appending(path: "Verification/PerfProbe/Sources/PerfProbe/PerfInterval.swift")
+
   @Test("#52: 区間名は Verification/PerfProbe の PerfInterval と同じ文字列で、Signpost にもその名前を渡す")
-  func namesMatchPerfProbe() {
-    // Verification/PerfProbe/Sources/PerfProbe/PerfInterval.swift の rawValue（宣言順）
-    let perfProbeNames = [
-      "RecordingStart", "RealtimeFirstText", "STTFinalize", "LLMFirstToken", "LLMComplete",
-      "Insert", "StopToInsertLocal", "StopToInsertAI", "ModelLoad",
-    ]
+  func namesMatchPerfProbe() throws {
+    // PerfProbe の PerfInterval.swift から `case 名前 = "区間名"` の rawValue を宣言順に読む
+    let source = try String(contentsOf: Self.perfProbeIntervalSource, encoding: .utf8)
+    let perfProbeNames = source.split(separator: "\n").compactMap { line -> String? in
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      guard trimmed.hasPrefix("case "), trimmed.contains(" = \""),
+        let start = trimmed.firstIndex(of: "\"")
+      else { return nil }
+      let rest = trimmed[trimmed.index(after: start)...]
+      guard let end = rest.firstIndex(of: "\"") else { return nil }
+      return String(rest[..<end])
+    }
+    #expect(!perfProbeNames.isEmpty)
     #expect(PerfInterval.allCases.map(\.rawValue) == perfProbeNames)
     for interval in PerfInterval.allCases {
       #expect(String(describing: interval.signpostName) == interval.rawValue)

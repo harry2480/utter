@@ -218,7 +218,7 @@ final class SessionCoordinator {
       failWithoutRecording(notice: .speechRecognitionNotConfigured)
       return
     }
-    beginRecordingStartIntervals()
+    beginRecordingStartIntervals(usesCloud: usesCloud)
     // 入力対象は録音開始時に記録する（INS-01）
     let target = inserter.recordTarget()
     // パスワード欄・機密アプリ・除外アプリ、または判定できなければ、マイクを開く前にやめる（判定できない場合も安全側, 7章）
@@ -791,12 +791,13 @@ final class SessionCoordinator {
   // MARK: - 性能計測（6章, #52）
 
   /// 録音開始の操作を受けた時点で始める区間。ショートカット・メニューの操作から同期的に呼ばれる `startRecording()` で、
-  /// 入力対象の記録・機密入力の判定より前に始める（後段で始めると、それより前の遅延が区間に入らない）
-  private func beginRecordingStartIntervals() {
+  /// 入力対象の記録・機密入力の判定より前に始める（後段で始めると、それより前の遅延が区間に入らない）。
+  /// クラウド STT は一括認識で録音中に認識テキストを出さないため、Realtime Preview でも初回文字表示の区間を始めない
+  private func beginRecordingStartIntervals(usesCloud: Bool) {
     // 前のセッションの区間は待機に戻ったときに閉じているが、念のため残さない
     perf.endAll()
     perf.begin(.recordingStart)
-    if inputMode == .realtimePreview {
+    if inputMode == .realtimePreview, !usesCloud {
       perf.begin(.realtimeFirstText)
     }
   }

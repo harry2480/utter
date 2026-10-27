@@ -106,7 +106,7 @@ scripts/record-signposts.sh --label local-builtin-mic-01 --attach "$(pgrep -x ut
 ```
 
 - ローカル高速入力（`StopToInsertLocal`）は、設定画面で整形の処理系を Local Basic（既定）にして測る。AI 整形あり（`StopToInsertAI`）は、処理系を Claude にして同意・API キー・月次予算と単価表をそろえ、別の `--label` で測る
-- `RealtimeFirstText` は入力モードを Realtime Preview にしたときだけ出る（Instant と Realtime Direct では出さない）
+- `RealtimeFirstText` は入力モードを Realtime Preview にしたときだけ出る（Instant と Realtime Direct では出さない。クラウド STT は録音中に認識テキストを出さないため、Realtime Preview でも出さない）
 - 計測中はキャンセルしない。キャンセル・失敗・録音の抑止（機密入力）で終わったセッションは、終点に達しないまま区間をその時点で閉じるため、短い値が集計に入る（下の「区間の開始・終了の位置」）。HUD に失敗・キャンセルが出た回があれば、その trace は取り直す
 
 区間の開始・終了の位置（`SessionCoordinator` と `SessionRefinementPipeline`。録音のセッションだけを測り、Edit Mode・起動時の復旧は測らない）:
@@ -114,7 +114,7 @@ scripts/record-signposts.sh --label local-builtin-mic-01 --attach "$(pgrep -x ut
 | 区間名 | 開始 | 終了 | 出さない場合 |
 |---|---|---|---|
 | `RecordingStart` | `SessionCoordinator.startRecording()` で、STT の有無を確かめた直後・入力対象の記録と機密入力の判定より前。ショートカットのハンドラ（Carbon のホットキー・イベントタップ）とメニューの操作から同期的に呼ばれるため、イベントを受けた時点とみなせる（それより前の、待機中かの確認と設定の読み出し1回は入らない） | 録音の最初の音声チャンクを MainActor の転送タスクが受け取った時点（録音側のモノラル化・リサンプル・チャンク分割の後）。クラウド STT のセッションでは、録音を始める前の同意・API キー・予算の確認も区間に入る | 音声認識が未設定（マイクを開かない） |
-| `RealtimeFirstText` | `RecordingStart` と同じ時点（入力モードが Realtime Preview のときだけ） | 確定済みか暫定のテキストが空でない最初の認識イベントを HUD に渡した時点 | Instant・Realtime Direct |
+| `RealtimeFirstText` | `RecordingStart` と同じ時点（入力モードが Realtime Preview のときだけ） | 確定済みか暫定のテキストが空でない最初の認識イベントを HUD に渡した時点 | Instant・Realtime Direct・クラウド STT のセッション |
 | `STTFinalize` | 状態が録音から認識へ進んだ時点（停止の操作・最大録音時間・音声バッファの上限・割り込みのどれでも。認識が録音中に先に終わった場合は、その後の停止の時点） | 挿入する本文の元になる確定結果がそろった時点（STT Worker の異常終了で録音全体を認識し直した場合は、認識し直した結果） | — |
 | `LLMFirstToken` | — | — | 出さない。Claude への整形はストリームで受け取らず（`ClaudeProvider` は応答全体を1回で受け取る）、初回トークンの時点がない |
 | `LLMComplete` | `RefinementRouter` が同意・機密入力・予算の予約を確かめた後に送信先の `refine` を呼ぶ時点（`PerfMeasuredAIProvider`）。API キーの読み出しと要求の組み立ても入る | `refine` が戻った時点（応答の検証は入らない）。失敗・上限時間の超過・キャンセルでも、戻った時点で閉じる。区間の開始・終了で MainActor へ切り替える分も入る | 送らなかったセッション（Local Basic・Raw・同意なし・機密入力など） |

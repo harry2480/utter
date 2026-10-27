@@ -294,6 +294,19 @@ struct SessionPerfIntervalTests {
     #expect(measurer.openIntervals.isEmpty)
   }
 
+  @Test("#52: クラウド STT は録音中に認識テキストを出さないため、Realtime Preview でも初回文字表示の区間を始めない")
+  func cloudSpeechRecognitionHasNoFirstTextInterval() async {
+    let session = coordinator(
+      inputMode: .realtimePreview,
+      cloudRecognition: SelectedCloudRecognition(recognizer: recognizer))
+
+    await startAndFeed(session)
+    await stopAndComplete(session)
+
+    #expect(!measurer.begun.contains(.realtimeFirstText))
+    #expect(measurer.openIntervals.isEmpty)
+  }
+
   @Test("AC-15, #52: Realtime Direct で書き込んだセッションは停止→挿入と挿入を測らず、区間を残さない")
   func realtimeDirectSkipsStopToInsert() async {
     let log = InsertionLog()
