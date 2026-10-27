@@ -187,6 +187,24 @@ struct SessionRealtimeDirectTests {
     #expect(inserter.inserted.isEmpty)
   }
 
+  @Test("AC-15, iOS-PERF-03: 処理できる音声がないまま割り込まれて認識を止めたら、その後に届いたイベントを書き込まない")
+  func abortedSessionIgnoresLateEvents() async {
+    let session = coordinator(writer: writer())
+    await start(session)
+
+    recorder.interrupt(.audioInterruptionBegan)
+    // 失敗の表示中は状態機械にセッションが残るが、認識のタスクは止めている
+    #expect(await eventually { session.phase == .error(.recording) })
+    recognizer.send(.confirmed("こんにちは。"), to: 0)
+    recognizer.send(.completed("こんにちは。"), to: 0)
+    await Task.yield()
+
+    #expect(field.value == "メモ: ")
+    #expect(log.sentInsertions.isEmpty)
+    #expect(inserter.inserted.isEmpty)
+    #expect(session.phase == .error(.recording))
+  }
+
   // MARK: - 自動で無効にする
 
   @Test("AC-15: 許可リストにないアプリ（既定は全アプリ）では入力欄に触れず、停止後に一括挿入して HUD で知らせる")
