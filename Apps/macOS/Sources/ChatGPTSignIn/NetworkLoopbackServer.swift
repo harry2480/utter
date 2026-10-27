@@ -167,10 +167,11 @@ final class LoopbackCallbackListener: ChatGPTLoopbackListener, Sendable {
 
   /// `GET /auth/callback?…` だけを受け付け、最初の1回の URL をサインインへ渡す
   private func respond(on connection: NWConnection, to head: Data) {
-    let requestLine = String(decoding: head, as: UTF8.self)
-      .split(separator: "\r\n", maxSplits: 1).first ?? ""
-    let parts = requestLine.split(separator: " ")
-    let port = self.port
+    // 要求行（`GET /auth/callback?… HTTP/1.1`）だけを読む。CRLF は1つの Character
+    let lineBreak: Character = "\r\n"
+    let text = String(decoding: head, as: UTF8.self)
+    let requestLine = text.split(separator: lineBreak, maxSplits: 1).first ?? ""
+    let parts = requestLine.split(separator: " " as Character)
     var url: URL?
     if parts.count == 3, parts[0] == "GET", parts[1].hasPrefix("/") {
       url = URL(string: "http://\(ChatGPTSignIn.callbackHost):\(port)\(parts[1])")
