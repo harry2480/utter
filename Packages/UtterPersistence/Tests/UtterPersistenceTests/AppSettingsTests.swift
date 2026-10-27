@@ -534,7 +534,7 @@ struct AppSettingsTests {
         "version": 2,
         "recordingTrigger": "hold",
         "recordingShortcut": {"key": "", "modifiers": 0},
-        "inputMode": "realtimeDirect",
+        "inputMode": "direct",
         "refinementMode": 1,
         "modelRetentionMode": "turbo",
         "performanceRetentionAllowed": "yes"
