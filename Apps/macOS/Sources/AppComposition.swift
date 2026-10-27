@@ -90,7 +90,8 @@ final class AppComposition {
       cloudRecognition: CloudSpeechRecognitionPipeline(
         settingsStore: settingsStore, apiKeyStore: openAIAPIKeyStore, database: openDatabase),
       realtimeDirect: RealtimeDirectWriter.system(
-        target: target, preview: preview, sensitivePolicy: Self.savedSensitivePolicy))
+        target: target, preview: preview, sensitivePolicy: Self.savedSensitivePolicy),
+      sensitivePolicy: Self.savedSensitivePolicy)
     self.hud = hud
     self.session = session
     let retentionPolicy = ModelRetentionPolicy.fromSettings(initialSettings)

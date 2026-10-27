@@ -438,9 +438,3 @@ final class RealtimeDirectWriterTests {
         == .unavailable([.selectionNotEmpty]))
   }
 }
-
-/// 除外アプリの保存値の代わり。テストの途中で値を変え、開始ごとに読み直すことを確かめる
-@MainActor
-private final class ExcludedAppsBox {
-  var apps: Set<String> = []
-}

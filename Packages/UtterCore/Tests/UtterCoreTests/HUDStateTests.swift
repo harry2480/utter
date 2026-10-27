@@ -507,6 +507,49 @@ struct HUDStateTests {
     #expect(hud.content(at: t0) == HUDContent(status: .recording, notice: nil))
   }
 
+  @Test("7章, AC-12: 録音を始めなかったら、待機中のまま通知を設定した時間だけ残す")
+  func showsRecordingSuppressed() {
+    var hud = HUDState()
+    hud.update(from: SessionStateMachine(), at: t0)
+
+    hud.recordRecordingSuppressed(.secureField, at: t0)
+
+    #expect(
+      hud.content(at: t0)
+        == HUDContent(status: nil, notice: .recordingSuppressed(.secureField)))
+    #expect(hud.noticeExpiry == t0 + HUDConfiguration.defaultLimitNoticeDisplayDuration)
+    #expect(hud.content(at: t0 + HUDConfiguration.defaultLimitNoticeDisplayDuration) == nil)
+  }
+
+  @Test("7章, AC-12: 録音を始めなかった通知は、残していた通知を置き換え、次のセッションを始めたら消す")
+  func recordingSuppressedReplacesLingeringNotice() throws {
+    var hud = HUDState()
+    var machine = try machineInserting(after: .bufferLimit)
+    hud.update(from: machine, at: t0)
+    _ = try machine.handle(event(machine, .insertionCompleted))
+    hud.update(from: machine, at: t0)
+    #expect(hud.content(at: t0)?.notices == [.audioBufferLimitReached])
+
+    hud.recordRecordingSuppressed(.excludedApp, at: t0 + .seconds(1))
+    #expect(hud.content(at: t0 + .seconds(1))?.notices == [.recordingSuppressed(.excludedApp)])
+
+    machine.start(at: t0 + .seconds(2))
+    hud.update(from: machine, at: t0 + .seconds(2))
+    #expect(hud.content(at: t0 + .seconds(2)) == HUDContent(status: .recording, notice: nil))
+  }
+
+  @Test("7章, AC-12: 録音中〜失敗の表示中に録音を始めなかった通知は反映しない")
+  func ignoresRecordingSuppressedDuringSession() {
+    var hud = HUDState()
+    var machine = SessionStateMachine()
+    machine.start(at: t0)
+    hud.update(from: machine, at: t0)
+
+    hud.recordRecordingSuppressed(.secureField, at: t0)
+
+    #expect(hud.content(at: t0) == HUDContent(status: .recording, notice: nil))
+  }
+
   // MARK: - Helpers
 
   enum Stop {

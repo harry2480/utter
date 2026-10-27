@@ -66,6 +66,8 @@ public enum HUDNotice: Hashable, Sendable {
   case cloudSpeechRecognitionFailed(CloudSpeechRecognitionNotice)
   /// 入力モードが Realtime Direct（実験機能）だが、このセッションでは自動で無効にした（2.2節, AC-15）
   case realtimeDirectDisabled(RealtimeDirectFallbackNotice)
+  /// 入力先がパスワード欄・セキュア入力・機密アプリ・除外アプリ、または判定できないため、録音を始めなかった（7章, AC-12）
+  case recordingSuppressed(SensitiveInputReason)
 
   /// 録音の停止理由に対応する通知。利用者の停止操作では `nil`。
   public init?(stopReason: RecordingStopReason) {
@@ -96,6 +98,8 @@ public enum CloudSpeechRecognitionNotice: Hashable, Sendable, CaseIterable {
   case budgetExceeded
   /// 送れる音声の上限（長さ・サイズ）を超えた。送信していない
   case audioLimitExceeded
+  /// 録音中に入力先が機密入力になった、または判定できない（7章, AC-12）。送信していない
+  case sensitiveInput
   /// クラウド STT の設定（モデル名など）を使えない。送信していない
   case configurationUnavailable
   /// 応答待ちが上限時間を超えた

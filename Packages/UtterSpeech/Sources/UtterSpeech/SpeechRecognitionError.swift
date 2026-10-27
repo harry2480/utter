@@ -13,6 +13,9 @@ public enum SpeechRecognitionError: Error, Hashable, Sendable, CaseIterable, Cod
   case resourceLimited
   /// クラウド STT への音声送信に同意していない（AC-06）。送信していない
   case consentNotGranted
+  /// 録音中に入力先がパスワード欄・セキュア入力・機密アプリ・除外アプリになった、または判定できない（7章, AC-12）。
+  /// クラウド STT へ送信していない
+  case sensitiveInput
   /// クラウド STT へ送れる音声の上限（長さ・サイズ）を超えた。送信していない
   case audioLimitExceeded
   /// 利用者が設定した予算上限を超える（AI-04）。送信していない

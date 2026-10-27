@@ -108,6 +108,18 @@ public struct HUDPresentation: Hashable, Sendable {
     case .cloudSpeechRecognitionFailed(let failure):
       "\(reason(for: failure))ため、クラウドで音声認識できませんでした"
     case .realtimeDirectDisabled(let fallback): realtimeDirectText(for: fallback)
+    case .recordingSuppressed(let suppression): "\(reason(for: suppression))ため、録音しません"
+    }
+  }
+
+  /// 録音を始めなかった理由（7章, AC-12）。入力欄の内容・アプリ名は含めない
+  private static func reason(for suppression: SensitiveInputReason) -> String {
+    switch suppression {
+    case .secureField: "パスワード欄の"
+    case .secureEventInput: "セキュア入力が有効な"
+    case .sensitiveApp: "機密情報を扱うアプリの"
+    case .excludedApp: "除外アプリの"
+    case .undetermined: "入力先を確認できない"
     }
   }
 
@@ -136,6 +148,7 @@ public struct HUDPresentation: Hashable, Sendable {
     case .budgetUnavailable: "月次予算・単価表を確かめられない"
     case .budgetExceeded: "月次予算の上限を超える"
     case .audioLimitExceeded: "クラウドへ送れる音声の上限を超えた"
+    case .sensitiveInput: "入力先が機密入力の"
     case .configurationUnavailable: "クラウド音声認識の設定を使えない"
     case .timeout: "クラウド音声認識の応答が時間内に届かなかった"
     case .authenticationExpired: "OpenAI API キーが無効になっている"

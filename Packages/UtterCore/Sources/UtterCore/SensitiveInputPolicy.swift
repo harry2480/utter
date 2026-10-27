@@ -51,6 +51,17 @@ public struct SensitiveInputDecision: Hashable, Sendable {
   /// 抑止した理由。該当するものをすべて含む。許可なら空
   public let reasons: Set<SensitiveInputReason>
 
+  /// 利用者に知らせる理由を1つ選ぶ。許可なら `nil`。
+  ///
+  /// 複数あるときは、利用者が状況を見分けやすいものを選ぶ（パスワード欄 → セキュア入力 → 機密アプリ → 除外アプリ →
+  /// 判定できない、の順）
+  public var primaryReason: SensitiveInputReason? {
+    let order: [SensitiveInputReason] = [
+      .secureField, .secureEventInput, .sensitiveApp, .excludedApp, .undetermined,
+    ]
+    return order.first(where: reasons.contains)
+  }
+
   static let allowed = SensitiveInputDecision(
     allowsRecording: true, allowsCloudTransmission: true, allowsHistory: true, reasons: [])
 

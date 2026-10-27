@@ -27,7 +27,9 @@ private final class SelectedCloudRecognition: SessionCloudSpeechRecognizing {
 
   var isSelected: Bool { true }
 
-  func prepareRecognizer() async -> CloudSpeechRecognitionPreparation {
+  func prepareRecognizer(
+    sensitivity: @escaping @Sendable () async -> SensitiveInputDecision
+  ) async -> CloudSpeechRecognitionPreparation {
     .ready(recognizer)
   }
 }
@@ -166,6 +168,26 @@ struct SessionRealtimeDirectTests {
     inspector.targets = [FocusedInsertionTarget(id: Self.fieldID, app: Self.app, secureField: .off)]
     #expect(session.undoRealtimeDirect() == .reverted)
     #expect(field.value == "メモ: ")
+  }
+
+  @Test("AC-15, 7章: 完了後に機密入力で録音を始めなかったら、前のセッションの書き込みは取り消せなくなる")
+  func suppressedStartDisablesUndo() async {
+    let session = coordinator(writer: writer())
+    await start(session)
+    recognizer.send(.confirmed("こんにちは。"), to: 0)
+    session.toggle()
+    recognizer.send(.completed("こんにちは。"), to: 0)
+    #expect(await eventually { session.phase == .idle })
+    #expect(session.canUndoRealtimeDirect)
+
+    // 開始時に入力対象の記録を上書きするため、元の入力欄に戻っても取り消せない
+    inserter.sensitiveContext = SensitiveInputContext(
+      secureField: .on, secureEventInput: .off, app: Self.app)
+    session.toggle()
+    #expect(session.phase == .idle)
+    #expect(!session.canUndoRealtimeDirect)
+    #expect(session.undoRealtimeDirect() == nil)
+    #expect(field.value == "メモ: こんにちは。")
   }
 
   @Test("AC-15, REC-01: キャンセルで書き込んだテキストを取り除き、挿入しない")

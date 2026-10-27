@@ -79,7 +79,7 @@ enum CloudSpeechRecognitionSettings {
       makeRecognizer: { parts in
         OpenAISpeechRecognizer(
           apiKey: parts.apiKey.value, configuration: parts.configuration, consent: parts.consent,
-          budget: parts.budget, transport: transport)
+          sensitivity: parts.sensitivity, budget: parts.budget, transport: transport)
       },
       now: { RefinementSettings.now }, calendar: RefinementSettings.calendar)
   }

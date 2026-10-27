@@ -98,18 +98,23 @@ public struct OpenAISpeechRecognizer: SpeechRecognizer {
   public let configuration: Configuration
   private let apiKey: String
   private let consent: @Sendable () async -> ConsentState
+  private let sensitivity: @Sendable () async -> SensitiveInputDecision
   private let budget: SpeechRecognitionBudget
   private let transport: any HTTPStreamingTransport
   private let makeBoundary: @Sendable () -> String
 
   /// - Parameters:
-  ///   - consent: 最新の同意状態を返す。認識の開始時と送信の直前に呼び、音声送信の同意を確認する（AC-06）
+  ///   - consent: 最新の同意状態を返す。認識の開始時と、予算の予約の前後（送信の直前）に呼び、音声送信の同意を確認する（AC-06）
+  ///   - sensitivity: その時点の入力先で判定し直した結果（7章, AC-12）。予算の予約の前と、予約を待った後の送信の直前に呼び、
+  ///     `allowsCloudTransmission` でなければ送信せずに（予約済みなら取り消して）`failed(.sensitiveInput)` で終える。
+  ///     録音の開始時の判定は呼び出し側が行う
   ///   - budget: 予算上限の設定（AI-04, AI-05）。トークン課金の API のため、省略できない
   ///   - makeBoundary: multipart の区切り文字列。テストで固定するために注入できる
   public init(
     apiKey: String,
     configuration: Configuration,
     consent: @escaping @Sendable () async -> ConsentState,
+    sensitivity: @escaping @Sendable () async -> SensitiveInputDecision,
     budget: SpeechRecognitionBudget,
     transport: any HTTPStreamingTransport = URLSessionStreamingTransport(),
     makeBoundary: @escaping @Sendable () -> String = { "utter-\(UUID().uuidString)" }
@@ -117,6 +122,7 @@ public struct OpenAISpeechRecognizer: SpeechRecognizer {
     self.apiKey = apiKey
     self.configuration = configuration
     self.consent = consent
+    self.sensitivity = sensitivity
     self.budget = budget
     self.transport = transport
     self.makeBoundary = makeBoundary
@@ -166,6 +172,10 @@ public struct OpenAISpeechRecognizer: SpeechRecognizer {
     guard await consent().allows(.speechRecognition) else {
       return .failed(.consentNotGranted)
     }
+    // 録音中に入力先が機密入力になっていたら送らない（7章, AC-12）
+    guard await sensitivity().allowsCloudTransmission else {
+      return .failed(.sensitiveInput)
+    }
 
     let reservation: BudgetReservation
     do {
@@ -179,6 +189,15 @@ public struct OpenAISpeechRecognizer: SpeechRecognizer {
     if Task.isCancelled {
       await budget.guard.cancel(reservation)
       return nil
+    }
+    // 予約を待つ間に同意を撤回された・入力先が機密入力になっていたら、送信せずに予約を取り消す
+    guard await consent().allows(.speechRecognition) else {
+      await budget.guard.cancel(reservation)
+      return .failed(.consentNotGranted)
+    }
+    guard await sensitivity().allowsCloudTransmission else {
+      await budget.guard.cancel(reservation)
+      return .failed(.sensitiveInput)
     }
 
     let result = await sendWithTimeout(makeURLRequest(wav: wav))
