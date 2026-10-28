@@ -11,13 +11,15 @@ import UtteriOSKit
 /// - 音声認識は iOS の STT エンジンの判定（#54）まで `UnconfiguredSpeechRecognizer`（録音のみ・認識しない）。
 ///   Config/Local.xcconfig の `UTTER_IOS_STT_ENGINE`（Debug は起動引数 `-UtterSpeechEngine`）で `speechAnalyzer` を
 ///   明示したときだけ SpeechAnalyzer を使い、そのモデルは設定画面の操作でだけ取得する（PERM-03）
-/// - 整形は Local Basic。処理系にクラウド AI を選び、Claude への送信に同意し、API キー（本体アプリの Keychain）と月次予算・単価表がそろったときだけ
+/// - 整形は Local Basic。文体（Raw / Natural / Structured）はホームで選び、`AppSettingsStore` に保存する。
+///   処理系にクラウド AI を選び、Claude への送信に同意し、API キー（本体アプリの Keychain）と月次予算・単価表がそろったときだけ
 ///   Claude で整形する（iOS-10）。同意・設定は `UserDefaults.standard`（App Group ではない）に保存する
 /// - 共有結果と本体アプリの状態（キーボード拡張の案内用, iAC-07）は、App Group（Config/Local.xcconfig）を設定したときだけ
 ///   App Group に書く（#56）
 @main
 struct UtterApp: App {
   @State private var model: RecordingSessionModel
+  @State private var home: HomeSettingsModel
   @State private var refinementSettings: RefinementSettingsModel
   @State private var consentSettings: ConsentSettingsModel
   @State private var claudeAPIKeySettings: APIKeySettingsModel
@@ -45,12 +47,15 @@ struct UtterApp: App {
         makeStore: { MonthlyUsageStore(database: try UtterDatabase.open(at: databaseURL)) },
         pendingReservationURL: URL.applicationSupportDirectory.appending(
           path: "PendingCloudRefinementCost.json")))
+    // ホームで選んだ文体（整形モード）は同じ保存先に書き、次の録音から使う
+    let home = HomeSettingsModel(store: settingsStore, speechEngine: speechEngine)
     let model = RecordingSessionModel(
       recorder: AudioEngineRecorder(
         requestsSpeechRecognitionPermission: speechEngine.requestsSpeechRecognitionPermission),
       recognizer: Self.makeRecognizer(speechEngine), cloudRefinement: cloudRefinement,
-      storage: storage, copier: PasteboardCopier())
+      refinementMode: home.style, storage: storage, copier: PasteboardCopier())
     _model = State(initialValue: model)
+    _home = State(initialValue: home)
     _speechModel = State(
       initialValue: modelAssets.map { SpeechModelSettingsModel(assets: $0) })
     self.speechEngine = speechEngine
@@ -73,7 +78,8 @@ struct UtterApp: App {
   var body: some Scene {
     WindowGroup {
       RecordingView(
-        model: model, refinementSettings: refinementSettings, consentSettings: consentSettings,
+        model: model, home: home, refinementSettings: refinementSettings,
+        consentSettings: consentSettings,
         claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
         speechModel: speechModel, hostAppStatus: hostAppStatus)
     }

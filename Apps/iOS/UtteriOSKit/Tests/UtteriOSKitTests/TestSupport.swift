@@ -77,6 +77,11 @@ final class FakeRecorder: UtteriOSKit.AudioRecorder {
         sampleRate: sampleRate))
   }
 
+  /// 指定したサンプルのチャンクを流す
+  func emit(samples: [Float]) {
+    onChunk?(AudioChunk(samples: samples, sampleRate: sampleRate))
+  }
+
   func fail() {
     onFailure?()
   }
