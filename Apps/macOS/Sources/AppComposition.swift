@@ -15,6 +15,7 @@ import UtterSpeech
 /// （同意・OpenAI API キー・予算がそろったときだけ）。
 /// 起動時の復旧と Edit Mode の指示の認識は、クラウド STT を選んでいても STT Worker を使う（音声をクラウドへ送らない）。
 /// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
+/// 整形の OpenAI API キー方式（#58）は、クラウド STT と同じ OpenAI API キーを使う。
 /// セッションと整形の送信は、6章の区間を名前だけの Signpost（`SignpostPerfIntervals`）で出す（#52）。
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
 /// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。保持期限は設定画面で選び、起動時の値を使う。
@@ -51,7 +52,8 @@ final class AppComposition {
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
-  ///   - openAIAPIKeyStore: OpenAI API キーの保存先（API キーの画面と同じもの）。クラウド STT（#188）だけが使う
+  ///   - openAIAPIKeyStore: OpenAI API キーの保存先（API キーの画面と同じもの）。クラウド STT（#188）と、
+  ///     整形の送信先に OpenAI API キー方式（#58）を選んだときの整形が使う
   ///   - chatGPTAccount: Sign in with ChatGPT のアカウント（設定画面と同じもの, #50）。整形の送信先に選んだときだけ使う
   ///   - database: 辞書・推定費用の累計・入力履歴のデータベース（入力履歴の画面と同じもの）
   init(
@@ -90,7 +92,7 @@ final class AppComposition {
       recognizer: recognizer,
       refiner: SessionRefinementPipeline(
         settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase,
-        chatGPTAccount: chatGPTAccount, measurer: measurer),
+        chatGPTAccount: chatGPTAccount, openAIAPIKeyStore: openAIAPIKeyStore, measurer: measurer),
       inputMode: sessionSettings.inputMode,
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       history: InputHistoryRecorder.standard(database: openDatabase),
