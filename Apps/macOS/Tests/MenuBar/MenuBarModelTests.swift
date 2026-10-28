@@ -287,7 +287,7 @@ struct MenuBarModelTests {
     #expect(
       MenuBarModel.speechRecognitionText(
         engine: .speechAnalyzer, cloudEnabled: true, availability: .installed)
-        == "音声認識: クラウド（OpenAI。音声を送信）")
+        == "音声認識: クラウド（OpenAI へ音声を送る設定）")
     #expect(
       MenuBarModel.speechRecognitionText(
         engine: .speechAnalyzer, cloudEnabled: false, availability: .installed)
