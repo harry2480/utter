@@ -10,7 +10,7 @@ struct SettingsScene: Scene {
   @State private var model: SettingsModel
   /// 「整形の実行先と費用」タブの Claude API キーの状態（AC-12）
   @State private var apiKeyModel: APIKeySettingsModel
-  /// 「認識モデルと省電力」タブの OpenAI API キーの状態（クラウド STT, #188）
+  /// OpenAI API キーの状態（クラウド STT, #188 と整形の OpenAI API キー方式, #58 で共用）
   @State private var openAIAPIKeyModel: APIKeySettingsModel
   /// 「整形の実行先と費用」タブの Sign in with ChatGPT の状態（#50）
   @State private var chatGPTAccount: ChatGPTAccountSettingsModel
@@ -20,7 +20,8 @@ struct SettingsScene: Scene {
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先。整形（`SessionRefinementPipeline`）と同じものを渡す
-  ///   - openAIAPIKeyStore: OpenAI API キーの保存先。クラウド STT（`CloudSpeechRecognitionPipeline`）と同じものを渡す
+  ///   - openAIAPIKeyStore: OpenAI API キーの保存先。クラウド STT（`CloudSpeechRecognitionPipeline`）と
+  ///     整形（`SessionRefinementPipeline`）と同じものを渡す
   ///   - chatGPTAccount: Sign in with ChatGPT のアカウント。整形（`SessionRefinementPipeline`）と同じものを渡す
   ///   - database: アプリで1つだけ開くデータベース。推定費用の累計を読む（辞書・入力履歴と共有する）
   ///   - sttEngine: 使っている STT エンジン（`AppComposition.selectedEngine()`）。未選択なら `nil`

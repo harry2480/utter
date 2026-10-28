@@ -166,16 +166,25 @@ struct MenuBarModelTests {
     #expect(model.provider == .localBasic)
   }
 
-  @Test("#50: 準備中の OpenAI API キー方式は選べず、何も保存しない")
-  func openAIAPIKeyIsNotSelectable() throws {
-    let saved = AppSettings(refinementEngine: .cloudAI, cloudRefinementProvider: .claude)
-    try store.save(saved)
+  @Test("#58, AC-06: OpenAI API キー方式を選んで保存し、ChatGPT への同意がなければ同意の画面へ案内する")
+  func selectsOpenAIAPIKey() throws {
+    try store.save(AppSettings(refinementEngine: .localBasic, cloudRefinementProvider: .claude))
     let model = makeModel()
 
-    #expect(model.select(provider: .openAIAPIKey) == .notSelectable)
+    #expect(model.select(provider: .openAIAPIKey) == .consentRequired)
 
-    #expect(store.load() == saved)
-    #expect(model.provider == .claude)
+    let loaded = store.load()
+    #expect(loaded.refinementEngine == .cloudAI)
+    #expect(loaded.cloudRefinementProvider == .openAIAPIKey)
+    #expect(model.provider == .openAIAPIKey)
+    // 同意はここで変えない
+    #expect(loaded.consentState == ConsentState())
+
+    // Sign in with ChatGPT と同じ送信先（OpenAI）への同意で足りる
+    var consented = loaded
+    consented.consentState.grant(.transmission(.textRefinement(.chatGPT)))
+    try store.save(consented)
+    #expect(makeModel().select(provider: .openAIAPIKey) == .saved)
   }
 
   @Test("AC-06: 文字を送る送信先にだけ「文字を送信」と示し、同意がなければ同意が要ることを添える")
@@ -188,7 +197,7 @@ struct MenuBarModelTests {
         == "ChatGPT（Sign in with ChatGPT）（文字を送信・同意が必要）")
     #expect(
       MenuBarModel.providerTitle(.openAIAPIKey, hasConsent: false)
-        == "ChatGPT（OpenAI API キー方式）（文字を送信・準備中）")
+        == "ChatGPT（OpenAI API キー方式）（文字を送信・同意が必要）")
     let sending = RefinementProviderChoice.allCases.filter { MenuBarModel.sendsText($0) }
     #expect(sending == [.claude, .chatGPTSignIn, .openAIAPIKey])
   }

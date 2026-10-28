@@ -3,7 +3,8 @@ import SwiftUI
 import UtterAI
 
 // API キーの欄（AC-12）。Claude（整形・Edit Mode）は設定画面の「整形の実行先と費用」タブに、
-// OpenAI（クラウド STT, #188）は「認識モデルと省電力」タブに置く。状態と操作はキーごとの `APIKeySettingsModel` が持つ。
+// OpenAI（クラウド STT, #188 と ChatGPT の OpenAI API キー方式の整形, #58 で共用）は「認識モデルと省電力」タブと、
+// 「整形の実行先と費用」タブで OpenAI API キー方式を選んだときに置く。状態と操作はキーごとの `APIKeySettingsModel` が持つ。
 //
 // - 入力欄は `SecureField`（伏せ字。コピー・切り取り・ドラッグで取り出せない）
 // - 保存済みのキーは再表示しない。値に依存しない伏せ字で保存済みであることだけを示す
@@ -22,8 +23,8 @@ struct APIKeyLabels {
     title: "Claude API キー", placeholder: "sk-ant-…",
     deletionMessage: "削除すると Claude による整形と Edit Mode は使えなくなります。")
   static let openAI = APIKeyLabels(
-    title: "OpenAI API キー（クラウド音声認識）", placeholder: "sk-…",
-    deletionMessage: "削除するとクラウド音声認識は使えなくなります。")
+    title: "OpenAI API キー（クラウド音声認識と ChatGPT の API キー方式で共用）", placeholder: "sk-…",
+    deletionMessage: "削除するとクラウド音声認識と、ChatGPT（OpenAI API キー方式）による整形は使えなくなります。")
 }
 
 /// 1つのキーの状態・入力・保存・削除

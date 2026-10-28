@@ -16,7 +16,8 @@ struct SettingsView: View {
   @Bindable var model: SettingsModel
   /// 「整形の実行先と費用」タブの Claude API キーの状態。キーは Keychain に即時に保存し、下の「保存」とは別に扱う（AC-12）
   let apiKeyModel: APIKeySettingsModel
-  /// 「認識モデルと省電力」タブの OpenAI API キー（クラウド STT, #188）の状態
+  /// OpenAI API キーの状態。「認識モデルと省電力」タブ（クラウド STT, #188）と、「整形の実行先と費用」タブで
+  /// OpenAI API キー方式（#58）を選んだときに出す。同じキーを使う
   let openAIAPIKeyModel: APIKeySettingsModel
   /// 「整形の実行先と費用」タブの Sign in with ChatGPT（#50）の状態。サインインは Keychain に即時に保存し、下の「保存」とは別に扱う
   let chatGPTAccount: ChatGPTAccountSettingsModel
@@ -36,9 +37,12 @@ struct SettingsView: View {
         StyleAndDictionarySettingsTab(model: model)
           .tabItem { Label("文体と辞書", systemImage: "character.book.closed") }
           .tag(SettingsTab.styleAndDictionary)
-        RefinementSettingsTab(model: model, chatGPTAccount: chatGPTAccount, apiKey: apiKeyModel)
-          .tabItem { Label("整形の実行先と費用", systemImage: "text.badge.checkmark") }
-          .tag(SettingsTab.refinement)
+        RefinementSettingsTab(
+          model: model, chatGPTAccount: chatGPTAccount, apiKey: apiKeyModel,
+          openAIAPIKey: openAIAPIKeyModel
+        )
+        .tabItem { Label("整形の実行先と費用", systemImage: "text.badge.checkmark") }
+        .tag(SettingsTab.refinement)
         AppSpecificSettingsTab(model: model)
           .tabItem { Label("アプリ別の設定", systemImage: "app.badge") }
           .tag(SettingsTab.apps)
@@ -220,12 +224,24 @@ private struct RefinementSettingsTab: View {
   let chatGPTAccount: ChatGPTAccountSettingsModel
   /// Claude API キー。この欄で Keychain にすぐ保存し、下の「保存」とは別に扱う（AC-12）
   let apiKey: APIKeySettingsModel
+  /// OpenAI API キー（クラウド STT と共用）。OpenAI API キー方式を選んだときだけ出す。この欄で Keychain にすぐ保存する
+  let openAIAPIKey: APIKeySettingsModel
 
   /// 失敗時の切り替えの説明（AI-04, AC-06）
   static let fallbackCaption = [
     "Claude か ChatGPT（Sign in with ChatGPT）の整形が失敗したら、もう一方で1回だけ整形し直します。既定はオフです。",
     "切り替え先へは、その送信先への送信に同意していて、API キーと予算（Claude）またはサインインとモデル（ChatGPT）が",
-    "そろっているときだけ送ります。そろわなければ送らず、この Mac で整形します。OpenAI API キー方式へは切り替えません。",
+    "そろっているときだけ送ります。そろわなければ送らず、この Mac で整形します。",
+    "OpenAI API キー方式へは切り替えず、OpenAI API キー方式を選んでいるときは切り替えません。",
+  ].joined()
+
+  /// OpenAI API キー方式の説明（AI-01, AI-04, AI-05, AC-06, CTX-03）
+  static let openAIAPIKeyCaption = [
+    "OpenAI API キー方式は、あなたの OpenAI API キーで ChatGPT（OpenAI）へ送って整形します。API の利用料がかかります。",
+    "送るのは整形する本文・スタイル区分・辞書語だけです。",
+    "送信の同意（Sign in with ChatGPT と同じ「ChatGPT」への同意）・下の OpenAI API キー・整形用モデル名・",
+    "月次予算と、単価表のそのモデルの単価がそろうまで送らず、この Mac で整形します。",
+    "失敗したときは Local Basic で整形し、Sign in with ChatGPT や Claude へは切り替えません。",
   ].joined()
 
   var body: some View {
@@ -233,13 +249,14 @@ private struct RefinementSettingsTab: View {
       Section {
         Picker("処理系", selection: $model.form.provider) {
           ForEach(RefinementProviderChoice.allCases) { choice in
-            Text(choice.label).tag(choice).disabled(!choice.isSelectable)
+            Text(choice.label).tag(choice)
           }
         }
         .pickerStyle(.radioGroup)
-        IssueText(issues: model.issues(in: [.providerUnavailable]))
-        Text("ChatGPT は、ChatGPT プランを使う Sign in with ChatGPT と、OpenAI API キー方式（準備中）を別々に選びます。")
-          .font(.caption).foregroundStyle(.secondary)
+        Text(
+          "ChatGPT は、ChatGPT プランを使う Sign in with ChatGPT と、OpenAI API キーを使う OpenAI API キー方式を別々に選びます。"
+        )
+        .font(.caption).foregroundStyle(.secondary)
         switch model.form.provider {
         case .claude:
           Text("Claude へは、送信の同意がない間は送信しません。API キーはこのタブの下で、同意は別の画面で設定します。")
@@ -247,7 +264,10 @@ private struct RefinementSettingsTab: View {
         case .chatGPTSignIn:
           Text("ChatGPT へは、送信の同意とサインインがそろうまで送信しません。同意は別の画面で設定します。")
             .font(.caption).foregroundStyle(.secondary)
-        case .localBasic, .openAIAPIKey:
+        case .openAIAPIKey:
+          Text("ChatGPT（OpenAI）へは、送信の同意・API キー・モデル名・予算がそろうまで送信しません。同意は別の画面で設定します。")
+            .font(.caption).foregroundStyle(.secondary)
+        case .localBasic:
           EmptyView()
         }
       } header: {
@@ -260,6 +280,16 @@ private struct RefinementSettingsTab: View {
           Section {
             NoticeText(notice: .chatGPTModelNotSelected)
           }
+        }
+      }
+      if model.form.provider == .openAIAPIKey {
+        Section("ChatGPT（OpenAI API キー方式）") {
+          TextField("OpenAI の整形用モデル名", text: $model.form.openAIRefinementModel)
+          if model.form.notices.contains(.openAIModelNotEntered) {
+            NoticeText(notice: .openAIModelNotEntered)
+          }
+          Text(Self.openAIAPIKeyCaption)
+            .font(.caption).foregroundStyle(.secondary)
         }
       }
       Section("Claude") {
@@ -277,6 +307,11 @@ private struct RefinementSettingsTab: View {
       APIKeySection(model: apiKey, labels: .claude)
         .onAppear { apiKey.refresh() }
         .onDisappear { apiKey.clearInput() }
+      if model.form.provider == .openAIAPIKey {
+        APIKeySection(model: openAIAPIKey, labels: .openAI)
+          .onAppear { openAIAPIKey.refresh() }
+          .onDisappear { openAIAPIKey.clearInput() }
+      }
     }
     .formStyle(.grouped)
   }

@@ -289,16 +289,16 @@ struct SettingsFormTests {
 
   // MARK: - 処理系（AC-05）
 
-  @Test("AC-05, #50: Local Basic・Claude・Sign in with ChatGPT は選べ、OpenAI API キー方式は準備中で選べない")
+  @Test("AC-05, #50, #58: Local Basic・Claude・Sign in with ChatGPT・OpenAI API キー方式を選べる")
   func providerChoices() throws {
     #expect(RefinementProviderChoice.localBasic.engine == .localBasic)
     #expect(RefinementProviderChoice.claude.engine == .cloudAI)
     #expect(RefinementProviderChoice.chatGPTSignIn.engine == .cloudAI)
-    #expect(!RefinementProviderChoice.openAIAPIKey.isSelectable)
+    #expect(RefinementProviderChoice.openAIAPIKey.engine == .cloudAI)
 
     var form = SettingsForm(settings: AppSettings(refinementEngine: .cloudAI))
     form.provider = .openAIAPIKey
-    #expect(issues(form) == [.providerUnavailable])
+    #expect(issues(form).isEmpty)
 
     form.provider = .localBasic
     #expect(
@@ -327,6 +327,46 @@ struct SettingsFormTests {
     #expect(local.refinementEngine == .localBasic)
     #expect(local.cloudRefinementProvider == .chatGPTSignIn)
     #expect(SettingsForm(settings: local).provider == .localBasic)
+  }
+
+  @Test("AC-05, #58: OpenAI API キー方式を選ぶと送信先とモデル名を保存し、Sign in with ChatGPT とは別の選択肢として読み直す")
+  func openAIAPIKeyChoiceRoundTrips() throws {
+    var form = SettingsForm(settings: AppSettings())
+    form.provider = .openAIAPIKey
+    form.openAIRefinementModel = " model-y "
+    let saved = try form.applied(to: AppSettings())
+    #expect(saved.refinementEngine == .cloudAI)
+    #expect(saved.cloudRefinementProvider == .openAIAPIKey)
+    #expect(saved.openAIRefinementModel == "model-y")
+    // Sign in with ChatGPT のモデル名は変えない
+    #expect(saved.chatGPTRefinementModel.isEmpty)
+    #expect(SettingsForm(settings: saved).provider == .openAIAPIKey)
+    #expect(SettingsForm(settings: saved).openAIRefinementModel == "model-y")
+
+    form.provider = .chatGPTSignIn
+    let chatGPT = try form.applied(to: saved)
+    #expect(chatGPT.cloudRefinementProvider == .chatGPTSignIn)
+    // 方式を変えても入力したモデル名は残す
+    #expect(chatGPT.openAIRefinementModel == "model-y")
+
+    // Local Basic を選んでも送信先は変えない
+    form.provider = .localBasic
+    let local = try form.applied(to: saved)
+    #expect(local.refinementEngine == .localBasic)
+    #expect(local.cloudRefinementProvider == .openAIAPIKey)
+  }
+
+  @Test("#58: OpenAI API キー方式でモデル名を入力していなければ、保存はできるが送らないことを知らせる")
+  func openAIModelNotEnteredNotice() throws {
+    var form = SettingsForm(settings: AppSettings())
+    form.provider = .openAIAPIKey
+    #expect(form.notices.contains(.openAIModelNotEntered))
+    #expect(try form.applied(to: AppSettings()).openAIRefinementModel.isEmpty)
+    form.openAIRefinementModel = "model-y"
+    #expect(!form.notices.contains(.openAIModelNotEntered))
+    form.provider = .chatGPTSignIn
+    form.openAIRefinementModel = ""
+    #expect(!form.notices.contains(.openAIModelNotEntered))
   }
 
   @Test("#50: Sign in with ChatGPT でモデルを選んでいなければ、保存はできるが送らないことを知らせる")
@@ -616,6 +656,33 @@ struct SettingsFormTests {
 
     form.addPriceRow()
     form.priceRows[0].model = AppSettings.defaultRefinementModel
+    #expect(form.notices.isEmpty)
+  }
+
+  @Test("AI-04, AI-05, #58: OpenAI API キー方式を選んだとき、予算の未設定と単価表にないモデルを案内する")
+  func openAICostNotices() {
+    var form = SettingsForm(settings: AppSettings())
+    form.provider = .openAIAPIKey
+    form.openAIRefinementModel = "model-y"
+    #expect(form.notices == [.budgetNotSet])
+
+    form.budgetEnabled = true
+    #expect(form.notices == [.refinementModelNotInPriceTable])
+
+    // Claude のモデルの単価では足りない
+    form.addPriceRow()
+    form.priceRows[0].model = AppSettings.defaultRefinementModel
+    #expect(form.notices == [.refinementModelNotInPriceTable])
+
+    form.priceRows[0].model = "model-y"
+    #expect(form.notices.isEmpty)
+  }
+
+  @Test("AI-05, #50: Sign in with ChatGPT は課金されないため、予算の案内を出さない")
+  func chatGPTSignInHasNoCostNotices() {
+    var form = SettingsForm(settings: AppSettings())
+    form.provider = .chatGPTSignIn
+    form.chatGPTRefinementModel = "model-x"
     #expect(form.notices.isEmpty)
   }
 

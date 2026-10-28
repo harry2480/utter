@@ -23,8 +23,6 @@ final class MenuBarModel {
     case saved
     /// 保存したが、送信の同意がない。同意の画面へ案内する（同意がない間は送らない, AC-06）
     case consentRequired
-    /// 選べない選択肢（準備中）。保存しない
-    case notSelectable
     /// 保存できなかった
     case saveFailed
   }
@@ -138,9 +136,8 @@ final class MenuBarModel {
   ///
   /// Local Basic を選んだときはクラウドの送信先を変えない。同意は変えず、同意がなければ `consentRequired` を返す
   func select(provider choice: RefinementProviderChoice) -> ProviderSelection {
-    guard let engine = choice.engine else { return .notSelectable }
     let saved = update {
-      $0.refinementEngine = engine
+      $0.refinementEngine = choice.engine
       if let cloudProvider = choice.cloudProvider {
         $0.cloudRefinementProvider = cloudProvider
       }
@@ -307,9 +304,7 @@ extension MenuBarModel {
       notes.append("オフライン")
     } else {
       notes.append("文字を送信")
-      if !choice.isSelectable {
-        notes.append("準備中")
-      } else if !hasConsent {
+      if !hasConsent {
         notes.append("同意が必要")
       }
     }

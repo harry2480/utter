@@ -9,7 +9,7 @@ extension RefinementProviderChoice {
     case .localBasic: "Local Basic（オフライン）"
     case .claude: "Claude API"
     case .chatGPTSignIn: "ChatGPT（Sign in with ChatGPT。ChatGPT プランを使う）"
-    case .openAIAPIKey: "ChatGPT（OpenAI API キー方式。準備中）"
+    case .openAIAPIKey: "ChatGPT（OpenAI API キー方式。API の利用料がかかる）"
     }
   }
 }

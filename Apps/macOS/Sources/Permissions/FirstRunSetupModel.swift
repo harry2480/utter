@@ -217,11 +217,11 @@ final class FirstRunSetupModel {
     save { $0.recordingShortcut = combination }
   }
 
-  /// 整形の実行先を保存して、次へ進む（最後の手順のため、まとめの表示になる）。選べない選択肢は保存しない
+  /// 整形の実行先を保存して、次へ進む（最後の手順のため、まとめの表示になる）
   func chooseRefinement(_ choice: RefinementProviderChoice) {
-    guard progress.current == .refinement, let engine = choice.engine else { return }
+    guard progress.current == .refinement else { return }
     let saved = save { settings in
-      settings.refinementEngine = engine
+      settings.refinementEngine = choice.engine
       // Local Basic では送信先を変えない（設定画面と同じ）
       if let provider = choice.cloudProvider {
         settings.cloudRefinementProvider = provider
