@@ -2,6 +2,7 @@ import Foundation
 import UtterAI
 import UtterCore
 import UtterPersistence
+import UtterSpeech
 
 // iOS 本体アプリのホーム・録音中・結果の画面に出す表示の値（#201）。
 // 画面（Apps/iOS/Sources）はここで決めた文言を出すだけにし、判定をテストできるようにする。
