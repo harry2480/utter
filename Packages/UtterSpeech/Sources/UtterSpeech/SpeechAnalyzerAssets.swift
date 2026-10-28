@@ -70,4 +70,22 @@ public struct SpeechAnalyzerAssets: Sendable {
       throw TranscriptionRun.classify(error)
     }
   }
+
+  /// このアプリが `install()` でしたロケールの予約を解除する（PERM-03, #199）。ネットワークは使わない。
+  ///
+  /// 公開 API（`AssetInventory`）には、取得したモデルをアプリからすぐに削除する方法がない。予約を解除すると、
+  /// ほかのアプリが使っていなければ macOS が後で削除する（すぐには消えず、消えるまでは認識に使える）。
+  /// - Returns: 予約を解除したら `true`。予約していない・この端末で使えない場合は `false`
+  public func releaseReservation() async -> Bool {
+    guard SpeechTranscriber.isAvailable,
+      let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
+    else { return false }
+    let target = supported.identifier(.bcp47)
+    let reserved = await AssetInventory.reservedLocales
+    guard let match = reserved.first(where: { $0.identifier(.bcp47) == target }) else {
+      return false
+    }
+    _ = await AssetInventory.release(reservedLocale: match)
+    return true
+  }
 }

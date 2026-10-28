@@ -54,6 +54,36 @@ struct ShortcutInterpreterTests {
     #expect(decision2 == .consumed(nil))
   }
 
+  @Test(
+    "REC-06: キャンセルの確認を選ぶと、認識中・整形中の押下でだけ確かめる",
+    arguments: [ShortcutTriggerMode.toggle, .pushToTalk])
+  func confirmsCancelWhileProcessing(_ mode: ShortcutTriggerMode) {
+    var interpreter = ShortcutInterpreter(mode: mode, pressWhileProcessing: .confirmCancel)
+
+    for phase in [SessionPhase.recognizing, .refining] {
+      let decision = interpreter.handle(.shortcutPressed(isRepeat: false), phase: phase)
+      #expect(decision == .consumed(.confirmCancel))
+      // キーリピートでは確かめ直さない
+      let repeated = interpreter.handle(.shortcutPressed(isRepeat: true), phase: phase)
+      #expect(repeated == .consumed(nil))
+    }
+    // 挿入が始まったら取り消さない。失敗の表示中も何もしない
+    for phase in [SessionPhase.inserting, .error(.recognition)] {
+      let decision = interpreter.handle(.shortcutPressed(isRepeat: false), phase: phase)
+      #expect(decision == .consumed(nil))
+    }
+    // 待機中・録音中の押下は設定によらない
+    let start = interpreter.handle(.shortcutPressed(isRepeat: false), phase: .idle)
+    #expect(start == .consumed(.startRecording))
+    let stop = interpreter.handle(.shortcutPressed(isRepeat: false), phase: .recording)
+    #expect(stop == .consumed(.stopRecording))
+  }
+
+  @Test("REC-06: 処理中の押下の動作は既定で何もしない")
+  func pressWhileProcessingDefaultsToIgnore() {
+    #expect(ShortcutInterpreter(mode: .toggle).pressWhileProcessing == .ignore)
+  }
+
   // MARK: - Push-to-talk
 
   @Test("REC-02: Push-to-talk は押下で開始、解放で停止する")

@@ -44,7 +44,8 @@ final class SessionSimulator {
     case .cancelSession:
       machine.cancel()
       changed()
-    case nil:
+    // 処理中の押下の確認は既定（何もしない）のまま使うため届かない
+    case .confirmCancel, nil:
       break
     }
     return true

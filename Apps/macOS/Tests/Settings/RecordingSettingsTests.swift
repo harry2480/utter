@@ -56,4 +56,23 @@ struct RecordingSettingsTests {
       GlobalShortcutSetting.fromSettings(settings)
         == GlobalShortcutSetting(combination: combination, mode: mode))
   }
+
+  @Test("REC-01, REC-06: 処理中の押下の動作と Esc でのキャンセルを設定から読む")
+  func mapsPressWhileProcessingAndEscape() throws {
+    let combination = try #require(ShortcutNotation.parse("ctrl+option+k"))
+    var settings = AppSettings()
+    settings.recordingShortcut = combination
+    settings.recordingPressWhileProcessing = .confirmCancel
+    settings.escapeCancelEnabled = false
+
+    let setting = try #require(GlobalShortcutSetting.fromSettings(settings))
+    #expect(setting.pressWhileProcessing == .confirmCancel)
+    #expect(!setting.cancelsWithEscape)
+
+    // 既定は何もしない・Esc でキャンセルする（Esc の捕捉そのものは capability が有効なときだけ）
+    let defaults = try #require(
+      GlobalShortcutSetting.fromSettings(AppSettings(recordingShortcut: combination)))
+    #expect(defaults.pressWhileProcessing == .ignore)
+    #expect(defaults.cancelsWithEscape)
+  }
 }

@@ -17,9 +17,10 @@ import UtterSpeech
 /// 整形と履歴は、設定画面・同意の画面・API キーの画面・辞書・入力履歴の画面と同じ保存先を読む。
 /// セッションと整形の送信は、6章の区間を名前だけの Signpost（`SignpostPerfIntervals`）で出す（#52）。
 /// 録音音声は一時保存し（`TemporaryAudioRetention`）、STT Worker の異常終了で認識をやり直し、
-/// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。
+/// 起動時には前回の終了前に残った音声の復旧を尋ねる（`LaunchAudioRecovery`, 7章, AC-10）。保持期限は設定画面で選び、起動時の値を使う。
 /// 復旧した音声の整形はローカルだけで行い、整形モードは設定画面の保存値を使う（起動時はクラウドへ送らない）。
 /// セッションの状態が変わるたびにショートカットへ知らせ、Esc の捕捉（#51 の判定待ちで既定は無効）をセッション中だけ有効にする。
+/// 処理中にもう一度ショートカットを押したとき、設定で確認を選んでいれば `SessionCancelConfirmation` でキャンセルするかを確かめる（REC-06）。
 /// 録音の設定（録音ショートカット・録音の操作方式・最大録音時間・入力モード）は起動時に保存値を読み、
 /// 設定画面で変わったら次のセッションから使う（`followRecordingSettings`）。
 /// 端末の状態（メモリ圧迫・低電力モード・電源）は起動から終了まで監視し、STT Worker へ送る（`DeviceResourceMonitoring`, 6章, AC-11）。
@@ -39,12 +40,14 @@ final class AppComposition {
   /// 端末の状態の監視（6章, AC-11）。録音・認識の有無に関わらず動かす。
   /// STT Worker の認識器を作らないとき（エンジンが未選択、接続先の Bundle ID が取れない）は、送り先がないため監視もしない（`nil`）
   let resourceMonitoring: DeviceResourceMonitoring?
-  /// 使う STT エンジン。未選択なら `nil`（`selectedEngine()`）。設定画面の「音声認識」タブに出す
+  /// 使う STT エンジン。未選択なら `nil`（`selectedEngine()`）。設定画面の「認識モデルと省電力」タブに出す
   let sttEngine: STTEngineKind?
   /// Edit Mode の流れ（AC-14）。メニューのキャンセル・元に戻すに使う
   let editMode: EditModeController
   /// Edit Mode のショートカットの登録（AC-14）。メニューの表示に使う
   let editModeShortcut: EditModeShortcut
+  /// 処理中にもう一度ショートカットを押したときのキャンセルの確認（REC-06）
+  let cancelConfirmation: SessionCancelConfirmation
 
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
@@ -71,8 +74,11 @@ final class AppComposition {
     let openDatabase: @MainActor @Sendable () async throws -> UtterDatabase = {
       try await database.database()
     }
-    let audioQueue = TemporaryAudioStoreQueue.applicationStore().map(TemporaryAudioStoreQueue.init)
     let initialSettings = settingsStore.load()
+    // 保持期限は起動時の設定の値を使う（起動時の整理で期限を過ぎたものを削除する, 7章）
+    let audioStore = TemporaryAudioStoreQueue.applicationStore(
+      retentionHours: initialSettings.temporaryAudioRetentionHours)
+    let audioQueue = audioStore.map(TemporaryAudioStoreQueue.init)
     let sessionSettings = Self.sessionSettings(from: initialSettings)
     // 録音は同時に1つだけのため、録音のセッションと Edit Mode で同じものを使う
     let recorder = AVAudioEngineRecorder()
@@ -114,7 +120,8 @@ final class AppComposition {
       LaunchAudioRecovery(
         queue: $0, recognizer: recognizer,
         refinementMode: RefinementMode(initialSettings.refinementMode),
-        prompt: AudioRecoveryAlert(), preview: preview, gate: session)
+        prompt: AudioRecoveryAlert(retentionHours: initialSettings.temporaryAudioRetentionHours),
+        preview: preview, gate: session)
     }
     self.launchRecovery = launchRecovery
     // セッションの保存より先に整理と候補の取得をキューに積む（起動後に録音した音声を候補に含めない）
@@ -122,15 +129,31 @@ final class AppComposition {
     let shortcutSetting = GlobalShortcutSetting.fromSettings(initialSettings)
     // 録音と Edit Mode のショートカットは1つの登録者で登録する
     let registrar = CarbonHotKeyRegistrar()
+    let cancelConfirmation = SessionCancelConfirmation(
+      presenter: CancelConfirmationPanel(),
+      phase: { [weak session] in session?.phase ?? .idle },
+      session: { [weak session] in session?.activeSession?.id },
+      cancel: { [weak session] in session?.cancel() })
+    self.cancelConfirmation = cancelConfirmation
     let shortcuts = ShortcutCoordinator(
       setting: shortcutSetting,
       registrar: registrar,
       currentPhase: { [weak session] in session?.phase ?? .idle },
-      perform: { [weak session] command in session?.perform(command) })
+      perform: { [weak session, weak cancelConfirmation] command in
+        // キャンセルの確認は確認の画面で答えてからキャンセルする（REC-06）
+        if command == .confirmCancel {
+          cancelConfirmation?.request()
+        } else {
+          session?.perform(command)
+        }
+      })
     self.shortcuts = shortcuts
     // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
-    // Esc の捕捉をセッション中だけ有効にする（REC-01）
-    session.onPhaseChange = { [weak shortcuts] in shortcuts?.sessionPhaseDidChange() }
+    // Esc の捕捉をセッション中だけ有効にする（REC-01）。処理が終わったらキャンセルの確認を閉じる
+    session.onPhaseChange = { [weak shortcuts, weak cancelConfirmation] in
+      shortcuts?.sessionPhaseDidChange()
+      cancelConfirmation?.sessionPhaseDidChange()
+    }
     Self.followRecordingSettings(
       session: session, shortcuts: shortcuts,
       from: RecordingSettingsSnapshot(session: sessionSettings, shortcut: shortcutSetting))

@@ -33,6 +33,15 @@ extension ShortcutTriggerMode {
   }
 }
 
+extension ShortcutPressWhileProcessing {
+  var label: String {
+    switch self {
+    case .ignore: "何もしない"
+    case .confirmCancel: "キャンセルするか確認する"
+    }
+  }
+}
+
 extension InputMode {
   var label: String {
     switch self {

@@ -350,4 +350,30 @@ struct EventTapShortcutTests {
     #expect(tap.isInvalidated)
     #expect(harness.controller.escapeStatus == .off)
   }
+
+  @Test("REC-01: 設定で Esc でのキャンセルをオフにしたら、capability が有効でも Esc のタップを作らない")
+  func escapeCaptureTurnedOffBySetting() throws {
+    let harness = Harness(capabilities: allEnabled)
+    harness.permissions.granted = [.accessibility]
+    var turnedOff = try setting("ctrl+option+k")
+    turnedOff.cancelsWithEscape = false
+    harness.controller.apply(turnedOff)
+    #expect(harness.controller.escapeStatus == .off)
+    #expect(harness.taps.live(.filter) == nil)
+
+    // オンに戻すと、capability と権限がそろっていれば捕捉する
+    harness.controller.apply(try setting("ctrl+option+k"))
+    #expect(harness.controller.escapeStatus == .ready)
+  }
+
+  @Test("REC-01: 設定で Esc でのキャンセルをオンにしていても、capability が無効なら捕捉しない")
+  func escapeSettingDoesNotEnableCapture() throws {
+    let harness = Harness(capabilities: .keyCombinationsOnly)
+    harness.permissions.granted = [.accessibility]
+    var enabled = try setting("ctrl+option+k")
+    enabled.cancelsWithEscape = true
+    harness.controller.apply(enabled)
+    #expect(harness.controller.escapeStatus == .off)
+    #expect(harness.taps.created.isEmpty)
+  }
 }
