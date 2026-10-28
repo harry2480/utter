@@ -1,16 +1,19 @@
 /// HUD に表示する内容（REC-03, REC-05, 4.1節）。
 ///
-/// 状態と通知の区分だけを持ち、発話本文・認識結果・エラー詳細は持たない。
+/// 状態と通知の区分と挿入先のアプリ名だけを持ち、発話本文・認識結果・エラー詳細は持たない。
 public struct HUDContent: Hashable, Sendable {
   /// セッションの状態。セッション終了後に通知だけを残している間は `nil`。
   public let status: HUDStatus?
   /// 表示する通知。録音停止の通知（失敗の表示中に失敗の理由があればそれに置き換える）、整形の退避の通知の順に並べる。
   /// 上限到達で止めたセッションがローカル整形へ退避したときのように、同時に複数出る場合がある。
   public let notices: [HUDNotice]
+  /// 挿入を終えたセッションの挿入先。セッション終了後に挿入完了を残している間（`status` が `nil`）だけ持つ
+  public let insertion: HUDInsertion?
 
-  public init(status: HUDStatus?, notices: [HUDNotice]) {
+  public init(status: HUDStatus?, notices: [HUDNotice], insertion: HUDInsertion? = nil) {
     self.status = status
     self.notices = notices
+    self.insertion = insertion
   }
 
   /// 通知が1件以下の表示内容。
@@ -23,6 +26,21 @@ public struct HUDContent: Hashable, Sendable {
   /// 録音停止と退避の通知が重なると先頭の1件しか返さないため、HUD の表示には `notices` を使う。
   public var notice: HUDNotice? {
     notices.first
+  }
+}
+
+/// 挿入を終えたときに HUD に出す挿入先（REC-03）。
+///
+/// 前面アプリの表示名だけを持ち、入力欄の内容・ウィンドウタイトルは持たない。
+public struct HUDInsertion: Hashable, Sendable {
+  /// 録音開始時の前面アプリの表示名
+  public let appName: String
+  /// 挿入後の値を読み戻して確かめられたか。`false` は入った可能性があるが確かめられない（INS-05）
+  public let isConfirmed: Bool
+
+  public init(appName: String, isConfirmed: Bool) {
+    self.appName = appName
+    self.isConfirmed = isConfirmed
   }
 }
 

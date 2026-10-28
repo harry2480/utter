@@ -58,6 +58,79 @@ struct RefinementRouterBudgetTests {
     #expect(await budgetGuard.ledger.spent(in: october) == 20)
   }
 
+  @Test("REC-03: 送るときは、予約を済ませてプロバイダーを呼ぶ直前に1回だけ送信の通知を呼ぶ")
+  func notifiesOnceBeforeSending() async throws {
+    let budgetGuard = try makeGuard()
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    // 通知を受けた時点の、プロバイダーの呼び出し回数
+    let callCountsAtNotice = Mutex<[Int]>([])
+
+    let outcome = try await router.refine(
+      request, consent: { .refinementGranted() }, budget: budget(budgetGuard),
+      sensitivity: { .allowedInput },
+      willSend: {
+        let count = await stub.callCount
+        callCountsAtNotice.withLock { $0.append(count) }
+      })
+
+    #expect(outcome.source == .cloud)
+    #expect(callCountsAtNotice.withLock { $0 } == [0])
+    #expect(await stub.callCount == 1)
+  }
+
+  @Test("REC-03, AI-04, AC-06, AC-12: 送らないとき（予算超過・同意なし・機密入力・Raw）は送信の通知を呼ばない")
+  func doesNotNotifyWithoutSending() async throws {
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    let notices = Mutex(0)
+    let raw = RefinementRequest(text: request.text, mode: .raw)
+
+    let exceeded = try await router.refine(
+      request, consent: { .refinementGranted() },
+      budget: budget(makeGuard(spent: 90), expected: 30), sensitivity: { .allowedInput },
+      willSend: { notices.withLock { $0 += 1 } })
+    let withoutConsent = try await router.refine(
+      request, consent: { ConsentState() }, budget: budget(makeGuard()),
+      sensitivity: { .allowedInput }, willSend: { notices.withLock { $0 += 1 } })
+    let sensitive = try await router.refine(
+      request, consent: { .refinementGranted() }, budget: budget(makeGuard()),
+      sensitivity: { .secureFieldInput }, willSend: { notices.withLock { $0 += 1 } })
+    let rawOutcome = try await router.refine(
+      raw, consent: { .refinementGranted() }, budget: budget(makeGuard()),
+      sensitivity: { .allowedInput }, willSend: { notices.withLock { $0 += 1 } })
+
+    #expect(exceeded.fallbackReason == .providerFailed(.budgetExceeded))
+    #expect(withoutConsent.fallbackReason == .consentNotGranted)
+    #expect(sensitive.fallbackReason == .sensitiveInputSuppressed)
+    #expect(rawOutcome.source == .raw)
+    #expect(notices.withLock { $0 } == 0)
+    #expect(await stub.callCount == 0)
+  }
+
+  @Test("REC-03, AC-12: 予約を待つ間に機密入力へ変わって送らなかったときは、送信の通知を呼ばない")
+  func doesNotNotifyWhenBecomingSensitive() async throws {
+    let stub = StubAIProvider(behavior: .echo)
+    let router = try RefinementRouter(provider: stub)
+    let notices = Mutex(0)
+    let calls = Mutex(0)
+
+    let outcome = try await router.refine(
+      request, consent: { .refinementGranted() }, budget: budget(makeGuard()),
+      sensitivity: {
+        let count = calls.withLock { count in
+          count += 1
+          return count
+        }
+        return count == 1 ? .allowedInput : .secureFieldInput
+      },
+      willSend: { notices.withLock { $0 += 1 } })
+
+    #expect(outcome.fallbackReason == .sensitiveInputSuppressed)
+    #expect(notices.withLock { $0 } == 0)
+    #expect(await stub.callCount == 0)
+  }
+
   @Test("AI-04: 予算上限を超える見込みなら送信せず、予算超過として退避する")
   func skipsProviderWhenBudgetExceeded() async throws {
     let budgetGuard = try makeGuard(spent: 90)
