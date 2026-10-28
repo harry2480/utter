@@ -4,9 +4,13 @@ import UtterCore
 import UtterPersistence
 import UtteriOSKit
 
-/// 録音の開始・停止・状態と、結果の確認・コピー（iOS-04, iOS-07）。進行の判断は `RecordingSessionModel` が持つ。
+/// 録音の開始・停止・状態と、結果の確認・コピー・消去（iOS-04, iOS-07）。進行の判断は `RecordingSessionModel` が持つ。
+///
+/// ホームでは文体の切り替えと整形先・認識先・最大録音時間、録音中は経過時間・音量の波形・チップ・途中の文字、
+/// 結果では文体・整形先・残り時間と元のアプリへの戻り方を出す（#201）。文言と判定は UtteriOSKit が持つ。
 struct RecordingView: View {
   let model: RecordingSessionModel
+  let home: HomeSettingsModel
   let refinementSettings: RefinementSettingsModel
   let consentSettings: ConsentSettingsModel
   let claudeAPIKeySettings: APIKeySettingsModel
@@ -23,6 +27,9 @@ struct RecordingView: View {
       List {
         recordingSection
         resultsSection
+        if hasCopyableResult {
+          returnGuideSection
+        }
       }
       .navigationTitle("utter")
       .refreshable { await model.refreshResults() }
@@ -38,8 +45,12 @@ struct RecordingView: View {
     }
     .sheet(
       isPresented: $isShowingSettings,
-      // 処理系の選択はキーボード拡張の案内に出すため、設定を閉じたら書き直す（iAC-07）
-      onDismiss: { Task { await hostAppStatus?.publish() } }
+      onDismiss: {
+        // 整形と予算・同意の画面で変わった整形先をホームに出す
+        reloadHome()
+        // 処理系の選択はキーボード拡張の案内に出すため、設定を閉じたら書き直す（iAC-07）
+        Task { await hostAppStatus?.publish() }
+      }
     ) {
       SettingsView(
         refinementSettings: refinementSettings, consentSettings: consentSettings,
@@ -53,6 +64,7 @@ struct RecordingView: View {
     }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active {
+        reloadHome()
         Task { await model.prepareResults() }
         // 設定アプリで権限を変えて戻ったときを含め、前面に来るたびに書き直す（iAC-07）
         Task { await hostAppStatus?.publish() }
@@ -85,6 +97,12 @@ struct RecordingView: View {
       }
       .disabled(!canToggle)
 
+      if model.canStartRecording {
+        homeSummary
+      } else {
+        sessionProgress
+      }
+
       Text(model.phase.statusLabel)
         .foregroundStyle(.secondary)
 
@@ -112,6 +130,66 @@ struct RecordingView: View {
     }
   }
 
+  /// ホーム: 文体の切り替え、整形先・認識先、最大録音時間
+  @ViewBuilder
+  private var homeSummary: some View {
+    Picker("文体", selection: styleSelection) {
+      ForEach(RefinementMode.allCases, id: \.self) { mode in
+        Text(mode.styleName).tag(mode)
+      }
+    }
+    .pickerStyle(.segmented)
+    Text(home.style.styleDescription)
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+    if home.saveFailed {
+      Text("文体を保存できませんでした。")
+        .foregroundStyle(.red)
+    }
+    DestinationRow(title: "整形", destination: home.refinementDestination)
+    DestinationRow(title: "認識", destination: home.speechDestination)
+    Text(RecordingDurationText.maximum(model.maxRecordingDuration))
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+  }
+
+  /// 録音中・処理中: 経過時間、音量の波形、文体・認識・整形先のチップ、途中の文字
+  @ViewBuilder
+  private var sessionProgress: some View {
+    if model.isRecording {
+      TimelineView(.periodic(from: .now, by: 1)) { _ in
+        if let progress = model.recordingProgress() {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(progress.text)
+              .font(.title3.monospacedDigit())
+            ProgressView(value: progress.fraction)
+          }
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("経過 / 最大録音時間 \(progress.text)")
+        }
+      }
+      LevelWaveform(levels: model.levels.levels)
+    }
+    sessionChips
+    if let interim = InterimTranscript(model.transcript) {
+      InterimTranscriptView(interim: interim)
+    }
+  }
+
+  private var sessionChips: some View {
+    let mode = model.sessionRefinementMode ?? model.refinementMode
+    let refinement = home.refinementDestination(for: mode)
+    return ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        Chip(text: "文体: \(mode.styleName)", sendsText: false)
+        Chip(
+          text: "認識: \(home.speechDestination.name)",
+          sendsText: home.speechDestination.sendsText)
+        Chip(text: "整形: \(refinement.name)", sendsText: refinement.sendsText)
+      }
+    }
+  }
+
   private var resultsSection: some View {
     Section {
       Text(model.sharing.message)
@@ -119,6 +197,9 @@ struct RecordingView: View {
         .foregroundStyle(.secondary)
       if let copyNotice = model.copyNotice {
         Text(copyNotice.message)
+      }
+      if let discardNotice = model.discardNotice {
+        Text(discardNotice.message)
       }
       if model.isRescueListUnavailable {
         Text("保存した結果を読み込めませんでした。端末のロック中なら、解除してから引き下げて読み直してください。")
@@ -131,11 +212,58 @@ struct RecordingView: View {
           .foregroundStyle(.secondary)
       }
       ForEach(model.rescueList.items, id: \.sessionID) { item in
-        ResultRow(item: item) { Task { await model.copyResult(item.sessionID) } }
+        ResultRow(
+          item: item, context: model.resultContexts[item.sessionID],
+          canRecordAgain: model.canStartRecording,
+          copy: { Task { await model.copyResult(item.sessionID) } },
+          discard: { Task { await model.discardResult(item.sessionID) } },
+          recordAgain: {
+            Task {
+              await model.recordAgain(item.sessionID)
+              // 録音の開始で権限を求めた後の状態を書き直す
+              await hostAppStatus?.publish()
+            }
+          })
       }
     } header: {
       Text("結果")
     }
+  }
+
+  /// 元のアプリに戻ってキーボードから入れる手順と、キーボードが出ない欄でのコピーの案内（iOS-03, iOS-07）
+  private var returnGuideSection: some View {
+    let guide = ResultReturnGuide(sharing: model.sharing)
+    return Section {
+      ForEach(Array(guide.steps.enumerated()), id: \.offset) { index, step in
+        Text("\(index + 1). \(step)")
+      }
+      Text(guide.copyHint)
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+    } header: {
+      Text("元のアプリで入れる")
+    }
+  }
+
+  /// コピー・挿入できる結果があるか
+  private var hasCopyableResult: Bool {
+    model.rescueList.items.contains { $0.state.text != nil }
+  }
+
+  /// 文体の選択。保存できたときだけ次の録音に使う
+  private var styleSelection: Binding<RefinementMode> {
+    Binding(
+      get: { home.style },
+      set: { style in
+        home.select(style)
+        model.refinementMode = home.style
+      })
+  }
+
+  /// 保存済みの設定を読み直し、文体を次の録音に使う
+  private func reloadHome() {
+    home.reload()
+    model.refinementMode = home.style
   }
 
   /// 待機中・失敗の表示中は開始、録音中は停止を受け付ける。処理中は押せない
@@ -154,10 +282,17 @@ struct RecordingView: View {
   }
 }
 
-/// 救済画面の1件。本文はコピーしてよい状態のときだけ出す（iOS-07, iOS-IPC-05）
+/// 救済画面の1件。本文はコピーしてよい状態のときだけ出す（iOS-07, iOS-IPC-05）。
+///
+/// 本文を出す結果には、文体・整形先（このアプリを起動してから保存した結果だけ）と残り時間、
+/// 「コピー」「この文章を消す」「録音し直す」を出す。
 private struct ResultRow: View {
   let item: SharedResultRescueItem
+  let context: SavedResultContext?
+  let canRecordAgain: Bool
   let copy: () -> Void
+  let discard: () -> Void
+  let recordAgain: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -169,10 +304,111 @@ private struct ResultRow: View {
           .foregroundStyle(.secondary)
       }
       if let text = item.state.text {
+        if let context {
+          HStack(spacing: 8) {
+            Chip(text: "文体: \(context.mode.styleName)", sendsText: false)
+            Chip(
+              text: "整形: \(context.refinement.name)", sendsText: context.refinement.sendsText)
+          }
+        }
         Text(text)
           .textSelection(.enabled)
-        Button("コピー", action: copy)
-          .buttonStyle(.borderless)
+        // 表示している間も残り時間を進める（キーボードと同じく 15 秒ごと）
+        TimelineView(.periodic(from: .now, by: 15)) { timeline in
+          Text(ResultRemainingTime.message(until: item.expiresAt, at: timeline.date))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+        HStack(spacing: 16) {
+          Button("コピー", action: copy)
+          Button("この文章を消す", role: .destructive, action: discard)
+          Button("録音し直す", action: recordAgain)
+            .disabled(!canRecordAgain)
+        }
+        // 1 行に複数のボタンを置くため、行全体ではなくボタンごとに押せるようにする
+        .buttonStyle(.borderless)
+      }
+    }
+  }
+}
+
+/// 整形先・認識先の行。文字を送る先には「文字を送信」と示す（AC-06）
+private struct DestinationRow: View {
+  let title: String
+  let destination: ProcessingDestination
+
+  var body: some View {
+    LabeledContent(title) {
+      HStack(spacing: 6) {
+        Text(destination.name)
+        if destination.sendsText {
+          Label(ProcessingDestination.sendsTextLabel, systemImage: "arrow.up.circle")
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+      }
+    }
+  }
+}
+
+/// 録音中・結果に出すチップ。文字を送る先には「文字を送信」と添える
+private struct Chip: View {
+  let text: String
+  let sendsText: Bool
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Text(text)
+      if sendsText {
+        Text("・\(ProcessingDestination.sendsTextLabel)")
+          .foregroundStyle(.orange)
+      }
+    }
+    .font(.caption)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(.quaternary, in: Capsule())
+  }
+}
+
+/// 音量の波形。音量の値だけを描き、音声は扱わない
+private struct LevelWaveform: View {
+  let levels: [Float]
+  /// 波形の高さ
+  private let height: CGFloat = 32
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 2) {
+      ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
+        Capsule()
+          .fill(.tint)
+          .frame(width: 3, height: max(2, CGFloat(level) * height))
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+    .accessibilityHidden(true)
+  }
+}
+
+/// 録音中の途中の文字。確定した部分と聞き取り中の部分を分けて出す（本文は表示だけ）
+private struct InterimTranscriptView: View {
+  let interim: InterimTranscript
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      if let confirmed = interim.confirmed {
+        Text("確定")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Text(confirmed)
+      }
+      if let listening = interim.listening {
+        Text("聞き取り中")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Text(listening)
+          .foregroundStyle(.secondary)
+          .italic()
       }
     }
   }
