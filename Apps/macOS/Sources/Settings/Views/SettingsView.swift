@@ -60,6 +60,8 @@ struct SettingsView: View {
     .frame(minWidth: 560, minHeight: 480)
     .onAppear {
       model.reload()
+      // メニューで変えた入力モード・文体・整形の実行先を、開いたままの画面にも反映する（#197）
+      model.followStoreChanges()
       Task { await model.refreshCost() }
     }
   }
