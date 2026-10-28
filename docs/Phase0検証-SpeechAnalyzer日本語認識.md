@@ -149,9 +149,9 @@ SpeechAnalyzer の入力形式: 16000Hz 1ch Int16 interleaved
 - 2章（ja-JP が対応ロケールに入るか）：一次情報では「未確認」だったが、この Mac では `supportedLocale(equivalentTo: ja_JP)` が `ja_JP` を返した。地域の違う近いロケールへの置き換えは起きていない。iOS は未確認のまま
 - 3章（対応デバイス）：この Mac（Apple M5）で `isAvailable` が `true`。ほかの Mac（古い Apple シリコンなど）と iPhone は未確認のまま
 - 1章（必要な OS）：macOS 27.0.1 で動いた。macOS 26 の実機では確かめていない
-- 4章（モデルの取得）：`AssetInventory.status` が `supported` なので、この Mac には SpeechTranscriber の ja_JP のアセットがまだ入っていない（プリインストール・他のアプリの取得もない）と読める。予約済みロケールは 0 件、`maximumReservedLocales` は 5
-- 食い違い（要確認）：`installedLocales` に ja_JP が含まれる（1 件）のに、`AssetInventory.status` は `installed` ではなく `supported` だった。また D8 は「追加のアセットのインストールが必要なら `bestAvailableAudioFormat(compatibleWith:)` は `nil` を返す」と書いているが、この状態で `16000Hz 1ch Int16 interleaved` が返った。どちらが実際の利用可否を表すかは、`install` の前後で `status` を比べて確かめる。リポジトリの実装（`SpeechAnalyzerAssets`）は `AssetInventory.status` で判断しているため、この状態では `modelUnavailable` で終わる側に倒れる
-- 5章（暫定・確定）：各プリセットの `reportingOptions` は D6 の表と一致した（`progressiveTranscription` と `timeIndexedProgressiveTranscription` が `fastResults`・`volatileResults`、`transcription` は空。`audioTimeRange` などはこの出力の対象外）
+- 4章（モデルの取得）：Probe の構成（`progressiveTranscription` の既定の `attributeOptions`）では `AssetInventory.status` が `supported` だった。予約済みロケールは 0 件、`maximumReservedLocales` は 5。アプリ（`TranscriptionSession`）は `attributeOptions` に `.audioTimeRange` を足した構成を `status(forModules:)` に渡す。`attributeOptions` で必要なアセットが変わるかは一次情報から決められないため、アプリの構成でもアセットが入っていないかは**未確認**
+- 食い違い（要確認）：`installedLocales` に ja_JP が含まれる（1 件）のに、`AssetInventory.status` は `installed` ではなく `supported` だった。また D8 は「追加のアセットのインストールが必要なら `bestAvailableAudioFormat(compatibleWith:)` は `nil` を返す」と書いているが、この状態で `16000Hz 1ch Int16 interleaved` が返った。どちらが実際の利用可否を表すかは、`install` の前後で `status` を比べて確かめる。リポジトリの実装（`SpeechAnalyzerAssets`）は `AssetInventory.status` で判断するので、アプリの構成でも `supported` なら `modelUnavailable` で終わる（推測。アプリと同じ構成での `status` はまだ取っていない）。アプリと同じ構成で `install` の前後の `status` を取るまで、アプリでの状態は確定しない
+- 5章（暫定・確定）：`status` が出力する3つのプリセットの `reportingOptions` は D6 の表と一致した（`progressiveTranscription` と `timeIndexedProgressiveTranscription` が `fastResults`・`volatileResults`、`transcription` は空）。`transcriptionWithAlternatives` と `timeIndexedTranscriptionWithAlternatives` は `status` の出力にないため未確認。`attributeOptions`（`audioTimeRange` など）も出力の対象外
 - 参考：DictationTranscriber も ja_JP に対応している
 - 権限：音声認識は `notDetermined`（未要求）、マイクは実行したターミナルアプリに対して `denied`。`mic` を使う前に「システム設定 > プライバシーとセキュリティ > マイク」で許可が要る
 
