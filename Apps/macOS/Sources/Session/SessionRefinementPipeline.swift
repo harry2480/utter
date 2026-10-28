@@ -112,7 +112,7 @@ final class SessionRefinementPipeline: SessionRefining {
     _ transcript: String,
     frontmostApp: String?,
     sensitivity: @escaping @MainActor () -> SensitiveInputContext,
-    willSend: @escaping @MainActor (CloudAIProviderKind) -> Void
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     let settings = settingsStore.load()
     let mode = RefinementMode(settings.refinementMode)
@@ -188,11 +188,12 @@ final class SessionRefinementPipeline: SessionRefining {
     // 待った後にも求めるが、入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の
     // 変化はここでの読み直しと判定までしか反映しない
     let decision = Self.decide(sensitivity(), settings: latest)
-    willSend(.claude)
     let outcome: RefinementOutcome
     do throws(CancellationError) {
+      // 送信先は、Router が予算の予約まで済ませてプロバイダーを呼ぶ直前に知らせる
       outcome = try await router.refine(
-        request, consent: { consent }, budget: budget, sensitivity: { decision })
+        request, consent: { consent }, budget: budget, sensitivity: { decision },
+        willSend: { await willSend(.claude) })
     } catch {
       // 送信後にキャンセルされても推定費用は記録されるため、保存の失敗は確かめる
       await noteUsagePersistence(of: budget.guard)
@@ -206,7 +207,7 @@ final class SessionRefinementPipeline: SessionRefining {
   private func refineWithChatGPT(
     _ request: RefinementRequest, settings: AppSettings,
     sensitivity: @escaping @MainActor () -> SensitiveInputContext,
-    willSend: @MainActor (CloudAIProviderKind) -> Void
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
       SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
@@ -239,10 +240,10 @@ final class SessionRefinementPipeline: SessionRefining {
     else { return local(.localEngineSelected) }
     let consent = currentConsent()
     let decision = Self.decide(sensitivity(), settings: latest)
-    willSend(.chatGPT)
     // トークン課金ではないため予算は渡さない（`ChatGPTPlanProvider.isTokenBilled == false`）
     let outcome = try await router.refine(
-      request, consent: { consent }, budget: nil, sensitivity: { decision })
+      request, consent: { consent }, budget: nil, sensitivity: { decision },
+      willSend: { await willSend(.chatGPT) })
     return Self.result(of: outcome)
   }
 

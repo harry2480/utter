@@ -47,14 +47,14 @@ protocol SessionRefining: AnyObject {
   ///   - transcript: 認識したテキスト
   ///   - frontmostApp: 録音開始時の前面アプリの bundle ID。スタイル区分の判定にだけ使い、送信しない（CTX-03）
   ///   - sensitivity: 今の入力先の状態。クラウドへ送る直前に呼ぶ
-  ///   - willSend: クラウドへ送ると決めたときに、送る直前に送信先を渡して呼ぶ（HUD に送信先を出すため, REC-03）。
-  ///     送らないときは呼ばない
+  ///   - willSend: 同意・機密入力・予算の確認と予約を済ませ、送る直前に送信先を渡して1回だけ呼ぶ
+  ///     （HUD に送信先を出すため, REC-03）。送らないときは呼ばない
   /// - Throws: 呼び出し元の Task がキャンセルされた場合
   func refine(
     _ transcript: String,
     frontmostApp: String?,
     sensitivity: @escaping @MainActor () -> SensitiveInputContext,
-    willSend: @escaping @MainActor (CloudAIProviderKind) -> Void
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult
 }
 

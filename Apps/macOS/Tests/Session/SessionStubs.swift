@@ -79,7 +79,7 @@ final class StubSessionRefiner: SessionRefining {
     _ transcript: String,
     frontmostApp: String?,
     sensitivity: @escaping @MainActor () -> SensitiveInputContext,
-    willSend: @escaping @MainActor (CloudAIProviderKind) -> Void
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     SessionRefinementResult(text: transcript, route: .localOnly(.rawMode))
   }
