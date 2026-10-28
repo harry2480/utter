@@ -43,7 +43,7 @@ struct UtterApp: App {
       sttEngine: composition.sttEngine)
     DictionaryEditorScene(database: Self.database)
     InputHistoryScene(database: Self.database)
-    PermissionOnboardingScene()
+    PermissionOnboardingScene(sttEngine: composition.sttEngine, shortcuts: composition.shortcuts)
     ConsentSettingsScene()
   }
 }

@@ -24,6 +24,12 @@ targets:
       - path: Sources/Settings
         excludes:
           - "Views/**"
+      # 初回セットアップの手順・進み具合と権限オンボーディングの状態（画面と OS の権限 API のアダプターは含めない, #198）
+      - path: Sources/Permissions
+        excludes:
+          - "*View.swift"
+          - "*Scene.swift"
+          - "SystemPermissionAccess.swift"
       # 録音の割り込みの値（録音エンジンのアダプターは含めない）
       - path: Sources/Audio/MacRecordingInterruptions.swift
     dependencies:
