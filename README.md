@@ -86,4 +86,4 @@ utter/
 
 ## ライセンス
 
-[Apache License 2.0](LICENSE)。依存ライブラリとモデル重みは追加時にライセンスの両立を確認します（STT モデルは同梱せず初回取得）。
+[Apache License 2.0](LICENSE)。配布物に含まれる第三者ソフトウェアのライセンス表示は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) にあります。依存ライブラリとモデル重みは追加時にライセンスの両立を確認します（STT モデルは同梱せず初回取得）。
