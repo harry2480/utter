@@ -42,7 +42,12 @@ public struct KeyboardAvailability: Hashable, Sendable {
       }
     case .unavailable:
       // フルアクセスがあっても読めないなら、App Group の Entitlement・署名の不備
-      notices.append(environment.hasFullAccess ? .sharedContainerUnavailable : .fullAccessRequired)
+      if environment.hasFullAccess {
+        notices.append(.sharedContainerUnavailable)
+      } else {
+        notices.append(.fullAccessRequired)
+        actions.insert(.fullAccessSteps)
+      }
     case .notConfigured:
       // フルアクセスや署名の問題ではないため、それらの案内は出さない
       notices.append(.sharingNotConfigured)
@@ -77,6 +82,9 @@ public enum KeyboardAction: Hashable, Sendable {
   case sharedResult
   /// 録音のための本体アプリへの移動（iOS-03, iAC-05）
   case openHostApp
+  /// フルアクセスをオンにする手順の表示（iAC-07）。フルアクセスが無効で共有結果を読めないときだけ提示する。
+  /// 設定アプリは開かず、手順を表示するだけ（キーボード拡張から設定アプリを開く公開 API がないため, iOS-03）
+  case fullAccessSteps
 }
 
 /// 共有結果の挿入と本体アプリへの移動を提示しない入力欄の理由（iOS-09, iAC-06）。
