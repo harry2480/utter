@@ -19,12 +19,23 @@ struct RecordingView: View {
   let speechModel: SpeechModelSettingsModel?
   /// キーボード拡張に本体アプリの状態を伝える。App Group を設定したときだけ（#56）
   let hostAppStatus: HostAppStatusPublisher?
+  /// セットアップ画面の状態（#200）
+  let setup: SetupChecklistModel
+  /// 個人署名の期限。読めなければ `nil`（警告を出さない）
+  let signingExpiry: SigningExpiry?
   @Environment(\.scenePhase) private var scenePhase
   @State private var isShowingSettings = false
+  @State private var isShowingSetup = false
 
   var body: some View {
     NavigationStack {
       List {
+        if let signingWarning {
+          Section {
+            Text(signingWarning.message)
+              .foregroundStyle(.orange)
+          }
+        }
         recordingSection
         resultsSection
         if hasCopyableResult {
@@ -34,6 +45,13 @@ struct RecordingView: View {
       .navigationTitle("utter")
       .refreshable { await model.refreshResults() }
       .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            isShowingSetup = true
+          } label: {
+            Label("セットアップ", systemImage: "checklist")
+          }
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
             isShowingSettings = true
@@ -41,6 +59,20 @@ struct RecordingView: View {
             Label("設定", systemImage: "gearshape")
           }
         }
+      }
+      .sheet(
+        isPresented: $isShowingSetup,
+        onDismiss: {
+          // 一度閉じたら、次の起動からは自動では出さない
+          setup.dismiss()
+          reloadHome()
+          // マイクの許可・モデルの取得の後の状態をキーボード拡張に伝える（iAC-07）
+          Task { await hostAppStatus?.publish() }
+        }
+      ) {
+        SetupView(
+          setup: setup, home: home, refinementSettings: refinementSettings,
+          speechEngine: speechEngine, speechModel: speechModel, signingExpiry: signingExpiry)
       }
     }
     .sheet(
@@ -58,6 +90,10 @@ struct RecordingView: View {
         speechEngine: speechEngine, speechModel: speechModel)
     }
     .task {
+      // 初めて使うときは、セットアップ画面を出す（#200）
+      if setup.presentsOnLaunch {
+        isShowingSetup = true
+      }
       await model.prepareResults()
       // 起動時に本体アプリの状態を書く（iAC-07）
       await hostAppStatus?.publish()
@@ -258,6 +294,12 @@ struct RecordingView: View {
         home.select(style)
         model.refinementMode = home.style
       })
+  }
+
+  /// ホームで警告する個人署名の残り。期限が近い・過ぎたときだけ（12.6節）
+  private var signingWarning: SigningExpiryStatus? {
+    guard let status = signingExpiry?.status(at: Date()), status.isWarning else { return nil }
+    return status
   }
 
   /// 保存済みの設定を読み直し、文体を次の録音に使う
