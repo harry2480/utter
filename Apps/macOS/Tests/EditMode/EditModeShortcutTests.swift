@@ -22,7 +22,7 @@ struct EditModeShortcutTests {
     let editMode = shortcut()
 
     let recording = try combination("option+cmd+r")
-    #expect(editMode.apply(nil, recordingShortcut: recording) == .unassigned)
+    #expect(editMode.apply(nil, recordingShortcut: recording, heldByRecording: nil) == .unassigned)
     #expect(registrar.registered.isEmpty)
   }
 
@@ -33,7 +33,8 @@ struct EditModeShortcutTests {
     let edit = try combination("option+cmd+e")
 
     let recording = try combination("option+cmd+r")
-    #expect(editMode.apply(edit, recordingShortcut: recording) == .active(edit))
+    #expect(
+      editMode.apply(edit, recordingShortcut: recording, heldByRecording: nil) == .active(edit))
     #expect(registrar.registered.count == 1)
 
     registrar.send(.pressed)
@@ -46,8 +47,29 @@ struct EditModeShortcutTests {
     let editMode = shortcut()
     let key = try combination("option+cmd+r")
 
-    #expect(editMode.apply(key, recordingShortcut: key) == .unavailable(key, .sameAsRecording))
+    #expect(
+      editMode.apply(key, recordingShortcut: key, heldByRecording: nil)
+        == .unavailable(key, .sameAsRecording))
     #expect(registrar.registered.isEmpty)
+  }
+
+  @Test("AC-14: 録音がまだ登録している前の組み合わせは、録音の終了後に使えると出して登録しない")
+  func heldByRecordingWaits() throws {
+    let editMode = shortcut()
+    let key = try combination("option+cmd+r")
+    let recording = try combination("ctrl+cmd+r")
+
+    #expect(
+      editMode.apply(key, recordingShortcut: recording, heldByRecording: key)
+        == .unavailable(key, .waitingForRecordingRelease))
+    #expect(registrar.registered.isEmpty)
+    #expect(editMode.status.text == "Edit Mode: \(ShortcutNotation.display(key)) は録音の終了後に使えます")
+
+    // 保存された録音の割当と同じなら、録音がまだ持っていても「録音と同じキー」のまま
+    #expect(
+      editMode.apply(key, recordingShortcut: key, heldByRecording: key)
+        == .unavailable(key, .sameAsRecording))
+    #expect(editMode.status.text.contains("録音と同じキーのため使えません"))
   }
 
   @Test("AC-14, REC-02: Esc・修飾キーなしのキー・システムのショートカットと重なるキーは登録しない")
@@ -57,14 +79,14 @@ struct EditModeShortcutTests {
       systemShortcuts: [ShortcutBinding(id: "system.spotlight", combination: spotlight)])
 
     #expect(
-      editMode.apply(.escape, recordingShortcut: nil)
+      editMode.apply(.escape, recordingShortcut: nil, heldByRecording: nil)
         == .unavailable(.escape, .invalid([.reservedForCancel])))
     let space = KeyCombination(key: .space)
     #expect(
-      editMode.apply(space, recordingShortcut: nil)
+      editMode.apply(space, recordingShortcut: nil, heldByRecording: nil)
         == .unavailable(space, .unsupported(.missingModifier)))
     #expect(
-      editMode.apply(spotlight, recordingShortcut: nil)
+      editMode.apply(spotlight, recordingShortcut: nil, heldByRecording: nil)
         == .unavailable(
           spotlight, .invalid([.conflict(bindingID: "system.spotlight", kind: .identical)])))
     #expect(registrar.registered.isEmpty)
@@ -77,15 +99,16 @@ struct EditModeShortcutTests {
     let first = try combination("option+cmd+e")
     let second = try combination("ctrl+cmd+e")
 
-    editMode.apply(first, recordingShortcut: recording)
-    editMode.apply(first, recordingShortcut: recording)
+    editMode.apply(first, recordingShortcut: recording, heldByRecording: nil)
+    editMode.apply(first, recordingShortcut: recording, heldByRecording: nil)
     #expect(registrar.unregisteredIDs.isEmpty)
 
-    #expect(editMode.apply(second, recordingShortcut: recording) == .active(second))
+    #expect(
+      editMode.apply(second, recordingShortcut: recording, heldByRecording: nil) == .active(second))
     #expect(registrar.unregisteredIDs.count == 1)
     #expect(registrar.registered.count == 1)
 
-    #expect(editMode.apply(nil, recordingShortcut: recording) == .unassigned)
+    #expect(editMode.apply(nil, recordingShortcut: recording, heldByRecording: nil) == .unassigned)
     #expect(registrar.registered.isEmpty)
   }
 
@@ -96,7 +119,7 @@ struct EditModeShortcutTests {
     registrar.nextFailure = .alreadyRegistered
 
     #expect(
-      editMode.apply(key, recordingShortcut: nil)
+      editMode.apply(key, recordingShortcut: nil, heldByRecording: nil)
         == .unavailable(key, .registrationFailed(.alreadyRegistered)))
   }
 }

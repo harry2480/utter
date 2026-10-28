@@ -1,4 +1,5 @@
 import UtterCore
+import UtterPersistence
 
 /// 録音と Edit Mode のショートカットを、utter の中で同じ組み合わせを二重に登録しない順序で登録し直す（REC-02, AC-14）。
 ///
@@ -48,6 +49,13 @@ final class ShortcutAssignments {
     applyEditMode()
   }
 
+  /// 保存された設定（UserDefaults の変更の通知で読み直したもの）の録音と Edit Mode の割当を送る
+  func update(from settings: AppSettings) {
+    update(
+      recording: GlobalShortcutSetting.fromSettings(settings),
+      editModeShortcut: settings.editModeShortcut)
+  }
+
   /// 録音の登録が変わったとき（待機に戻ってから割当を登録したときなど）に呼ぶ
   func recordingRegistrationDidChange() {
     applyEditMode()
@@ -57,5 +65,27 @@ final class ShortcutAssignments {
     editMode.apply(
       editModeShortcut, recordingShortcut: recording?.combination,
       heldByRecording: heldByRecording())
+  }
+}
+
+extension ShortcutAssignments {
+  /// 録音ショートカット（`ShortcutCoordinator`）と Edit Mode のショートカットを結線し、起動時の割当を送る。
+  ///
+  /// 録音は `ShortcutCoordinator` の作成時に登録済みのため、ここでは Edit Mode を録音を避けて登録する
+  /// （未割り当てなら何も登録しない）。セッション中に変わった録音の割当を待機に戻ってから登録したら、
+  /// `ShortcutCoordinator.onStatusChange` で Edit Mode も登録し直す
+  static func connect(
+    recording shortcuts: ShortcutCoordinator, editMode: EditModeShortcut,
+    initial settings: AppSettings
+  ) -> ShortcutAssignments {
+    let assignments = ShortcutAssignments(
+      editMode: editMode,
+      updateRecording: { [weak shortcuts] in shortcuts?.updateSetting($0) },
+      heldByRecording: { [weak shortcuts] in shortcuts?.registeredCombination })
+    shortcuts.onStatusChange = { [weak assignments] in
+      assignments?.recordingRegistrationDidChange()
+    }
+    assignments.update(from: settings)
+    return assignments
   }
 }

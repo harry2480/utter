@@ -168,18 +168,10 @@ final class AppComposition {
       registrar: registrar, systemShortcuts: SystemShortcuts.loadEnabledBindings,
       onPress: { [weak editMode] in editMode?.toggle() })
     self.editModeShortcut = editModeShortcut
-    let shortcutAssignments = ShortcutAssignments(
-      editMode: editModeShortcut,
-      updateRecording: { [weak shortcuts] in shortcuts?.updateSetting($0) },
-      heldByRecording: { [weak shortcuts] in shortcuts?.registeredCombination })
-    self.shortcutAssignments = shortcutAssignments
-    // セッション中に変わった録音の割当を待機に戻ってから登録したら、Edit Mode も登録し直す
-    shortcuts.onStatusChange = { [weak shortcutAssignments] in
-      shortcutAssignments?.recordingRegistrationDidChange()
-    }
     // 録音は ShortcutCoordinator の作成時に登録済み。Edit Mode は未割り当て（既定）なら何も登録しない
-    shortcutAssignments.update(
-      recording: shortcutSetting, editModeShortcut: initialSettings.editModeShortcut)
+    let shortcutAssignments = ShortcutAssignments.connect(
+      recording: shortcuts, editMode: editModeShortcut, initial: initialSettings)
+    self.shortcutAssignments = shortcutAssignments
     Self.followRecordingSettings(
       session: session, assignments: shortcutAssignments, from: sessionSettings)
   }
@@ -284,9 +276,7 @@ final class AppComposition {
         if tracker.replace(with: sessionSettings) {
           session.useSettings(sessionSettings)
         }
-        assignments.update(
-          recording: GlobalShortcutSetting.fromSettings(settings),
-          editModeShortcut: settings.editModeShortcut)
+        assignments.update(from: settings)
       }
     }
   }
@@ -335,7 +325,7 @@ final class AppComposition {
   #endif
 }
 
-/// 直前に送った設定の値（STT Worker へ送った保持の方針、セッションとショートカットへ送った録音の設定）。
+/// 直前に送った設定の値（STT Worker へ送った保持の方針、セッションへ送った録音の設定）。
 /// 同じ値を送り直さないために持つ
 @MainActor
 private final class ChangeTracker<Value: Equatable> {

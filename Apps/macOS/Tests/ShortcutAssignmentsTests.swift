@@ -1,5 +1,6 @@
 import Testing
 import UtterCore
+import UtterPersistence
 
 /// 録音と Edit Mode のショートカットを1つの登録者で登録したときに、utter の中で同じ組み合わせを二重に登録しないか
 /// （REC-02, AC-14）。
@@ -8,54 +9,57 @@ import UtterCore
 /// utter はそれを「他のアプリ」との競合として表示する。Stub の登録者で二重登録を断り、その回数を数えて確かめる。
 @MainActor
 struct ShortcutAssignmentsTests {
-  /// 録音のコントローラー・Edit Mode・`ShortcutAssignments` を、二重登録を断る同じ Stub の登録者で組み立てる
+  /// アプリと同じ結線（`ShortcutCoordinator` と `ShortcutAssignments.connect`）を、二重登録を断る Stub の登録者で組み立てる
   @MainActor
   final class Rig {
-    let harness = Harness()
+    let registrar = StubHotKeyRegistrar()
+    let shortcuts: ShortcutCoordinator
     let editMode: EditModeShortcut
-    let assignments: ShortcutAssignments
+    private(set) var assignments: ShortcutAssignments!
+    private let phase = PhaseBox()
 
-    init() {
-      harness.registrar.rejectsDuplicates = true
-      editMode = EditModeShortcut(
-        registrar: harness.registrar, systemShortcuts: { [] }, onPress: {})
-      let controller: GlobalShortcutController = harness.controller
-      assignments = ShortcutAssignments(
-        editMode: editMode,
-        updateRecording: { controller.update($0) },
-        heldByRecording: { controller.registeredCombination })
-      controller.onStatusChange = { [weak assignments] in
-        assignments?.recordingRegistrationDidChange()
-      }
+    /// 起動時と同じ順で登録する（録音を `ShortcutCoordinator` の作成時に登録し、Edit Mode を後から送る）
+    init(recording: KeyCombination?, editMode edit: KeyCombination?) {
+      registrar.rejectsDuplicates = true
+      let initial = AppSettings(recordingShortcut: recording, editModeShortcut: edit)
+      let phase = phase
+      shortcuts = ShortcutCoordinator(
+        setting: GlobalShortcutSetting.fromSettings(initial), registrar: registrar,
+        currentPhase: { phase.value }, perform: { _ in },
+        tapFactory: StubKeyEventTapFactory(), permissions: StubEventTapPermissions(),
+        systemShortcuts: { [] })
+      editMode = EditModeShortcut(registrar: registrar, systemShortcuts: { [] }, onPress: {})
+      assignments = ShortcutAssignments.connect(
+        recording: shortcuts, editMode: editMode, initial: initial)
     }
 
-    var registrar: StubHotKeyRegistrar { harness.registrar }
-    var recordingStatus: GlobalShortcutStatus { harness.controller.status }
+    var recordingStatus: GlobalShortcutStatus { shortcuts.status }
 
-    /// 起動時と同じ順で登録する（録音を先に登録し、Edit Mode を後から送る）
-    func launch(recording: KeyCombination?, editMode edit: KeyCombination?) {
-      harness.controller.apply(recording.map(Self.setting))
-      assignments.update(recording: recording.map(Self.setting), editModeShortcut: edit)
-    }
-
-    /// 設定画面で保存したときと同じく、両方の割当をまとめて送る
+    /// 設定画面で保存したときと同じく、保存された設定から両方の割当をまとめて送る（設定の変更の通知と同じ経路）
     func save(recording: KeyCombination?, editMode edit: KeyCombination?) {
-      assignments.update(recording: recording.map(Self.setting), editModeShortcut: edit)
+      assignments.update(from: AppSettings(recordingShortcut: recording, editModeShortcut: edit))
     }
 
     func startSession() {
-      harness.phase = .recording
+      phase.value = .recording
     }
 
     /// セッションが終わって待機に戻る（認識の完了などショートカット以外の要因で戻ったとき）
     func finishSession() {
-      harness.phase = .idle
-      harness.controller.sessionPhaseDidChange()
+      phase.value = .idle
+      shortcuts.sessionPhaseDidChange()
     }
 
+    /// 保存された設定から作る録音の割当（操作方式などは既定値）
     static func setting(_ combination: KeyCombination) -> GlobalShortcutSetting {
-      GlobalShortcutSetting(combination: combination, mode: .toggle)
+      GlobalShortcutSetting.fromSettings(AppSettings(recordingShortcut: combination))!
     }
+  }
+
+  /// セッションの状態。テストから変える
+  @MainActor
+  final class PhaseBox {
+    var value: SessionPhase = .idle
   }
 
   private static func combination(_ text: String) throws -> KeyCombination {
@@ -65,27 +69,30 @@ struct ShortcutAssignmentsTests {
   @Test("REC-02, AC-14: 以前の順序（録音を先に登録し直す）では、入れ替えると Edit Mode の組み合わせを二重に登録していた")
   func recordingFirstOrderDoubleRegisters() throws {
     // ShortcutAssignments を使わず、録音の通知 → Edit Mode の通知の順に送っていたときの再現
-    let rig = Rig()
+    let harness = Harness()
+    harness.registrar.rejectsDuplicates = true
+    let editMode = EditModeShortcut(
+      registrar: harness.registrar, systemShortcuts: { [] }, onPress: {})
     let a = try Self.combination("ctrl+option+a")
     let b = try Self.combination("ctrl+option+b")
-    rig.harness.controller.apply(Rig.setting(a))
-    rig.editMode.apply(b, recordingShortcut: a)
+    harness.controller.apply(Rig.setting(a))
+    editMode.apply(b, recordingShortcut: a, heldByRecording: nil)
 
-    rig.harness.controller.update(Rig.setting(b))
-    rig.editMode.apply(a, recordingShortcut: b)
+    harness.controller.update(Rig.setting(b))
+    editMode.apply(a, recordingShortcut: b, heldByRecording: nil)
 
-    #expect(rig.registrar.duplicateAttempts == 1)
+    #expect(harness.registrar.duplicateAttempts == 1)
     #expect(
-      rig.recordingStatus == .unavailable(Rig.setting(b), .registrationFailed(.alreadyRegistered)))
-    #expect(GlobalShortcutStatusText.text(for: rig.recordingStatus).contains("他のアプリ"))
+      harness.controller.status
+        == .unavailable(Rig.setting(b), .registrationFailed(.alreadyRegistered)))
+    #expect(GlobalShortcutStatusText.text(for: harness.controller.status).contains("他のアプリ"))
   }
 
   @Test("REC-02, AC-14: 待機中に録音と Edit Mode を入れ替えても二重に登録せず、両方を登録する")
   func swapWhileIdle() throws {
-    let rig = Rig()
     let a = try Self.combination("ctrl+option+a")
     let b = try Self.combination("ctrl+option+b")
-    rig.launch(recording: a, editMode: b)
+    let rig = Rig(recording: a, editMode: b)
 
     rig.save(recording: b, editMode: a)
 
@@ -97,11 +104,10 @@ struct ShortcutAssignmentsTests {
 
   @Test("REC-02, AC-14: 録音を Edit Mode が使っていた組み合わせに変えても、Edit Mode が先に手放す")
   func recordingTakesEditModeCombination() throws {
-    let rig = Rig()
     let a = try Self.combination("ctrl+option+a")
     let b = try Self.combination("ctrl+option+b")
     let c = try Self.combination("ctrl+option+c")
-    rig.launch(recording: a, editMode: b)
+    let rig = Rig(recording: a, editMode: b)
 
     rig.save(recording: b, editMode: c)
 
@@ -112,12 +118,11 @@ struct ShortcutAssignmentsTests {
 
   @Test("REC-02, AC-14: 保存された割当が同じ組み合わせでも（設定ファイルの直接の書き換えなど）、録音だけを登録する")
   func sameSavedCombination() throws {
-    let rig = Rig()
     let a = try Self.combination("ctrl+option+a")
     let b = try Self.combination("ctrl+option+b")
 
     // 起動時
-    rig.launch(recording: a, editMode: a)
+    let rig = Rig(recording: a, editMode: a)
     #expect(rig.recordingStatus == .active(Rig.setting(a)))
     #expect(rig.editMode.status == .unavailable(a, .sameAsRecording))
 
@@ -133,16 +138,16 @@ struct ShortcutAssignmentsTests {
 
   @Test("REC-02, AC-14: セッション中に入れ替えると、録音が前の組み合わせを持つ間は Edit Mode を待たせ、待機に戻ってから両方を登録する")
   func swapDuringSession() throws {
-    let rig = Rig()
     let a = try Self.combination("ctrl+option+a")
     let b = try Self.combination("ctrl+option+b")
-    rig.launch(recording: a, editMode: b)
+    let rig = Rig(recording: a, editMode: b)
 
     rig.startSession()
     rig.save(recording: b, editMode: a)
     // 録音は待機に戻るまで a を登録したまま。Edit Mode は a を登録しない
-    #expect(rig.harness.controller.registeredCombination == a)
-    #expect(rig.editMode.status == .unavailable(a, .sameAsRecording))
+    #expect(rig.shortcuts.registeredCombination == a)
+    #expect(rig.editMode.status == .unavailable(a, .waitingForRecordingRelease))
+    #expect(rig.editMode.status.text.contains("録音の終了後に使えます"))
 
     rig.finishSession()
 
@@ -153,16 +158,15 @@ struct ShortcutAssignmentsTests {
 
   @Test("REC-02, AC-14: セッション中に Edit Mode だけを録音がまだ持つ組み合わせに変えても、二重に登録しない")
   func editModeTakesHeldCombinationDuringSession() throws {
-    let rig = Rig()
     let a = try Self.combination("ctrl+option+a")
     let b = try Self.combination("ctrl+option+b")
     let c = try Self.combination("ctrl+option+c")
-    rig.launch(recording: a, editMode: b)
+    let rig = Rig(recording: a, editMode: b)
 
     rig.startSession()
     rig.save(recording: c, editMode: b)
     rig.save(recording: c, editMode: a)
-    #expect(rig.editMode.status == .unavailable(a, .sameAsRecording))
+    #expect(rig.editMode.status == .unavailable(a, .waitingForRecordingRelease))
 
     rig.finishSession()
 
@@ -182,8 +186,7 @@ struct ShortcutAssignmentsTests {
       for first in states {
         for second in states {
           for duringSession in [false, true] {
-            let rig = Rig()
-            rig.launch(recording: start.0, editMode: start.1)
+            let rig = Rig(recording: start.0, editMode: start.1)
             if duringSession { rig.startSession() }
             rig.save(recording: first.0, editMode: first.1)
             rig.save(recording: second.0, editMode: second.1)

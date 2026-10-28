@@ -7,6 +7,8 @@ targets:
     sources:
       - path: Tests
       - path: Sources/Shortcut
+      # 録音ショートカットの結線（録音と Edit Mode の登録の順序を、アプリと同じ結線で確かめる）
+      - path: Sources/ShortcutCoordinator.swift
       - path: Sources/Insertion
       - path: Sources/RealtimeDirect
       - path: Sources/EditMode

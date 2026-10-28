@@ -38,22 +38,28 @@ final class ShortcutCoordinator {
   ///   - currentPhase: セッションの現在の状態
   ///   - perform: 実行するセッション操作
   ///   - onKeyHintsChange: HUD に出す停止・キャンセルのキー（REC-03）。状態を読み直すたびに呼ぶ
+  ///   - tapFactory: イベントタップの作成。テストは Stub を渡す
+  ///   - permissions: イベントタップの権限の確認。テストは Stub を渡す
+  ///   - systemShortcuts: 競合を検出する相手（有効なシステムのショートカット）。テストは固定の一覧を渡す
   init(
     setting: GlobalShortcutSetting?,
     registrar: any HotKeyRegistering,
     currentPhase: @escaping @MainActor () -> SessionPhase,
     perform: @escaping @MainActor (ShortcutCommand) -> Void,
-    onKeyHintsChange: @escaping @MainActor (HUDKeyHints) -> Void = { _ in }
+    onKeyHintsChange: @escaping @MainActor (HUDKeyHints) -> Void = { _ in },
+    tapFactory: any KeyEventTapFactory = CGKeyEventTapFactory(),
+    permissions: any EventTapPermissionChecking = SystemEventTapPermissions(),
+    systemShortcuts: @escaping () -> [ShortcutBinding] = SystemShortcuts.loadEnabledBindings
   ) {
     self.onKeyHintsChange = onKeyHintsChange
     let debugSetting = Self.debugSetting()
     usesDebugSetting = debugSetting != nil
     let controller = GlobalShortcutController(
       registrar: registrar,
-      tapFactory: CGKeyEventTapFactory(),
-      permissions: SystemEventTapPermissions(),
+      tapFactory: tapFactory,
+      permissions: permissions,
       capabilities: Self.capabilities(),
-      systemShortcuts: SystemShortcuts.loadEnabledBindings,
+      systemShortcuts: systemShortcuts,
       currentPhase: currentPhase,
       perform: perform
     )
