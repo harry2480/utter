@@ -108,12 +108,59 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 5. 参考として `DictationTranscriber` の対応可否
 6. 取得後に通信を切って `file` を実行し、オフラインで認識できるか
 
-| 項目 | macOS（機種・OS） | iOS（機種・OS） |
+| 項目 | macOS（Mac17,2・Apple M5・メモリ 24GB・macOS 27.0.1） | iOS（機種・OS） |
 |---|---|---|
-| `isAvailable` | | |
-| `ja_JP` の対応（解決後のロケール） | | |
-| `AssetInventory.status`（取得前 → 取得後） | | |
-| オフラインでの認識 | | |
+| `isAvailable` | `true`（2026-10-28） | |
+| `ja_JP` の対応（解決後のロケール） | あり（`ja_JP`。地域の違う近い値ではなく完全一致）（2026-10-28） | |
+| `AssetInventory.status`（取得前 → 取得後） | `supported`（対応・未インストール）→ 未実施（`install` はしていない）（2026-10-28） | |
+| オフラインでの認識 | 未実施 | |
+
+#### macOS での `status` の記録（2026-10-28）
+
+- 実行日：2026-10-28
+- OS：macOS 27.0.1（Build 26A434。`sw_vers`）
+- 機種：Mac17,2（`sysctl hw.model`）・Apple M5・メモリ 24GB
+- 実行したのは `status` だけ（`install`・`authorize`・`file`・`mic`・`batch`・`release` は実行していない）。ビルドは `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release --package-path Verification/SpeechAnalyzerProbe`
+- 実行前にソースで確かめたこと：`status` が呼ぶのは状態を読む API（`isAvailable`・`supportedLocale(equivalentTo:)`・`installedLocales`・`supportedLocales`・`AssetInventory.status(forModules:)`・`reservedLocales`・`bestAvailableAudioFormat(compatibleWith:)`・`DictationTranscriber.supportedLocale(equivalentTo:)`・`SFSpeechRecognizer.authorizationStatus()`・`AVCaptureDevice.authorizationStatus(for:)`）だけで、予約（`reserve`）・取得（`assetInstallationRequest`）・権限の要求・マイク入力・ログの書き込みはしない。OS が内部で対応ロケールの情報を更新するかどうかはこのツールからは分からない
+
+出力（そのまま）：
+
+```text
+OS                       : Version 27.0.1 (Build 26A434)
+機種                     : Mac17,2（Apple M5、メモリ 24GB）
+SpeechTranscriber.isAvailable : true
+対象ロケール             : ja_JP
+SpeechTranscriber 対応   : あり（ja_JP）
+SpeechTranscriber.installedLocales に含まれる: はい（1 件）
+SpeechTranscriber 対応ロケール数: 45
+AssetInventory.status    : supported（対応・未インストール）
+予約済みロケール         : （上限 5）
+SpeechAnalyzer の入力形式: 16000Hz 1ch Int16 interleaved
+プリセット progressive の reportingOptions: ["fastResults", "volatileResults"]
+プリセット transcription の reportingOptions: []
+プリセット timeIndexedProgressive の reportingOptions: ["fastResults", "volatileResults"]
+（参考）DictationTranscriber 対応: あり（ja_JP）
+権限 音声認識            : notDetermined（未確認）
+権限 マイク              : denied（拒否）
+```
+
+この結果と、上の「一次情報で確認できた事実」との関係：
+
+- 2章（ja-JP が対応ロケールに入るか）：一次情報では「未確認」だったが、この Mac では `supportedLocale(equivalentTo: ja_JP)` が `ja_JP` を返した。地域の違う近いロケールへの置き換えは起きていない。iOS は未確認のまま
+- 3章（対応デバイス）：この Mac（Apple M5）で `isAvailable` が `true`。ほかの Mac（古い Apple シリコンなど）と iPhone は未確認のまま
+- 1章（必要な OS）：macOS 27.0.1 で動いた。macOS 26 の実機では確かめていない
+- 4章（モデルの取得）：Probe の構成（`progressiveTranscription` の既定の `attributeOptions`）では `AssetInventory.status` が `supported` だった。予約済みロケールは 0 件、`maximumReservedLocales` は 5。アプリ（`TranscriptionSession`）は `attributeOptions` に `.audioTimeRange` を足した構成を `status(forModules:)` に渡す。`attributeOptions` で必要なアセットが変わるかは一次情報から決められないため、アプリの構成でもアセットが入っていないかは**未確認**
+- 食い違い（要確認）：`installedLocales` に ja_JP が含まれる（1 件）のに、`AssetInventory.status` は `installed` ではなく `supported` だった。また D8 は「追加のアセットのインストールが必要なら `bestAvailableAudioFormat(compatibleWith:)` は `nil` を返す」と書いているが、この状態で `16000Hz 1ch Int16 interleaved` が返った。どちらが実際の利用可否を表すかは、`install` の前後で `status` を比べて確かめる。リポジトリの実装（`SpeechAnalyzerAssets`）は `AssetInventory.status` で判断するので、アプリの構成でも `supported` なら `modelUnavailable` で終わる（推測。アプリと同じ構成での `status` はまだ取っていない）。アプリと同じ構成で `install` の前後の `status` を取るまで、アプリでの状態は確定しない
+- 5章（暫定・確定）：`status` が出力する3つのプリセットの `reportingOptions` は D6 の表と一致した（`progressiveTranscription` と `timeIndexedProgressiveTranscription` が `fastResults`・`volatileResults`、`transcription` は空）。`transcriptionWithAlternatives` と `timeIndexedTranscriptionWithAlternatives` は `status` の出力にないため未確認。`attributeOptions`（`audioTimeRange` など）も出力の対象外
+- 参考：DictationTranscriber も ja_JP に対応している
+- 権限：音声認識は `notDetermined`（未要求）、マイクは実行したターミナルアプリに対して `denied`。`mic` を使う前に「システム設定 > プライバシーとセキュリティ > マイク」で許可が要る
+
+残り（人が実機で行う）：
+
+- `install` でアセットを取得し、取得後の `AssetInventory.status`・`installedLocales` を再度 `status` で記録する（通信あり）
+- 取得後に通信を切った `file` でのオフライン認識
+- `file` / `mic` での暫定・確定結果の出方と遅延、`--cancel-after` でのキャンセル応答、`batch` → `utter-eval` での精度、認識中のメモリ（自プロセスと OS のプロセス）
+- iOS の実機での `isAvailable`・ja_JP の対応・アセットの状態
 
 ### リポジトリの実装との照合（照合ではコードを変えていない。末尾の暫定結果は #48 で対策した）
 
