@@ -47,7 +47,7 @@ struct SettingsFormTests {
     let form = SettingsForm(settings: settings)
 
     #expect(form.provider == .claude)
-    #expect(form.maxRecordingSeconds == "600")
+    #expect(form.maxRecordingMinutes == "10")
     #expect(form.budgetLimit == "12.5")
     #expect(form.priceRows.map(\.inputPerMillionTokens) == ["0.8"])
     #expect(try form.applied(to: settings) == settings)
@@ -273,7 +273,7 @@ struct SettingsFormTests {
     form.refinementMode = .raw
     form.modelRetentionMode = .powerSaving
     form.performanceRetentionAllowed = true
-    form.maxRecordingSeconds = " 90 "
+    form.maxRecordingMinutes = " 1.5 "
     form.refinementModel = "  model-b "
 
     let saved = try form.applied(to: AppSettings())
@@ -347,19 +347,61 @@ struct SettingsFormTests {
   // MARK: - 検証
 
   @Test(
-    "REC-05: 最大録音時間は 1〜3600 秒の半角の数だけを受け付ける",
-    arguments: ["0", "3601", "", "abc", "-5", "1,000", "５", "1e3"])
+    "REC-05: 最大録音時間は 1〜60 分の半角の数だけを受け付ける",
+    arguments: ["0", "0.5", "61", "", "abc", "-5", "1,000", "５", "1e3"])
   func invalidRecordingDuration(text: String) {
     var form = SettingsForm(settings: AppSettings())
-    form.maxRecordingSeconds = text
+    form.maxRecordingMinutes = text
     #expect(issues(form) == [.maxRecordingDuration])
   }
 
-  @Test("REC-05: 範囲の両端は受け付ける", arguments: ["1", "3600", "45.5"])
-  func validRecordingDuration(text: String) throws {
+  @Test(
+    "REC-05: 範囲の両端と小数の分を受け付け、秒で保存する",
+    arguments: [("1", 60.0), ("60", 3600.0), ("2.5", 150.0), (" 5 ", 300.0)])
+  func validRecordingDuration(text: String, seconds: Double) throws {
     var form = SettingsForm(settings: AppSettings())
-    form.maxRecordingSeconds = text
-    #expect(try form.applied(to: AppSettings()).maxRecordingDuration == Double(text))
+    form.maxRecordingMinutes = text
+    #expect(try form.applied(to: AppSettings()).maxRecordingDuration == seconds)
+  }
+
+  @Test("REC-05: 秒で保存した値を分で表示し、表示を変えずに保存しても秒の値を変えない")
+  func recordingDurationShownInMinutes() throws {
+    #expect(SettingsForm(settings: AppSettings()).maxRecordingMinutes == "5")
+    let ninety = SettingsForm(settings: AppSettings(maxRecordingDuration: 90))
+    #expect(ninety.maxRecordingMinutes == "1.5")
+
+    // 分に割り切れない秒（以前の画面で秒で入れた値）は丸めて表示し、そのまま保存しても丸めない
+    let odd = AppSettings(maxRecordingDuration: 100)
+    let form = SettingsForm(settings: odd)
+    #expect(form.maxRecordingMinutes == "1.67")
+    #expect(try form.applied(to: odd).maxRecordingDuration == 100)
+    let short = AppSettings(maxRecordingDuration: 30)
+    #expect(try SettingsForm(settings: short).applied(to: short).maxRecordingDuration == 30)
+  }
+
+  // MARK: - #199 で足した項目
+
+  @Test("REC-01, REC-06, AI-04, 7章: 処理中の押下・Esc・クラウドの切り替え・一時音声の保持期限を保存し、読み直す")
+  func issue199ChoicesRoundTrip() throws {
+    var form = SettingsForm(settings: AppSettings())
+    #expect(form.pressWhileProcessing == .ignore)
+    #expect(form.escapeCancelEnabled)
+    #expect(!form.cloudRefinementFallbackEnabled)
+    #expect(form.temporaryAudioRetentionHours == 24)
+
+    form.pressWhileProcessing = .confirmCancel
+    form.escapeCancelEnabled = false
+    form.cloudRefinementFallbackEnabled = true
+    form.temporaryAudioRetentionHours = 6
+    let saved = try form.applied(to: AppSettings())
+
+    #expect(saved.recordingPressWhileProcessing == .confirmCancel)
+    #expect(!saved.escapeCancelEnabled)
+    #expect(saved.cloudRefinementFallbackEnabled)
+    #expect(saved.temporaryAudioRetentionHours == 6)
+    // 切り替えを選んでも、同意は変えない（AC-06）
+    #expect(saved.consentState == ConsentState())
+    #expect(SettingsForm(settings: saved) == form)
   }
 
   @Test("AI-07: 空の整形用モデル名は保存しない")

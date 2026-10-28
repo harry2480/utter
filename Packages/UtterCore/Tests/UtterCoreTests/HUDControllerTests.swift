@@ -159,7 +159,10 @@ struct HUDControllerTests {
     scheduler.fire()
 
     #expect(expiredCount == 0)
-    #expect(controller.presentation == (try presentation(.recording)))
+    // 予約していたのは録音の経過時間の更新で、発火した時点の経過時間を出す
+    #expect(
+      controller.presentation
+        == (try presentation(.recording, elapsed: HUDConfiguration.defaultErrorDisplayDuration)))
   }
 
   @Test("REC-03: 失敗の表示時間が過ぎてから初めて反映したときは、その場で知らせる")
@@ -218,7 +221,8 @@ struct HUDControllerTests {
     controller.update(from: machine)
 
     #expect(controller.presentation == (try presentation(.recording)))
-    #expect(scheduler.deadline == nil)
+    // 残していた通知の予約を消し、録音の経過時間の更新だけを予約する
+    #expect(scheduler.deadline == clock.now + .seconds(1))
   }
 
   @Test("REC-05: 上限到達の後にキャンセルしたら、通知を残さずに隠す")
@@ -340,8 +344,16 @@ struct HUDControllerTests {
       now: { [clock] in clock.now })
   }
 
-  private func presentation(_ status: HUDStatus) throws -> HUDPresentation {
-    try #require(HUDPresentation(HUDContent(status: status, notice: nil)))
+  /// `status` の表示。録音中は `elapsed` の経過時間と既定の最大録音時間を添える
+  private func presentation(_ status: HUDStatus, elapsed: Duration = .zero) throws
+    -> HUDPresentation
+  {
+    var info = HUDSessionInfo()
+    if status == .recording {
+      info.recordingTime = HUDRecordingTime(
+        elapsed: elapsed, limit: SessionConfiguration.defaultMaxRecordingDuration)
+    }
+    return try #require(HUDPresentation(HUDContent(status: status, notice: nil), info: info))
   }
 
   private func event(_ machine: SessionStateMachine, _ kind: SessionEvent.Kind) throws

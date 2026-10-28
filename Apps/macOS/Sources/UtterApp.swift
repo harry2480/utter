@@ -25,6 +25,8 @@ struct UtterApp: App {
   @State private var composition = AppComposition(
     claudeAPIKeyStore: Self.claudeAPIKeyStore, openAIAPIKeyStore: Self.openAIAPIKeyStore,
     chatGPTAccount: Self.chatGPTAccount, database: Self.database)
+  /// メニューの状態と切り替え（#197）。設定画面と同じ保存先・データベースを使う
+  @State private var menuBar = MenuBarModel.standard(database: Self.database)
   /// 自動更新。appcast URL と公開鍵がビルド設定で与えられていなければ Sparkle を起動しない（既定無効）。
   @State private var updater = SoftwareUpdater(infoDictionary: Bundle.main.infoDictionary ?? [:])
 
@@ -34,6 +36,7 @@ struct UtterApp: App {
         .environment(composition)
         // 録音ショートカットの登録（`AppComposition` が持つ）。メニューの表示に使う
         .environment(composition.shortcuts)
+        .environment(menuBar)
         .environment(updater)
     }
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
@@ -43,7 +46,7 @@ struct UtterApp: App {
       sttEngine: composition.sttEngine)
     DictionaryEditorScene(database: Self.database)
     InputHistoryScene(database: Self.database)
-    PermissionOnboardingScene()
+    PermissionOnboardingScene(sttEngine: composition.sttEngine, shortcuts: composition.shortcuts)
     ConsentSettingsScene()
   }
 }

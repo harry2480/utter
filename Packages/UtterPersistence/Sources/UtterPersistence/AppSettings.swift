@@ -19,7 +19,9 @@ public struct AppSettings: Hashable, Sendable {
   ///   （版を上げると、上げる前のアプリが新しい保存値を未知の版としてすべて既定値で読むため）。
   ///   クラウド STT を使うか（#188）も同じ理由で版 2 に足した。ない保存値は無効で読む。
   ///   クラウド整形の送信先（Sign in with ChatGPT, #50）と ChatGPT の整形用モデル名も同じ理由で版 2 に足した。
-  ///   ない保存値は Claude・モデル名未選択で読む
+  ///   ない保存値は Claude・モデル名未選択で読む。
+  ///   処理中の押下の動作・Esc でのキャンセル・クラウド間の自動切り替え・一時音声の保持期限（#199）も同じ理由で版 2 に足した。
+  ///   ない保存値は、何もしない・キャンセルする・切り替えない・24時間で読む
   public static let currentVersion = 2
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
@@ -29,6 +31,12 @@ public struct AppSettings: Hashable, Sendable {
   /// 最大録音時間として受け付ける範囲（秒）。REC-05。`Duration` へ変換して `SessionConfiguration` に渡せる範囲に限る
   /// （極端に大きい値は変換時に停止し、極端に小さい値は 0 に丸められて拒否されるため）。上限 1 時間は暫定
   public static let maxRecordingDurationRange: ClosedRange<Double> = 1...3600
+
+  /// 異常終了で残った一時音声の保持期限の既定値（時間）。7章（暫定24時間）
+  public static let defaultTemporaryAudioRetentionHours = 24
+
+  /// 一時音声の保持期限として受け付ける範囲（時間）。7章, AC-10。上限 7 日は暫定
+  public static let temporaryAudioRetentionHoursRange: ClosedRange<Int> = 1...168
 
   /// 整形用モデル名の既定値（AI-07: 低遅延の小型モデル）。Claude Haiku 5.5。
   /// 廃止・改名されたら既定値をここで直し、旧既定値のまま保存された設定は版の移行で新しい既定値に置き換える
@@ -54,6 +62,13 @@ public struct AppSettings: Hashable, Sendable {
   /// 保存時は割り当てられるかを判定しない。修飾キー単独を使えるか・競合・Esc の予約は、
   /// 利用時に `ShortcutValidator`（`ShortcutCapabilities`）で判定する
   public var recordingShortcut: KeyCombination?
+
+  /// 認識中・整形中に録音ショートカットをもう一度押したときの動作（REC-06）。既定は何もしない
+  public var recordingPressWhileProcessing: ShortcutPressWhileProcessing
+
+  /// セッション中の Esc でキャンセルするか（REC-01）。既定はする。
+  /// Esc の捕捉そのものは #51 の判定まで既定で使わず（`ShortcutCapabilities`）、この設定でオンにしても使わない
+  public var escapeCancelEnabled: Bool
 
   /// Edit Mode（AC-14）を始めるショートカット。録音ショートカットとは別のキーにする。既定は未割り当て（`nil`）で、
   /// 割り当てるまで Edit Mode を使わない。
@@ -85,6 +100,11 @@ public struct AppSettings: Hashable, Sendable {
   public var chatGPTRefinementModel: String {
     didSet { chatGPTRefinementModel = Self.trimmed(chatGPTRefinementModel) }
   }
+
+  /// クラウド整形が失敗したとき、もう一方のクラウド（Claude / Sign in with ChatGPT）で整形し直すか（AI-04, macOS のみ）。
+  /// 既定は無効。有効にしても、切り替え先への送信の同意と、その送信先の条件（API キー・予算、またはサインイン・モデル名）が
+  /// そろわなければ送らない（AC-06）。OpenAI API キー方式へは切り替えない（AI-01）
+  public var cloudRefinementFallbackEnabled: Bool
 
   /// アプリ別のスタイル上書き（CTX-02）。キーは小文字に正規化した bundle ID（`AppStyleResolver` と同じ）
   public var appStyleOverrides: [String: RefinementStyle] {
@@ -125,6 +145,13 @@ public struct AppSettings: Hashable, Sendable {
   /// 許可がなければ、高速モードを選んでいてもバランスモードとして扱う（UtterSpeech の `ModelRetentionPolicy`）
   public var performanceRetentionAllowed: Bool
 
+  /// 異常終了で残った一時音声の保持期限（時間）。7章, AC-10。`temporaryAudioRetentionHoursRange` の外の値は既定値に戻す
+  public var temporaryAudioRetentionHours: Int {
+    didSet {
+      temporaryAudioRetentionHours = Self.normalizedRetentionHours(temporaryAudioRetentionHours)
+    }
+  }
+
   /// 利用者が指定した除外アプリ（7章, AC-12）。`SensitiveInputPolicy(excludedApps:)` に渡す。
   /// 表示のため入力した値をそのまま持ち、空白だけの値と重複は除く
   public var excludedApps: [String] {
@@ -136,6 +163,8 @@ public struct AppSettings: Hashable, Sendable {
     maxRecordingDuration: Double = AppSettings.defaultMaxRecordingDuration,
     recordingTrigger: ShortcutTriggerMode = .toggle,
     recordingShortcut: KeyCombination? = nil,
+    recordingPressWhileProcessing: ShortcutPressWhileProcessing = .ignore,
+    escapeCancelEnabled: Bool = true,
     editModeShortcut: KeyCombination? = nil,
     inputMode: InputMode = .instant,
     cloudSpeechRecognitionEnabled: Bool = false,
@@ -143,6 +172,7 @@ public struct AppSettings: Hashable, Sendable {
     refinementEngine: RefinementEngine = .localBasic,
     cloudRefinementProvider: CloudRefinementProvider = .claude,
     chatGPTRefinementModel: String = "",
+    cloudRefinementFallbackEnabled: Bool = false,
     appStyleOverrides: [String: RefinementStyle] = [:],
     siteIdentificationAllowed: Bool = false,
     siteStyleOverrides: [String: RefinementStyle] = [:],
@@ -153,11 +183,14 @@ public struct AppSettings: Hashable, Sendable {
     historyEnabled: Bool = false,
     modelRetentionMode: ModelRetentionModeSetting = .balanced,
     performanceRetentionAllowed: Bool = false,
+    temporaryAudioRetentionHours: Int = AppSettings.defaultTemporaryAudioRetentionHours,
     excludedApps: [String] = []
   ) {
     self.maxRecordingDuration = Self.normalizedMaxRecordingDuration(maxRecordingDuration)
     self.recordingTrigger = recordingTrigger
     self.recordingShortcut = recordingShortcut
+    self.recordingPressWhileProcessing = recordingPressWhileProcessing
+    self.escapeCancelEnabled = escapeCancelEnabled
     self.editModeShortcut = editModeShortcut
     self.inputMode = inputMode
     self.cloudSpeechRecognitionEnabled = cloudSpeechRecognitionEnabled
@@ -165,6 +198,7 @@ public struct AppSettings: Hashable, Sendable {
     self.refinementEngine = refinementEngine
     self.cloudRefinementProvider = cloudRefinementProvider
     self.chatGPTRefinementModel = Self.trimmed(chatGPTRefinementModel)
+    self.cloudRefinementFallbackEnabled = cloudRefinementFallbackEnabled
     self.appStyleOverrides = Self.normalizedOverrides(appStyleOverrides)
     self.siteIdentificationAllowed = siteIdentificationAllowed
     self.siteStyleOverrides = Self.normalizedSiteOverrides(siteStyleOverrides)
@@ -175,6 +209,7 @@ public struct AppSettings: Hashable, Sendable {
     self.historyEnabled = historyEnabled
     self.modelRetentionMode = modelRetentionMode
     self.performanceRetentionAllowed = performanceRetentionAllowed
+    self.temporaryAudioRetentionHours = Self.normalizedRetentionHours(temporaryAudioRetentionHours)
     self.excludedApps = Self.normalizedExcludedApps(excludedApps)
   }
 
@@ -189,6 +224,10 @@ public struct AppSettings: Hashable, Sendable {
 
   private static func normalizedMaxRecordingDuration(_ value: Double) -> Double {
     maxRecordingDurationRange.contains(value) ? value : defaultMaxRecordingDuration
+  }
+
+  private static func normalizedRetentionHours(_ value: Int) -> Int {
+    temporaryAudioRetentionHoursRange.contains(value) ? value : defaultTemporaryAudioRetentionHours
   }
 
   /// `AppStyleResolver` と同じ規則でキーを正規化する
@@ -237,6 +276,8 @@ extension AppSettings: Codable {
     case maxRecordingDuration
     case recordingTrigger
     case recordingShortcut
+    case recordingPressWhileProcessing
+    case escapeCancelEnabled
     case editModeShortcut
     case inputMode
     case cloudSpeechRecognitionEnabled
@@ -244,6 +285,7 @@ extension AppSettings: Codable {
     case refinementEngine
     case cloudRefinementProvider
     case chatGPTRefinementModel
+    case cloudRefinementFallbackEnabled
     case appStyleOverrides
     case siteIdentificationAllowed
     case siteStyleOverrides
@@ -254,6 +296,7 @@ extension AppSettings: Codable {
     case historyEnabled
     case modelRetentionMode
     case performanceRetentionAllowed
+    case temporaryAudioRetentionHours
     case excludedApps
   }
 
@@ -316,6 +359,11 @@ extension AppSettings: Codable {
       value(ShortcutTriggerMode.self, .recordingTrigger) ?? recordingTrigger
     // 読めないショートカットは未設定に戻す（割り当てを推測で作らない）
     recordingShortcut = value(KeyCombination.self, .recordingShortcut)
+    // 読めない・ない処理中の押下の動作は何もしない（REC-06）、Esc でのキャンセルはする（既定）に戻す
+    if let press = value(ShortcutPressWhileProcessing.self, .recordingPressWhileProcessing) {
+      recordingPressWhileProcessing = press
+    }
+    escapeCancelEnabled = value(Bool.self, .escapeCancelEnabled) ?? escapeCancelEnabled
     // 読めない・ない Edit Mode のショートカットは未割り当てに戻す（AC-14。割り当てを推測で作らない）
     editModeShortcut = value(KeyCombination.self, .editModeShortcut)
     inputMode = value(InputMode.self, .inputMode) ?? inputMode
@@ -329,11 +377,17 @@ extension AppSettings: Codable {
     // 初期化子の中では didSet が呼ばれないため、ここで整える
     chatGPTRefinementModel = Self.trimmed(
       value(String.self, .chatGPTRefinementModel) ?? chatGPTRefinementModel)
+    // 読めない・ない値は切り替えないに倒す（AI-04。明示的に選んだときだけ）
+    cloudRefinementFallbackEnabled =
+      value(Bool.self, .cloudRefinementFallbackEnabled) ?? cloudRefinementFallbackEnabled
     modelRetentionMode =
       value(ModelRetentionModeSetting.self, .modelRetentionMode) ?? modelRetentionMode
     // 読めない許可は未許可に倒す
     performanceRetentionAllowed =
       value(Bool.self, .performanceRetentionAllowed) ?? performanceRetentionAllowed
+    // 初期化子の中では didSet が呼ばれないため、ここで範囲を確かめる（7章。読めない・範囲外は既定の24時間）
+    temporaryAudioRetentionHours = Self.normalizedRetentionHours(
+      value(Int.self, .temporaryAudioRetentionHours) ?? temporaryAudioRetentionHours)
     // 読めないサイト単位の識別の許可は未許可に倒す（CTX-02）
     siteIdentificationAllowed =
       value(Bool.self, .siteIdentificationAllowed) ?? siteIdentificationAllowed
@@ -373,6 +427,8 @@ extension AppSettings: Codable {
     try container.encode(maxRecordingDuration, forKey: .maxRecordingDuration)
     try container.encode(recordingTrigger, forKey: .recordingTrigger)
     try container.encodeIfPresent(recordingShortcut, forKey: .recordingShortcut)
+    try container.encode(recordingPressWhileProcessing, forKey: .recordingPressWhileProcessing)
+    try container.encode(escapeCancelEnabled, forKey: .escapeCancelEnabled)
     try container.encodeIfPresent(editModeShortcut, forKey: .editModeShortcut)
     try container.encode(inputMode, forKey: .inputMode)
     try container.encode(cloudSpeechRecognitionEnabled, forKey: .cloudSpeechRecognitionEnabled)
@@ -380,6 +436,7 @@ extension AppSettings: Codable {
     try container.encode(refinementEngine, forKey: .refinementEngine)
     try container.encode(cloudRefinementProvider, forKey: .cloudRefinementProvider)
     try container.encode(chatGPTRefinementModel, forKey: .chatGPTRefinementModel)
+    try container.encode(cloudRefinementFallbackEnabled, forKey: .cloudRefinementFallbackEnabled)
     try container.encode(appStyleOverrides, forKey: .appStyleOverrides)
     try container.encode(siteIdentificationAllowed, forKey: .siteIdentificationAllowed)
     try container.encode(siteStyleOverrides, forKey: .siteStyleOverrides)
@@ -390,6 +447,7 @@ extension AppSettings: Codable {
     try container.encode(historyEnabled, forKey: .historyEnabled)
     try container.encode(modelRetentionMode, forKey: .modelRetentionMode)
     try container.encode(performanceRetentionAllowed, forKey: .performanceRetentionAllowed)
+    try container.encode(temporaryAudioRetentionHours, forKey: .temporaryAudioRetentionHours)
     try container.encode(excludedApps, forKey: .excludedApps)
   }
 }

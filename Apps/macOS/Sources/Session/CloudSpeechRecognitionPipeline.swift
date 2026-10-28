@@ -6,7 +6,7 @@ import UtterSpeech
 
 /// 録音のセッションのクラウド STT（4章, AC-06, AI-04, AI-05, CTX-03, #188, MVP 外）。
 ///
-/// 設定画面の「音声認識」タブでクラウド STT を選んだ（`AppSettings.cloudSpeechRecognitionEnabled`、既定は無効）セッションで、
+/// 設定画面の「認識モデルと省電力」タブでクラウド STT を選んだ（`AppSettings.cloudSpeechRecognitionEnabled`、既定は無効）セッションで、
 /// 録音を始める前に次がすべてそろったときだけ `OpenAISpeechRecognizer` を作る。どれかが欠ければ作らず（送らず）、理由を返す。
 /// 1. クラウド STT への音声の送信（`.transmission(.speechRecognition)`）に同意している（AC-06。整形・選択テキストの
 ///    送信への同意とは別。同意の画面が保存した最新の値を読む）

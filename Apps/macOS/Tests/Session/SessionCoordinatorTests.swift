@@ -28,7 +28,8 @@ struct SessionCoordinatorTests {
     mode: RefinementMode = .raw,
     configuration: SessionConfiguration = SessionConfiguration(),
     recovery: (any SessionRecognitionRecovering)? = nil,
-    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() }
+    sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() },
+    appDisplayName: @escaping @MainActor (String?) -> String? = { _ in nil }
   ) -> SessionCoordinator {
     let clock = clock
     let store = AppSettingsStore(defaults: suite.defaults)
@@ -51,6 +52,7 @@ struct SessionCoordinatorTests {
       audioRetention: retention,
       recognitionRecovery: recovery,
       sensitivePolicy: sensitivePolicy,
+      appDisplayName: appDisplayName,
       now: { clock.now })
   }
 
@@ -81,7 +83,8 @@ struct SessionCoordinatorTests {
     #expect(inserter.inserted.first?.target == inserter.target)
     #expect(!recorder.isRecording)
     #expect(!presenter.isVisible)
-    #expect(presenter.shown.map(\.title) == ["録音中", "認識中", "整形中", "挿入中"])
+    // 録音中は入力音量が届くたびに表示を更新するため、同じ1行目が続く表示はまとめて比べる
+    #expect(presenter.titles == ["録音中", "認識中", "整形中", "挿入中"])
     let id = try #require(
       retention.events.first.flatMap { event -> SessionID? in
         if case .begin(let id) = event { return id }
@@ -90,6 +93,63 @@ struct SessionCoordinatorTests {
     // 録音が止まったことを伝えてから（一時音声の保存）、終わりを伝える（削除）
     #expect(retention.events == [.begin(id), .finishRecording(id), .end(id, completed: true)])
     #expect(await eventually { retention.appendedSampleCount == 1_600 })
+  }
+
+  // MARK: HUD の表示（REC-03, REC-05）
+
+  @Test("REC-03, REC-05: 録音中は経過時間・入力音量と、整形モード・アプリ別スタイル・音声認識の種別のチップを出す")
+  func showsRecordingInfo() async {
+    inserter.target = RecordedInsertionTarget(
+      id: InsertionTargetID(rawValue: "terminal"), app: "com.apple.Terminal")
+    let recorder = StubAudioRecorder()
+    let session = coordinator(
+      recorder: recorder, mode: .natural,
+      appDisplayName: { $0 == "com.apple.Terminal" ? "ターミナル" : nil })
+
+    session.toggle()
+    #expect(presenter.current?.chips == ["Natural", "ターミナル：コマンド", "ローカルSTT"])
+    #expect(presenter.current?.recordingTimeText == "0:00 / 5:00")
+    #expect(presenter.current?.inputLevelBars == 0)
+    #expect(await eventually { recorder.isRecording })
+    recorder.feed([Float](repeating: 0.5, count: 1_600))
+    #expect(await eventually { (presenter.current?.inputLevelBars ?? 0) > 0 })
+
+    session.toggle()
+    #expect(presenter.current?.stage == .recognition)
+    #expect(presenter.current?.chips.isEmpty == true)
+    #expect(await eventually { session.phase == .idle })
+  }
+
+  @Test("REC-03: 入力先へ挿入したら、挿入先のアプリ名を短く出してから隠す")
+  func showsInsertedAppName() async {
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder, appDisplayName: { _ in "エディター" })
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    session.toggle()
+    #expect(await eventually { session.phase == .idle })
+
+    #expect(presenter.current?.title == "エディター に挿入しました")
+    #expect(presenter.current?.indicator == .completed)
+    clock.advance(by: HUDConfiguration.defaultCompletionDisplayDuration)
+    hudScheduler.fire()
+    #expect(!presenter.isVisible)
+  }
+
+  @Test("REC-03, AC-09: プレビューへ退避したときは、挿入完了を出さない")
+  func noInsertedAppNameOnPreview() async {
+    inserter.outcome = .preview(.plan(.targetChanged))
+    let recorder = StubAudioRecorder()
+    let session = coordinator(recorder: recorder, appDisplayName: { _ in "エディター" })
+
+    session.toggle()
+    #expect(await eventually { recorder.isRecording })
+    session.toggle()
+    #expect(await eventually { session.phase == .idle })
+
+    #expect(!presenter.isVisible)
+    #expect(presenter.shown.allSatisfy { $0.indicator != .completed })
   }
 
   @Test("REC-01: 状態が変わるたびに onPhaseChange で知らせる（Esc の捕捉をセッション中だけ有効にするため）")

@@ -3,6 +3,13 @@ import AppKit
 /// 起動時の復旧を尋ねる小さなダイアログ（7章, AC-10）。件数だけを出し、発話本文・日時・ファイルの場所は出さない。
 @MainActor
 final class AudioRecoveryAlert: AudioRecoveryPrompting {
+  /// 一時音声の保持期限（時間）。設定画面で選んだ値（7章, AC-10）
+  private let retentionHours: Int
+
+  init(retentionHours: Int) {
+    self.retentionHours = retentionHours
+  }
+
   func confirmRecovery(count: Int) async -> Bool {
     let alert = NSAlert()
     alert.messageText = "前回、処理を終える前に止まった録音が \(count) 件あります"
@@ -19,7 +26,7 @@ final class AudioRecoveryAlert: AudioRecoveryPrompting {
   func reportUnrecovered(count: Int) {
     let alert = NSAlert()
     alert.messageText = "\(count) 件の録音を復旧できませんでした"
-    alert.informativeText = "音声は残しています。次に utter を起動したときに、もう一度確認します（24時間を過ぎると削除します）。"
+    alert.informativeText = "音声は残しています。次に utter を起動したときに、もう一度確認します（\(retentionHours)時間を過ぎると削除します）。"
     alert.addButton(withTitle: "OK")
     NSApplication.shared.activate()
     alert.runModal()

@@ -6,7 +6,8 @@ import UtterCore
 /// - 修飾キー単独（Fn・右 Option 等）は入力監視のイベントタップで検出する（#51 の判定待ち。
 ///   `ShortcutCapabilities.supportsModifierOnly` が有効なときだけ）
 /// - セッション中だけの Esc 捕捉はアクセシビリティのイベントタップで行う（#51 の判定待ち。
-///   `ShortcutCapabilities.supportsEscapeCapture` が有効で、ショートカットを登録できたときだけ）
+///   `ShortcutCapabilities.supportsEscapeCapture` が有効で、ショートカットを登録でき、設定で Esc でのキャンセルを
+///   オフにしていない（`GlobalShortcutSetting.cancelsWithEscape`）ときだけ）
 ///
 /// capability が無効ならイベントタップを作らず、権限の確認もしない（PERM-01）。権限がない・取り消された場合は
 /// その機能だけを無効にし、理由を `status` / `escapeStatus` に残す（PERM-02）。
@@ -186,6 +187,7 @@ final class GlobalShortcutController {
       return .unavailable(setting, .invalid(issues))
     }
     interpreter.mode = setting.mode
+    interpreter.pressWhileProcessing = setting.pressWhileProcessing
     if let key = setting.modifierKey {
       return registerModifierOnly(key, setting: setting)
     }
@@ -285,7 +287,10 @@ final class GlobalShortcutController {
   // MARK: - Esc の捕捉
 
   private func installEscapeCapture() -> EscapeCaptureStatus {
-    guard capabilities.supportsEscapeCapture, case .active(let setting) = status else {
+    // 設定でオフにしていても、capability が無効なら（#51 の判定まで）どちらにしても使わない
+    guard capabilities.supportsEscapeCapture, case .active(let setting) = status,
+      setting.cancelsWithEscape
+    else {
       return .off
     }
     let permission = KeyEventTapMode.filter.requiredPermission
@@ -368,6 +373,11 @@ struct GlobalShortcutSetting: Hashable, Sendable {
   /// 修飾キー単独のときの物理キー（左右の区別）。UtterCore の `KeyCombination` は左右を区別しないため、ここで持つ。
   /// 修飾キー単独でも物理キーを決められない組み合わせ（左右を指定しない Option 等）は `nil` で、登録できない
   let modifierKey: ModifierOnlyKey?
+  /// 認識中・整形中にもう一度押したときの動作（REC-06）。既定は何もしない
+  var pressWhileProcessing: ShortcutPressWhileProcessing = .ignore
+  /// セッション中の Esc でキャンセルするか（REC-01）。既定はする。Esc の捕捉そのものは capability
+  /// （`ShortcutCapabilities.supportsEscapeCapture`, #51 の判定待ち）が有効なときだけ使い、ここでオンにしても有効にならない
+  var cancelsWithEscape = true
 
   /// 通常のキー組み合わせ。修飾キー単独の Fn は `modifierKey` を `.function` にする
   init(combination: KeyCombination, mode: ShortcutTriggerMode) {
@@ -407,7 +417,7 @@ enum GlobalShortcutUnavailableReason: Hashable, Sendable {
 
 /// セッション中の Esc 捕捉の状態（REC-01）。
 enum EscapeCaptureStatus: Hashable, Sendable {
-  /// 使わない（capability が無効、またはショートカットが登録されていない）
+  /// 使わない（capability が無効、ショートカットが登録されていない、または設定で Esc でのキャンセルをオフにした）
   case off
   /// 録音〜整形中に Esc を捕捉する
   case ready

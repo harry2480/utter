@@ -4,9 +4,10 @@ import AppKit
 ///
 /// 表示してもアプリをアクティブにせず、キーウィンドウにもならないため、入力先アプリのフォーカスを奪わない。
 /// クリックも受けずに下のウィンドウへ通す。全 Space とフルスクリーンのアプリの上にも表示する。
+/// 画面の下部中央（Dock を除いた範囲の下端から間隔を空けた位置）に出す。
 final class HUDPanel: NSPanel {
-  /// 画面上端（メニューバーの下）からの間隔
-  private static let topMargin: CGFloat = 12
+  /// 画面の下端（Dock を除いた範囲）からの間隔（仮置き）
+  private static let bottomMargin: CGFloat = 48
 
   convenience init() {
     self.init(
@@ -33,18 +34,18 @@ final class HUDPanel: NSPanel {
 
   /// `contentView` の大きさに合わせて表示する。
   ///
-  /// 表示を始めるときはマウスポインターのある画面の上端中央に置く。表示中は上端中央を保ったまま大きさだけ変え、
-  /// 内容の更新のたびに別の画面へ移らないようにする。
+  /// 表示を始めるときはマウスポインターのある画面の下部中央に置く。表示中は下端の中央を保ったまま大きさだけ変え
+  /// （上へ伸び縮みする）、内容の更新のたびに別の画面へ移らないようにする。
+  /// `visibleFrame` を使うため、Dock とメニューバーには重ならない。
   func present() {
     guard let contentView else { return }
     let size = contentView.fittingSize
     if isVisible {
-      let top = frame.maxY
-      let midX = frame.midX
-      setFrame(
-        NSRect(
-          x: midX - size.width / 2, y: top - size.height, width: size.width, height: size.height),
-        display: true)
+      let next = NSRect(
+        x: frame.midX - size.width / 2, y: frame.minY, width: size.width, height: size.height)
+      // 経過時間・レベルメーターの更新では大きさが変わらないため、置き直さない
+      guard next != frame else { return }
+      setFrame(next, display: true)
       // 透明な枠なしウィンドウの影は中身の形から作るため、大きさが変わったら描き直す
       invalidateShadow()
     } else {
@@ -52,7 +53,7 @@ final class HUDPanel: NSPanel {
       setFrame(
         NSRect(
           x: visibleFrame.midX - size.width / 2,
-          y: visibleFrame.maxY - Self.topMargin - size.height,
+          y: visibleFrame.minY + Self.bottomMargin,
           width: size.width,
           height: size.height),
         display: true)

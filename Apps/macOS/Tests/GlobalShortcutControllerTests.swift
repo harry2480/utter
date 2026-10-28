@@ -32,6 +32,8 @@ final class Harness {
         case .startRecording: phase = .recording
         case .stopRecording: phase = .recognizing
         case .cancelSession: phase = .idle
+        // 確かめるだけで、状態は変えない
+        case .confirmCancel: break
         }
       }
     )
@@ -157,6 +159,27 @@ struct GlobalShortcutControllerTests {
     harness.registrar.send(.pressed)
     harness.registrar.send(.released)
     #expect(harness.commands == [.startRecording, .stopRecording])
+  }
+
+  @Test("REC-06: 設定でキャンセルの確認を選ぶと、認識中の押下で確かめる。既定は何もしない")
+  func pressWhileProcessing() throws {
+    let ignoring = Harness()
+    ignoring.controller.apply(try setting("ctrl+option+k"))
+    ignoring.registrar.send(.pressed)
+    ignoring.registrar.send(.pressed)
+    #expect(ignoring.phase == .recognizing)
+    ignoring.registrar.send(.pressed)
+    #expect(ignoring.commands == [.startRecording, .stopRecording])
+
+    let confirming = Harness()
+    var target = try setting("ctrl+option+k")
+    target.pressWhileProcessing = .confirmCancel
+    confirming.controller.apply(target)
+    confirming.registrar.send(.pressed)
+    confirming.registrar.send(.pressed)
+    confirming.registrar.send(.pressed)
+    #expect(confirming.commands == [.startRecording, .stopRecording, .confirmCancel])
+    #expect(confirming.phase == .recognizing)
   }
 
   @Test("REC-02: Push-to-talk は押下で開始し、解放で停止する")

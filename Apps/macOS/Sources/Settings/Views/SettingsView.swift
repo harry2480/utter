@@ -5,23 +5,25 @@ import UtterCore
 import UtterPersistence
 import UtterSpeech
 
-/// 設定画面（AC-05, AC-12, AI-05, AI-07, CTX-01, CTX-02, PERM-03, REC-01, REC-02, REC-05,
-/// 2.2節, 4章, 6章, 7章）。
+/// 設定画面（AC-05, AC-12, AI-04, AI-05, AI-07, CTX-01, CTX-02, CTX-03, PERM-03, REC-01, REC-02, REC-05,
+/// REC-06, 2.2節, 4章, 6章, 7章）。
 ///
+/// 録音とショートカット・文体と辞書・整形の実行先と費用・アプリ別の設定・プライバシー・認識モデルと省電力の6つのタブに分ける。
 /// 検証・保存・表示値は `SettingsModel` / `SettingsForm` / `CloudCostBridge` が持ち、ここは並べるだけにする。
 /// 入力はまとめて「保存」で検証・保存する（数値・通貨・サイトなどの入力途中の値を保存しない）。
+/// API キー（AC-12）とサインイン（#50）は、それぞれの欄で Keychain にすぐ保存し、下の「保存」とは別に扱う。
 struct SettingsView: View {
   @Bindable var model: SettingsModel
-  /// 「API キー」タブの状態。キーは Keychain に即時に保存し、下の「保存」とは別に扱う（AC-12）
+  /// 「整形の実行先と費用」タブの Claude API キーの状態。キーは Keychain に即時に保存し、下の「保存」とは別に扱う（AC-12）
   let apiKeyModel: APIKeySettingsModel
-  /// 「API キー」タブの OpenAI API キー（クラウド STT, #188）の状態
+  /// 「認識モデルと省電力」タブの OpenAI API キー（クラウド STT, #188）の状態
   let openAIAPIKeyModel: APIKeySettingsModel
-  /// 「整形」タブの Sign in with ChatGPT（#50）の状態。サインインは Keychain に即時に保存し、下の「保存」とは別に扱う
+  /// 「整形の実行先と費用」タブの Sign in with ChatGPT（#50）の状態。サインインは Keychain に即時に保存し、下の「保存」とは別に扱う
   let chatGPTAccount: ChatGPTAccountSettingsModel
-  /// 「音声認識」タブに出すローカルのエンジン。ビルド設定で選び、この画面では変えない（未選択なら `nil`）。
+  /// 「認識モデルと省電力」タブに出すローカルのエンジン。ビルド設定で選び、この画面では変えない（未選択なら `nil`）。
   /// ローカルのエンジンとクラウド STT のどちらを使うかは、このタブで選んで「保存」する（#188）
   let sttEngine: STTEngineKind?
-  /// 「音声認識」タブのモデルの取得状態。モデルの取得はタブのボタンからだけ行う（PERM-03）
+  /// 「認識モデルと省電力」タブのモデルの取得状態。モデルの取得・削除はタブのボタンからだけ行う（PERM-03）
   let speechModel: SpeechModelSettingsModel?
   @State private var selection: SettingsTab = .recording
 
@@ -29,58 +31,51 @@ struct SettingsView: View {
     VStack(spacing: 0) {
       TabView(selection: $selection) {
         RecordingSettingsTab(model: model)
-          .tabItem { Label("録音", systemImage: "mic") }
+          .tabItem { Label("録音とショートカット", systemImage: "mic") }
           .tag(SettingsTab.recording)
-        RefinementSettingsTab(model: model, chatGPTAccount: chatGPTAccount)
-          .tabItem { Label("整形", systemImage: "text.badge.checkmark") }
+        StyleAndDictionarySettingsTab(model: model)
+          .tabItem { Label("文体と辞書", systemImage: "character.book.closed") }
+          .tag(SettingsTab.styleAndDictionary)
+        RefinementSettingsTab(model: model, chatGPTAccount: chatGPTAccount, apiKey: apiKeyModel)
+          .tabItem { Label("整形の実行先と費用", systemImage: "text.badge.checkmark") }
           .tag(SettingsTab.refinement)
-        CostSettingsTab(model: model)
-          .tabItem { Label("費用", systemImage: "yensign.circle") }
-          .tag(SettingsTab.cost)
-        StyleSettingsTab(model: model)
-          .tabItem { Label("スタイル", systemImage: "paintbrush") }
-          .tag(SettingsTab.style)
-        ExcludedAppsSettingsTab(model: model)
-          .tabItem { Label("除外アプリ", systemImage: "hand.raised") }
-          .tag(SettingsTab.excludedApps)
-        SpeechRecognitionSettingsTab(settings: model, engine: sttEngine, model: speechModel)
-          .tabItem { Label("音声認識", systemImage: "waveform") }
+        AppSpecificSettingsTab(model: model)
+          .tabItem { Label("アプリ別の設定", systemImage: "app.badge") }
+          .tag(SettingsTab.apps)
+        PrivacySettingsTab(model: model)
+          .tabItem { Label("プライバシー", systemImage: "hand.raised") }
+          .tag(SettingsTab.privacy)
+        speechRecognitionTab
+          .tabItem { Label("認識モデルと省電力", systemImage: "waveform") }
           .tag(SettingsTab.speechRecognition)
-        APIKeySettingsView(claude: apiKeyModel, openAI: openAIAPIKeyModel)
-          .tabItem { Label("API キー", systemImage: "key") }
-          .tag(SettingsTab.apiKey)
       }
-      // API キーのタブは独自の保存・削除を持つため、設定の「保存」「元に戻す」を出さない
-      if selection.showsSaveActions {
-        Divider()
-        SettingsFooter(model: model)
-          .padding()
-      }
+      Divider()
+      SettingsFooter(model: model)
+        .padding()
     }
-    .frame(minWidth: 560, minHeight: 480)
+    .frame(minWidth: 640, minHeight: 520)
     .onAppear {
       model.reload()
+      // メニューで変えた入力モード・文体・整形の実行先を、開いたままの画面にも反映する（#197）
+      model.followStoreChanges()
       Task { await model.refreshCost() }
     }
   }
+
+  private var speechRecognitionTab: some View {
+    SpeechRecognitionSettingsTab(
+      settings: model, engine: sttEngine, model: speechModel, openAIAPIKey: openAIAPIKeyModel)
+  }
 }
 
+/// 設定画面のタブ（設計の6タブ）
 private enum SettingsTab: Hashable {
   case recording
+  case styleAndDictionary
   case refinement
-  case cost
-  case style
-  case excludedApps
+  case apps
+  case privacy
   case speechRecognition
-  case apiKey
-
-  /// 設定の「保存」「元に戻す」を出すタブか
-  var showsSaveActions: Bool {
-    switch self {
-    case .recording, .refinement, .cost, .style, .excludedApps, .speechRecognition: true
-    case .apiKey: false
-    }
-  }
 }
 
 private struct SettingsFooter: View {
@@ -130,7 +125,7 @@ private struct NoticeText: View {
   }
 }
 
-// MARK: - 録音
+// MARK: - 録音とショートカット
 
 private struct RecordingSettingsTab: View {
   @Bindable var model: SettingsModel
@@ -157,6 +152,18 @@ private struct RecordingSettingsTab: View {
     ].joined()
   }
 
+  /// Esc でのキャンセルの説明（REC-01）。Esc の捕捉は #51 の判定まで既定で使わない（`ShortcutCoordinator.capabilities()`）
+  static var escapeCaption: String {
+    var lines = [
+      "録音中・処理中に Esc を押すと、入力をキャンセルします。",
+      "Esc はセッションの間だけ受け取り、ほかのアプリの Esc は妨げません。",
+    ]
+    if !ShortcutCoordinator.capabilities().supportsEscapeCapture {
+      lines.append("Esc でのキャンセルは検証中のため、今はオンにしても使えません（メニューの「キャンセル」は使えます）。")
+    }
+    return lines.joined()
+  }
+
   var body: some View {
     Form {
       Section("録音") {
@@ -166,13 +173,25 @@ private struct RecordingSettingsTab: View {
         }
         LabeledContent("最大録音時間") {
           HStack {
-            TextField("秒", text: $model.form.maxRecordingSeconds)
+            TextField("分", text: $model.form.maxRecordingMinutes)
               .frame(width: 80)
               .multilineTextAlignment(.trailing)
-            Text("秒")
+            Text("分")
           }
         }
         IssueText(issues: model.issues(in: [.maxRecordingDuration]))
+        Text("1〜60 分。上限に達したら録音を止め、それまでの音声を入力します。")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      Section("録音中・処理中の操作") {
+        Picker("認識・整形の途中でもう一度押したとき", selection: $model.form.pressWhileProcessing) {
+          ForEach(ShortcutPressWhileProcessing.allCases, id: \.self) { Text($0.label).tag($0) }
+        }
+        Text("録音中に押したときは、操作の方式に従って録音を止めます。入力欄への入力が始まった後は取り消しません。")
+          .font(.caption).foregroundStyle(.secondary)
+        Toggle("Esc でキャンセルする", isOn: $model.form.escapeCancelEnabled)
+        Text(Self.escapeCaption)
+          .font(.caption).foregroundStyle(.secondary)
       }
       Section("Edit Mode（選択テキストを音声の指示で編集）") {
         RecordingShortcutRow(
@@ -189,25 +208,25 @@ private struct RecordingSettingsTab: View {
             .font(.caption).foregroundStyle(.secondary)
         }
       }
-      Section("音声認識モデルの保持") {
-        Picker("保持モード", selection: $model.form.modelRetentionMode) {
-          ForEach(ModelRetentionModeSetting.allCases, id: \.self) { Text($0.label).tag($0) }
-        }
-        Toggle("高速モードでのモデル保持を許可する", isOn: $model.form.performanceRetentionAllowed)
-        if model.form.notices.contains(.performanceRetentionNotAllowed) {
-          NoticeText(notice: .performanceRetentionNotAllowed)
-        }
-      }
     }
     .formStyle(.grouped)
   }
 }
 
-// MARK: - 整形
+// MARK: - 整形の実行先と費用
 
 private struct RefinementSettingsTab: View {
   @Bindable var model: SettingsModel
   let chatGPTAccount: ChatGPTAccountSettingsModel
+  /// Claude API キー。この欄で Keychain にすぐ保存し、下の「保存」とは別に扱う（AC-12）
+  let apiKey: APIKeySettingsModel
+
+  /// 失敗時の切り替えの説明（AI-04, AC-06）
+  static let fallbackCaption = [
+    "Claude か ChatGPT（Sign in with ChatGPT）の整形が失敗したら、もう一方で1回だけ整形し直します。既定はオフです。",
+    "切り替え先へは、その送信先への送信に同意していて、API キーと予算（Claude）またはサインインとモデル（ChatGPT）が",
+    "そろっているときだけ送ります。そろわなければ送らず、この Mac で整形します。OpenAI API キー方式へは切り替えません。",
+  ].joined()
 
   var body: some View {
     Form {
@@ -223,7 +242,7 @@ private struct RefinementSettingsTab: View {
           .font(.caption).foregroundStyle(.secondary)
         switch model.form.provider {
         case .claude:
-          Text("クラウド AI へは、送信の同意がない間は送信しません。API キーと同意は別の画面で設定します。")
+          Text("Claude へは、送信の同意がない間は送信しません。API キーはこのタブの下で、同意は別の画面で設定します。")
             .font(.caption).foregroundStyle(.secondary)
         case .chatGPTSignIn:
           Text("ChatGPT へは、送信の同意とサインインがそろうまで送信しません。同意は別の画面で設定します。")
@@ -243,15 +262,21 @@ private struct RefinementSettingsTab: View {
           }
         }
       }
-      Section("整形") {
-        Picker("整形モード", selection: $model.form.refinementMode) {
-          ForEach(RefinementModeSetting.allCases, id: \.self) { Text($0.label).tag($0) }
-        }
+      Section("Claude") {
         TextField("Claude の整形用モデル名", text: $model.form.refinementModel)
         IssueText(issues: model.issues(in: [.refinementModelEmpty]))
         Text("既定は \(AppSettings.defaultRefinementModel)。モデルの廃止・改名に合わせて変更できます。")
           .font(.caption).foregroundStyle(.secondary)
       }
+      Section("失敗したとき") {
+        Toggle("別のクラウドへ自動で切り替える", isOn: $model.form.cloudRefinementFallbackEnabled)
+        Text(Self.fallbackCaption)
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      CostSections(model: model)
+      APIKeySection(model: apiKey, labels: .claude)
+        .onAppear { apiKey.refresh() }
+        .onDisappear { apiKey.clearInput() }
     }
     .formStyle(.grouped)
   }
@@ -259,55 +284,53 @@ private struct RefinementSettingsTab: View {
 
 // MARK: - 費用
 
-private struct CostSettingsTab: View {
+/// 今月の推定費用・月次予算・単価表（AI-04, AI-05）。「整形の実行先と費用」タブに並べる
+private struct CostSections: View {
   @Bindable var model: SettingsModel
 
   var body: some View {
-    Form {
-      Section("今月の推定費用") {
-        EstimatedCostView(state: model.cost)
+    Section("今月の推定費用") {
+      EstimatedCostView(state: model.cost)
+    }
+    Section("月次予算") {
+      Toggle("月次予算を設定する", isOn: $model.form.budgetEnabled)
+      if model.form.budgetEnabled {
+        TextField("上限", text: $model.form.budgetLimit)
+        IssueText(issues: model.issues(in: [.budgetLimit]))
       }
-      Section("月次予算") {
-        Toggle("月次予算を設定する", isOn: $model.form.budgetEnabled)
-        if model.form.budgetEnabled {
-          TextField("上限", text: $model.form.budgetLimit)
-          IssueText(issues: model.issues(in: [.budgetLimit]))
-        }
-        TextField("通貨（例: USD）", text: $model.form.currencyCode)
-        IssueText(issues: model.issues(in: [.currencyCode]))
-        ForEach(model.form.notices.filter(\.isCostNotice), id: \.self) {
-          NoticeText(notice: $0)
-        }
-      }
-      Section {
-        PriceUpdatedOnRow(model: model)
-        IssueText(issues: model.issues(in: [.priceUpdatedOnMissing]))
-        ForEach($model.form.priceRows) { $row in
-          VStack(alignment: .leading) {
-            HStack {
-              TextField("モデル名", text: $row.model)
-              TextField("入力", text: $row.inputPerMillionTokens).frame(width: 90)
-              TextField("出力", text: $row.outputPerMillionTokens).frame(width: 90)
-              Button {
-                model.form.removePriceRow(id: row.id)
-              } label: {
-                Image(systemName: "minus.circle")
-              }
-              .buttonStyle(.borderless)
-              .accessibilityLabel("この行を削除")
-            }
-            IssueText(issues: model.issues(forRow: row.id))
-          }
-        }
-        Button("単価を追加") { model.form.addPriceRow() }
-      } header: {
-        Text("単価表（100万トークンあたり）")
-      } footer: {
-        Text("単価はプロバイダーの公開価格を見て入力し、更新日を合わせて直してください。")
-          .font(.caption).foregroundStyle(.secondary)
+      TextField("通貨（例: USD）", text: $model.form.currencyCode)
+      IssueText(issues: model.issues(in: [.currencyCode]))
+      ForEach(model.form.notices.filter(\.isCostNotice), id: \.self) {
+        NoticeText(notice: $0)
       }
     }
-    .formStyle(.grouped)
+    Section {
+      PriceUpdatedOnRow(model: model)
+      IssueText(issues: model.issues(in: [.priceUpdatedOnMissing]))
+      ForEach($model.form.priceRows) { $row in
+        VStack(alignment: .leading) {
+          HStack {
+            TextField("モデル名", text: $row.model)
+            TextField("入力", text: $row.inputPerMillionTokens).frame(width: 90)
+            TextField("出力", text: $row.outputPerMillionTokens).frame(width: 90)
+            Button {
+              model.form.removePriceRow(id: row.id)
+            } label: {
+              Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("この行を削除")
+          }
+          IssueText(issues: model.issues(forRow: row.id))
+        }
+      }
+      Button("単価を追加") { model.form.addPriceRow() }
+    } header: {
+      Text("単価表（100万トークンあたり）")
+    } footer: {
+      Text("単価はプロバイダーの公開価格を見て入力し、更新日を合わせて直してください。")
+        .font(.caption).foregroundStyle(.secondary)
+    }
   }
 }
 
@@ -389,54 +412,102 @@ private struct EstimatedCostView: View {
   }
 }
 
-// MARK: - スタイル
+// MARK: - 文体と辞書
 
-private struct StyleSettingsTab: View {
+/// 文体（整形モード, TXT-01）と、辞書の編集画面への案内（TXT-03）
+private struct StyleAndDictionarySettingsTab: View {
   @Bindable var model: SettingsModel
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     Form {
       Section {
-        ForEach($model.form.appStyleRows) { $row in
-          StyleOverrideRowView(
-            placeholder: "bundle ID（例: com.apple.mail）", row: $row,
-            issues: model.issues(forRow: row.id)
-          ) {
-            model.form.removeAppStyleRow(id: row.id)
-          }
+        Picker("文体", selection: $model.form.refinementMode) {
+          ForEach(RefinementModeSetting.allCases, id: \.self) { Text($0.label).tag($0) }
         }
-        Button("アプリを追加") { model.form.addAppStyleRow() }
+        .pickerStyle(.radioGroup)
       } header: {
-        Text("アプリ別の上書き")
+        Text("文体")
       } footer: {
-        Text("上書きがないアプリは、下の既定の対応表から自動で選び、どれにも当たらなければ標準にします。")
+        Text("アプリやサイトごとの書き分け（丁寧・簡潔など）は「アプリ別の設定」タブで選びます。メニューからも切り替えられます。")
           .font(.caption).foregroundStyle(.secondary)
       }
       Section {
-        Toggle("Web サイト単位でスタイルを選ぶことを許可する", isOn: $model.form.siteIdentificationAllowed)
-        Text("許可すると、前面のブラウザで表示中のサイトのホスト名を読みます。ホスト名・URL はクラウドへ送りません。許可を外しても一覧は残ります。")
-          .font(.caption).foregroundStyle(.secondary)
-        ForEach($model.form.siteStyleRows) { $row in
-          StyleOverrideRowView(
-            placeholder: "サイト（例: mail.example.com）", row: $row,
-            issues: model.issues(forRow: row.id)
-          ) {
-            model.form.removeSiteStyleRow(id: row.id)
-          }
+        LabeledContent("ユーザー辞書") {
+          Button("辞書を編集…") { openWindow(id: DictionaryEditorScene.windowID) }
         }
-        Button("サイトを追加") { model.form.addSiteStyleRow() }
       } header: {
-        Text("サイト別の上書き")
-      }
-      Section("既定の対応表") {
-        DisclosureGroup("アプリごとの既定のスタイル（\(AppStyleResolver.builtInStyles.count) 件）") {
-          ForEach(AppStyleResolver.builtInStyles.sorted(by: { $0.key < $1.key }), id: \.key) {
-            LabeledContent($0.key, value: $0.value.label)
-          }
-        }
+        Text("辞書")
+      } footer: {
+        Text("辞書の置換は整形の前にこの Mac で行います。クラウドで整形するときは、辞書の語を整形の手がかりとして送ります。")
+          .font(.caption).foregroundStyle(.secondary)
       }
     }
     .formStyle(.grouped)
+  }
+}
+
+// MARK: - アプリ別の設定
+
+/// アプリ別・サイト別の文体（CTX-01, CTX-02）と除外アプリ（7章, AC-12）
+private struct AppSpecificSettingsTab: View {
+  @Bindable var model: SettingsModel
+
+  var body: some View {
+    Form {
+      StyleSections(model: model)
+      ExcludedAppsSection(model: model)
+    }
+    .formStyle(.grouped)
+  }
+}
+
+// MARK: - スタイル
+
+/// アプリ別・サイト別のスタイルの上書きと既定の対応表（CTX-01, CTX-02）
+private struct StyleSections: View {
+  @Bindable var model: SettingsModel
+
+  var body: some View {
+    Section {
+      ForEach($model.form.appStyleRows) { $row in
+        StyleOverrideRowView(
+          placeholder: "bundle ID（例: com.apple.mail）", row: $row,
+          issues: model.issues(forRow: row.id)
+        ) {
+          model.form.removeAppStyleRow(id: row.id)
+        }
+      }
+      Button("アプリを追加") { model.form.addAppStyleRow() }
+    } header: {
+      Text("アプリ別の上書き")
+    } footer: {
+      Text("上書きがないアプリは、下の既定の対応表から自動で選び、どれにも当たらなければ標準にします。")
+        .font(.caption).foregroundStyle(.secondary)
+    }
+    Section {
+      Toggle("Web サイト単位でスタイルを選ぶことを許可する", isOn: $model.form.siteIdentificationAllowed)
+      Text("許可すると、前面のブラウザで表示中のサイトのホスト名を読みます。ホスト名・URL はクラウドへ送りません。許可を外しても一覧は残ります。")
+        .font(.caption).foregroundStyle(.secondary)
+      ForEach($model.form.siteStyleRows) { $row in
+        StyleOverrideRowView(
+          placeholder: "サイト（例: mail.example.com）", row: $row,
+          issues: model.issues(forRow: row.id)
+        ) {
+          model.form.removeSiteStyleRow(id: row.id)
+        }
+      }
+      Button("サイトを追加") { model.form.addSiteStyleRow() }
+    } header: {
+      Text("サイト別の上書き")
+    }
+    Section("既定の対応表") {
+      DisclosureGroup("アプリごとの既定のスタイル（\(AppStyleResolver.builtInStyles.count) 件）") {
+        ForEach(AppStyleResolver.builtInStyles.sorted(by: { $0.key < $1.key }), id: \.key) {
+          LabeledContent($0.key, value: $0.value.label)
+        }
+      }
+    }
   }
 }
 
@@ -468,44 +539,42 @@ private struct StyleOverrideRowView: View {
 
 // MARK: - 除外アプリ
 
-private struct ExcludedAppsSettingsTab: View {
+/// 除外アプリの一覧（7章, AC-12）
+private struct ExcludedAppsSection: View {
   @Bindable var model: SettingsModel
   /// 「起動中のアプリから追加」の候補。タブを開いたとき・一覧を変えたとき・アプリの起動と終了で読み直す
   @State private var candidates: [ExcludedAppCandidate] = []
 
   var body: some View {
-    Form {
-      Section {
-        ForEach($model.form.excludedAppRows) { $row in
-          ExcludedAppRowView(row: $row, issues: model.issues(forRow: row.id)) {
-            model.form.removeExcludedAppRow(id: row.id)
-          }
+    Section {
+      ForEach($model.form.excludedAppRows) { $row in
+        ExcludedAppRowView(row: $row, issues: model.issues(forRow: row.id)) {
+          model.form.removeExcludedAppRow(id: row.id)
         }
-        if model.form.excludedAppRows.isEmpty {
-          Text("除外アプリはありません。").foregroundStyle(.secondary)
-        }
-        HStack {
-          Button("bundle ID で追加") { model.form.addExcludedAppRow() }
-          Menu("起動中のアプリから追加") {
-            if candidates.isEmpty {
-              Text("追加できるアプリがありません")
-            }
-            ForEach(candidates) { candidate in
-              Button("\(candidate.name)（\(candidate.bundleID)）") {
-                model.form.addExcludedApp(bundleID: candidate.bundleID)
-              }
-            }
-          }
-          .fixedSize()
-        }
-      } header: {
-        Text("除外アプリ")
-      } footer: {
-        Text("ここに追加したアプリへの入力では、録音・クラウドへの送信・入力履歴への保存をしません。追加・削除は「保存」で反映します。")
-          .font(.caption).foregroundStyle(.secondary)
       }
+      if model.form.excludedAppRows.isEmpty {
+        Text("除外アプリはありません。").foregroundStyle(.secondary)
+      }
+      HStack {
+        Button("bundle ID で追加") { model.form.addExcludedAppRow() }
+        Menu("起動中のアプリから追加") {
+          if candidates.isEmpty {
+            Text("追加できるアプリがありません")
+          }
+          ForEach(candidates) { candidate in
+            Button("\(candidate.name)（\(candidate.bundleID)）") {
+              model.form.addExcludedApp(bundleID: candidate.bundleID)
+            }
+          }
+        }
+        .fixedSize()
+      }
+    } header: {
+      Text("除外アプリ")
+    } footer: {
+      Text("ここに追加したアプリへの入力では、録音・クラウドへの送信・入力履歴への保存をしません。追加・削除は「保存」で反映します。")
+        .font(.caption).foregroundStyle(.secondary)
     }
-    .formStyle(.grouped)
     .onAppear(perform: reloadCandidates)
     // 入力の1文字ごとではなく、一覧に入っているアプリが変わったときだけ読み直す
     .onChange(of: listedApps) { reloadCandidates() }

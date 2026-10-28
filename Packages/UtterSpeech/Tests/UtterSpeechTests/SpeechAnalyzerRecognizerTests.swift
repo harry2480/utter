@@ -74,4 +74,24 @@ struct SpeechAnalyzerRecognizerTests {
     #expect(speechAnalyzer.locale.identifier == "en_US")
     #expect(SpeechAnalyzerModelLoader().locale == SpeechAnalyzerRecognizer.defaultLocale)
   }
+
+  @Test("PERM-03, #199: 解除する予約は、識別子・言語と地域・言語の順に探し、別の言語の予約は選ばない")
+  func findsReservationForLocale() {
+    let japan = Locale(identifier: "ja-JP")
+    let english = Locale(identifier: "en-US")
+    let japaneseOnly = Locale(identifier: "ja")
+    let calendarVariant = Locale(identifier: "ja-JP-u-ca-japanese")
+
+    let exact = SpeechAnalyzerAssets.reservation(matching: japan, in: [english, japan])
+    #expect(exact == japan)
+    // variant（言語と地域が同じで識別子が違う）を、言語だけが同じ予約より先に選ぶ
+    let variant = SpeechAnalyzerAssets.reservation(
+      matching: japan, in: [japaneseOnly, calendarVariant])
+    #expect(variant == calendarVariant)
+    let languageOnly = SpeechAnalyzerAssets.reservation(
+      matching: japan, in: [english, japaneseOnly])
+    #expect(languageOnly == japaneseOnly)
+    #expect(SpeechAnalyzerAssets.reservation(matching: japan, in: [english]) == nil)
+    #expect(SpeechAnalyzerAssets.reservation(matching: japan, in: []) == nil)
+  }
 }

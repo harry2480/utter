@@ -22,6 +22,8 @@ final class ShortcutCoordinator {
   @ObservationIgnored private var permissionTimer: Timer?
   /// 起動引数の割当（Debug ビルドだけ）を使い、設定の変更に従わないか
   @ObservationIgnored private let usesDebugSetting: Bool
+  /// HUD に出す停止・キャンセルのキーが変わりうるとき（状態を読み直すたび）に呼ぶ
+  @ObservationIgnored private let onKeyHintsChange: @MainActor (HUDKeyHints) -> Void
 
   /// 権限の取り消し・許可を確かめる間隔（仮置き。権限の変化を検出する OS の通知がないため定期的に確かめる。
   /// CGPreflightListenEventAccess・AXIsProcessTrusted は軽い呼び出しで、イベントタップを使う機能が有効なときだけ動かす）
@@ -32,12 +34,15 @@ final class ShortcutCoordinator {
   ///   - registrar: ホットキーの登録。Edit Mode のショートカット（`EditModeShortcut`）と同じものを渡す
   ///   - currentPhase: セッションの現在の状態
   ///   - perform: 実行するセッション操作
+  ///   - onKeyHintsChange: HUD に出す停止・キャンセルのキー（REC-03）。状態を読み直すたびに呼ぶ
   init(
     setting: GlobalShortcutSetting?,
     registrar: any HotKeyRegistering,
     currentPhase: @escaping @MainActor () -> SessionPhase,
-    perform: @escaping @MainActor (ShortcutCommand) -> Void
+    perform: @escaping @MainActor (ShortcutCommand) -> Void,
+    onKeyHintsChange: @escaping @MainActor (HUDKeyHints) -> Void = { _ in }
   ) {
+    self.onKeyHintsChange = onKeyHintsChange
     let debugSetting = Self.debugSetting()
     usesDebugSetting = debugSetting != nil
     let controller = GlobalShortcutController(
@@ -124,13 +129,14 @@ final class ShortcutCoordinator {
     guard let controller else { return }
     status = controller.status
     escapeStatus = controller.escapeStatus
+    onKeyHintsChange(HUDKeyHints(status: status, escapeStatus: escapeStatus))
   }
 
-  /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。
+  /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。設定画面の Esc の説明にも使う。
   ///
   /// Debug ビルドに限り、実機確認のため起動引数で有効にできる:
   /// `-UtterDebugModifierOnlyShortcut YES`（修飾キー単独）、`-UtterDebugEscapeCapture YES`（Esc 捕捉）
-  private static func capabilities() -> ShortcutCapabilities {
+  static func capabilities() -> ShortcutCapabilities {
     #if DEBUG
       let arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
       func enabled(_ name: String) -> Bool {

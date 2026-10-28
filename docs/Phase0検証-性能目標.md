@@ -93,7 +93,7 @@ macOS アプリ（`Apps/macOS`）は上の区間名で Signpost を出す。区�
 
 手順:
 
-1. `Config/Local.xcconfig` で `UTTER_MAC_STT_ENGINE = speechAnalyzer` を有効にし（Release は起動引数の `-UtterDebugSTTEngine` を読まない）、設定画面の「音声認識」タブでモデルを取得しておく
+1. `Config/Local.xcconfig` で `UTTER_MAC_STT_ENGINE = speechAnalyzer` を有効にし（Release は起動引数の `-UtterDebugSTTEngine` を読まない）、設定画面の「認識モデルと省電力」タブでモデルを取得しておく
 2. `scripts/build-local.sh` で Release 構成をビルドし、`build/local/DerivedData/Build/Products/Release/utter.app` を起動する（[ビルド・配布規約.md](ビルド・配布規約.md)）。Debug 構成は最適化がないため、6章の目標との比較には使わない
 3. アプリのプロセス名は `utter`（STT Worker は別プロセスの `UtterSTTWorker` で、区間は出さない）。記録中に発話→停止→挿入を条件ごとに 20 回以上繰り返す
 

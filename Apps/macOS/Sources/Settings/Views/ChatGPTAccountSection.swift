@@ -1,7 +1,7 @@
 import SwiftUI
 import UtterAI
 
-/// 設定画面の「整形」タブの Sign in with ChatGPT の項目（AI-01, AC-05, #50）。
+/// 設定画面の「整形の実行先と費用」タブの Sign in with ChatGPT の項目（AI-01, AC-05, #50）。
 ///
 /// UI/UX ガイドライン（S11）に沿って、サインインのボタンは「Continue with ChatGPT」、プラン利用中は
 /// 「Using ChatGPT plan」と「Manage usage」（ChatGPT の利用状況の設定）を出す。初回のサインイン後だけ
