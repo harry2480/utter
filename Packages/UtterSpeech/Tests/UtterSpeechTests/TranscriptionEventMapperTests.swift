@@ -110,6 +110,92 @@ struct TranscriptionEventMapperTests {
     #expect(mapper.map(Self.volatile([], end: 1)) == [.partial("")])
   }
 
+  @Test("#48: 確定されないまま残った末尾の暫定結果は completedText の末尾に含める")
+  func completedTextKeepsUnfinalizedTail() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(Self.final([Run(text: "明日は", start: 0)], end: 1))
+    _ = mapper.map(Self.volatile([Run(text: "晴れです", start: 1)], end: 2))
+
+    #expect(mapper.confirmedText == "明日は")
+    #expect(mapper.completedText == "明日は晴れです")
+  }
+
+  @Test("#48: 確定結果がないまま終わったら、最後の暫定結果を completedText にする")
+  func completedTextWithoutFinal() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(Self.volatile([Run(text: "あした", start: 0)], end: 0.8))
+    _ = mapper.map(Self.volatile([Run(text: "明日は晴れ", start: 0)], end: 1.5))
+
+    #expect(mapper.completedText == "明日は晴れ")
+  }
+
+  @Test("#48: 暫定結果が後から確定として出し直されたら、確定だけを使い二重にしない")
+  func completedTextDoesNotDuplicateFinalizedVolatile() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(Self.final([Run(text: "明日は", start: 0)], end: 1))
+    _ = mapper.map(Self.volatile([Run(text: "はれです", start: 1)], end: 2))
+    _ = mapper.map(Self.final([Run(text: "晴れです。", start: 1)], end: 2))
+
+    #expect(mapper.completedText == "明日は晴れです。")
+  }
+
+  @Test("#48: 確定が暫定結果の一部だけをカバーしたら、確定した範囲より後の部分だけを足す")
+  func completedTextAppendsOnlyUncoveredRuns() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(
+      Self.volatile(
+        [Run(text: "明日は", start: 0), Run(text: "晴れ", start: 1.0), Run(text: "です", start: 1.5)],
+        end: 2))
+    _ = mapper.map(Self.final([Run(text: "明日は", start: 0)], end: 1.0))
+
+    #expect(mapper.completedText == "明日は晴れです")
+  }
+
+  @Test("#48: 確定した範囲に収まる暫定結果は足さない")
+  func completedTextSkipsVolatileInsideFinalizedRange() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(Self.final([Run(text: "明日は晴れ", start: 0)], end: 2))
+    _ = mapper.map(Self.volatile([Run(text: "晴れ", start: 1)], end: 2))
+
+    #expect(mapper.completedText == "明日は晴れ")
+  }
+
+  @Test("#48: 時刻の属性がない場合は、最後の確定の後に届いた暫定結果を足す")
+  func completedTextUsesLatestVolatileWithoutTimeRange() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(Self.volatile([Run(text: "明日は晴れ", start: nil)], end: 2))
+    _ = mapper.map(Self.final([Run(text: "明日は", start: nil)], end: 1))
+    // 確定の前に届いた属性のない暫定結果は、確定でカバーされたかを判断できないため足さない
+    #expect(mapper.completedText == "明日は")
+
+    _ = mapper.map(Self.volatile([Run(text: "はれ", start: nil)], end: 1.6))
+    _ = mapper.map(Self.volatile([Run(text: "晴れです", start: nil)], end: 2.2))
+    #expect(mapper.completedText == "明日は晴れです")
+  }
+
+  @Test("#48: 確定結果だけなら completedText は確定テキストと同じ")
+  func completedTextEqualsConfirmedWithoutVolatile() {
+    var mapper = TranscriptionEventMapper()
+    _ = mapper.map(Self.final([Run(text: "明日は", start: 0)], end: 1))
+    _ = mapper.map(Self.final([Run(text: "晴れ", start: 1)], end: 2))
+
+    #expect(mapper.completedText == mapper.confirmedText)
+    #expect(mapper.completedText == "明日は晴れ")
+  }
+
+  @Test("#48: 空・空白だけの暫定結果は completedText に足さない")
+  func completedTextSkipsEmptyVolatile() {
+    var empty = TranscriptionEventMapper()
+    _ = empty.map(Self.final([Run(text: "明日は", start: 0)], end: 1))
+    _ = empty.map(Self.volatile([], end: 1.5))
+    var blank = TranscriptionEventMapper()
+    _ = blank.map(Self.final([Run(text: "明日は", start: 0)], end: 1))
+    _ = blank.map(Self.volatile([Run(text: " ", start: 1)], end: 1.5))
+
+    #expect(empty.completedText == "明日は")
+    #expect(blank.completedText == "明日は")
+  }
+
   @Test("REC-06: 文字列表現に認識テキストを含めない")
   func descriptionsHideText() {
     var mapper = TranscriptionEventMapper()

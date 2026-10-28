@@ -10,7 +10,8 @@ import UtterCore
 ///   利用者の明示的な操作で呼ぶ（PERM-03）
 /// - 音声は `AudioChunkConverter` で SpeechAnalyzer の形式（`bestAvailableAudioFormat`）に変換して渡す
 /// - 結果は `TranscriptionEventMapper` で `partial` / `confirmed` に変換し、音声の終わりで残りを確定させて
-///   確定テキスト全体を `completed` で流す（進め方は `TranscriptionRun`）
+///   確定テキスト全体を `completed` で流す。確定されないまま残った末尾の暫定結果は `completed` の末尾に含める
+///   （進め方は `TranscriptionRun`）
 /// - 受け手がストリームを破棄したら `cancelAndFinishNow()` で止める
 /// - 認識テキストはログにもエラーにも出さない
 public struct SpeechAnalyzerRecognizer: SpeechRecognizer {

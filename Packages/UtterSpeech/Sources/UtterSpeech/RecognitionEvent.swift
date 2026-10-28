@@ -11,7 +11,8 @@ public struct RecognitionEvent: Hashable, Sendable, Codable {
     /// 確定した認識結果の一部。受け手は区切りを足さずに連結するため、必要な空白は値に含める。
     /// 受け手はそれまでの暫定結果を消すため、確定していない部分が残るなら続けて `partial` で送り直す
     case confirmed(String)
-    /// 認識の完了。値は全体の確定テキスト
+    /// 認識の完了。値は全体の確定テキスト。認識器によっては、入力の終わりまでに確定されなかった末尾の暫定結果を
+    /// `confirmed` の連結の後に含む（発話の終わりを落とさないため）。受け手は `confirmed` の連結と一致すると仮定しない
     case completed(String)
     /// 認識の失敗
     case failed(SpeechRecognitionError)
