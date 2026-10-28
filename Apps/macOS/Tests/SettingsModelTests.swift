@@ -83,7 +83,7 @@ struct SettingsModelTests {
   func invalidInputIsNotSaved() {
     let model = makeModel()
     model.form.recordingTrigger = .pushToTalk
-    model.form.maxRecordingSeconds = "0"
+    model.form.maxRecordingMinutes = "0"
 
     #expect(!model.save())
     #expect(model.issues == [.maxRecordingDuration])

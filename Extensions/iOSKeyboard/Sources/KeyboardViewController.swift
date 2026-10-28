@@ -253,8 +253,13 @@ final class KeyboardViewController: UIInputViewController {
   /// 利用者が選んだ共有結果への操作を行う。挿入結果が不明でも、自動ではやり直さない（iOS-IPC-03）
   private func perform(_ action: SharedResultKeyboardAction) {
     guard !isBusy, case .ready(let coordinator, _) = services,
-      let sessionID = snapshot.sessionID, currentPanel()?.actions.contains(action) == true
+      let sessionID = snapshot.sessionID
     else {
+      return
+    }
+    // 表示し直す前に期限を過ぎるなどして操作を出さなくなっていれば、何もせず表示を最新にする
+    guard currentPanel()?.actions.contains(action) == true else {
+      render()
       return
     }
     // 操作の直前に、その時点の入力欄で判定し直す（`KeyboardAvailability` の契約）
@@ -265,10 +270,16 @@ final class KeyboardViewController: UIInputViewController {
     }
     isBusy = true
     render()
+    let generation = loadGeneration
     Task {
       let (message, finished) = await Self.run(
         action, sessionID: sessionID, coordinator: coordinator)
       isBusy = false
+      // 操作の間に読み直した（「更新」・キーボードの再表示・入力欄の移動）なら、古い操作の結果で表示を上書きしない
+      guard generation == loadGeneration, snapshot.sessionID == sessionID else {
+        reload()
+        return
+      }
       statusMessage = message
       if finished {
         // 挿入した・消した結果は削除済み。続けて別の結果を出さず、次にキーボードを表示したときに読み直す

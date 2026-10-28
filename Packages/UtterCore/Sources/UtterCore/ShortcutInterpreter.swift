@@ -8,6 +8,7 @@
 /// | `startRecording` | `start(at:)` |
 /// | `stopRecording` | `stopRecording(at:)` |
 /// | `cancelSession` | `cancel()` |
+/// | `confirmCancel` | キャンセルするかを利用者に確かめ、キャンセルを選んだら `cancel()` |
 ///
 /// 値型なので、利用側は状態機械と同じく `@MainActor` や `actor` に隔離して保持する。
 public struct ShortcutInterpreter: Hashable, Sendable {
@@ -18,11 +19,17 @@ public struct ShortcutInterpreter: Hashable, Sendable {
     }
   }
 
+  /// 認識中・整形中にもう一度押したときの動作（REC-06）。既定は何もしない
+  public var pressWhileProcessing: ShortcutPressWhileProcessing
+
   /// Push-to-talk で、押下中のショートカットが今の録音を開始したか
   private var pushToTalkOwnsRecording = false
 
-  public init(mode: ShortcutTriggerMode) {
+  public init(
+    mode: ShortcutTriggerMode, pressWhileProcessing: ShortcutPressWhileProcessing = .ignore
+  ) {
     self.mode = mode
+    self.pressWhileProcessing = pressWhileProcessing
   }
 
   /// Esc を捕捉する状態か（REC-01）。
@@ -66,8 +73,14 @@ public struct ShortcutInterpreter: Hashable, Sendable {
       // Toggle の2回目。Push-to-talk では解放の取りこぼしからの回復として停止する
       pushToTalkOwnsRecording = false
       return .stopRecording
-    case .recognizing, .refining, .inserting, .error:
-      // 処理中の開始操作は無視する（REC-06）
+    case .recognizing, .refining:
+      // 処理中の開始操作は無視するか、キャンセルするかを確かめる（REC-06。どちらにするかは設定で固定する）
+      switch pressWhileProcessing {
+      case .ignore: return nil
+      case .confirmCancel: return .confirmCancel
+      }
+    case .inserting, .error:
+      // 挿入が始まったら取り消さない（REC-01）。失敗の表示中も開始操作は無視する（REC-06）
       return nil
     }
   }
@@ -86,6 +99,15 @@ public enum ShortcutTriggerMode: String, Hashable, Sendable, CaseIterable, Codab
   case toggle
   /// 押している間だけ録音し、離すと停止
   case pushToTalk
+}
+
+/// 認識中・整形中に録音ショートカットをもう一度押したときの動作（REC-06）。設定に保存する（UtterPersistence の `AppSettings`）。
+/// 保存形式は case 名の文字列。録音中の押下（Toggle の停止）と挿入中・失敗の表示中の押下は、この設定によらない
+public enum ShortcutPressWhileProcessing: String, Hashable, Sendable, CaseIterable, Codable {
+  /// 何もしない（既定）
+  case ignore
+  /// キャンセルするかを確かめる。確かめている間も処理は止めない
+  case confirmCancel
 }
 
 /// アプリのアダプターから届くキー入力。OS のイベント型は持たない。
@@ -111,4 +133,6 @@ public enum ShortcutCommand: Hashable, Sendable {
   case startRecording
   case stopRecording
   case cancelSession
+  /// キャンセルするかを利用者に確かめる（`ShortcutPressWhileProcessing.confirmCancel`）。確かめるまではキャンセルしない
+  case confirmCancel
 }
