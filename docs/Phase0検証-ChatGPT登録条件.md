@@ -198,7 +198,7 @@ S13・S14 は抜粋でのみ確認。原文の確認が必要。
 
 ## 付記: OpenAI API キー方式の先行実装（#58）
 
-11章の代替（OpenAI API キー方式）を、判定待ちのまま既定で無効な形で先行実装した（`Packages/UtterAI` の `OpenAIProvider`）。アプリからは組み立てていない。判定が不成立・不要になったときの外し方は、クラウド STT（`OpenAISpeechRecognizer`, #60）を残すかどうかで変わる。クラウド STT も外すなら、`OpenAIProvider.swift`・`HTTPStreamingTransport.swift` と、そのテストを消せば外せる。クラウド STT を残すなら、`OpenAISpeechRecognizer` が使う `HTTPStreamingTransport`・`URLSessionStreamingTransport`・`LineReader`・`ResponsesErrorResponse`・`OpenAIProvider.mapStatus` と、テストが使う `OpenAIProviderTests.StubTransport`・`HangingTransport` を残すか別ファイルへ移してから、`OpenAIProvider` を外す。上の出典表（S1〜S15）とは別に、下の出典を **2026-10-24** に確認した。
+11章の代替（OpenAI API キー方式）を、判定待ちのまま既定で無効な形で先行実装した（`Packages/UtterAI` の `OpenAIProvider`）。判定（条件つきで成立）の条件2を受けて、macOS の整形の送信先として結線した（`SessionRefinementPipeline`。設定画面で選び、同意・OpenAI API キー・整形用モデル名・月次予算と単価表がそろったときだけ送る。モデル名と単価の初期値は持たず、利用者が入力する。iOS は未結線）。外すときは、アプリ側の結線（`CloudRefinementProvider.openAIAPIKey`・`AppSettings.openAIRefinementModel`・`SessionRefinementPipeline.refineWithOpenAI`・設定画面の項目）を先に外す。判定が不成立・不要になったときの外し方は、クラウド STT（`OpenAISpeechRecognizer`, #60）を残すかどうかで変わる。クラウド STT も外すなら、`OpenAIProvider.swift`・`HTTPStreamingTransport.swift` と、そのテストを消せば外せる。クラウド STT を残すなら、`OpenAISpeechRecognizer` が使う `HTTPStreamingTransport`・`URLSessionStreamingTransport`・`LineReader`・`ResponsesErrorResponse`・`OpenAIProvider.mapStatus` と、テストが使う `OpenAIProviderTests.StubTransport`・`HangingTransport` を残すか別ファイルへ移してから、`OpenAIProvider` を外す。上の出典表（S1〜S15）とは別に、下の出典を **2026-10-24** に確認した。
 
 - 送信先は `https://api.openai.com/v1/responses` に限る（それ以外のホストは設定の時点で拒否し、リダイレクトにも従わない）。認証は利用者自身の API キーを `Authorization: Bearer` で送る。他製品のクライアントID・非公開エンドポイントは使わない（AI-02）
 - プラン利用（3節）の制約とそろえ、`store: false`・`stream: true` で送り、`response.completed` まで届いた応答だけを使う。整形指示は `instructions` に入れる。API キー方式では `max_output_tokens` を送れるため送る（プラン利用では送らない）
@@ -238,7 +238,7 @@ OpenAI の DevKit のコードは取り込まず、公開ドキュメントの�
 - 失敗・上限時間の超過・検証失敗は Local Basic へ退避し（4.1節）、Claude や OpenAI API キー方式へ自動で切り替えない（AI-04, S7）
 - トークン課金ではないため予算は使わない（`isTokenBilled == false`）。利用状況は「Manage usage」で ChatGPT の設定へ案内する
 - トークン・認可コード・クライアントID・ID トークンは、ログ・エラー・文字列表現に出さない
-- OpenAI API キー方式は、設定画面に別の選択肢として並べるが、整形の送信先としてはまだ結線しておらず選べない（条件2の「並べる」は表示までで、結線は残作業）
+- OpenAI API キー方式は、設定画面に別の選択肢として並べ、選べる（条件2。#58 で結線した。「付記: OpenAI API キー方式の先行実装」）。Sign in with ChatGPT との間では、どちらの失敗でも他方へ自動で切り替えない
 
 ### 一次情報で裏付けた値
 

@@ -8,7 +8,7 @@
 | Phase | Issue | 状態 |
 |---|---|---|
 | Phase 1（録音・HUD・STT Worker・挿入） | #57 | 実装済み（閉じた）。既定の STT エンジンなどは Phase 0 の判定待ち |
-| Phase 2（Claude / ChatGPT・辞書・文体・費用と同意） | #58 | #50 は条件つきで成立と判定（2026-10-27）。macOS の Sign in with ChatGPT は既定で無効の形で実装済みで、実機での確認と規約原文の確認が残る。OpenAI API キー方式の整形の結線（macOS・iOS）が残る |
+| Phase 2（Claude / ChatGPT・辞書・文体・費用と同意） | #58 | #50 は条件つきで成立と判定（2026-10-27）。macOS の Sign in with ChatGPT は既定で無効の形で実装済みで、実機での確認と規約原文の確認が残る。OpenAI API キー方式の整形は macOS で既定で無効の形で結線した（#58。実 API での確認が残る）。iOS の結線が残る |
 | Phase 3（最適化・障害復旧・署名と公証・配布） | #59 | 計測に基づく最適化・実際の配布・挿入互換性表の記入が残る |
 | Phase 4（Edit Mode・クラウド STT・履歴・Realtime Direct。MVP 外） | #60 | 結線は済み。Edit Mode・クラウド STT・Realtime Direct の実機での確認と、Realtime Direct の許可リスト（#41）が残る |
 | Phase i1（iOS 本体アプリ） | #61 | 実装済み（閉じた） |
