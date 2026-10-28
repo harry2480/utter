@@ -6,7 +6,8 @@ import UtterAI
 /// メニューバーに常駐し、Dock には出さない（Info.plist の `LSUIElement`）。
 /// 部品の組み立ては `AppComposition`、セッションの進行は `SessionCoordinator` が持つ。
 /// 整形（`SessionRefinementPipeline`）は API キーの画面と同じ `claudeAPIKeyStore`、入力履歴の画面と同じ `database` を使う（AC-12）。
-/// クラウド STT（`CloudSpeechRecognitionPipeline`, #188）は API キーの画面と同じ `openAIAPIKeyStore` を使う。
+/// クラウド STT（`CloudSpeechRecognitionPipeline`, #188）と、整形の OpenAI API キー方式（#58）は、
+/// API キーの画面と同じ `openAIAPIKeyStore` を使う。
 /// Sign in with ChatGPT（#50）は、整形と設定画面で同じ `chatGPTAccount` を使う（トークンの更新を1か所で直列にするため）。
 ///
 /// 機能ごとの画面（`Scene`）とメニューの項目は、機能のディレクトリ（`Sources/<機能>/`）に置き、

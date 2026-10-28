@@ -31,11 +31,21 @@ import UtterText
 /// - サインインしていて、プラン利用が許可されている（S3, S7）
 /// 失敗したら Local Basic へ退避し、OpenAI API キー方式へは切り替えない（AI-01, S7）。
 ///
+/// クラウド AI の送信先に OpenAI API キー方式（#58）を選んだときは、Claude の代わりに次がそろったときだけ
+/// `OpenAIProvider` へ1回だけ送る（1・5 は Claude と同じ）。トークン課金のため、予算は Claude と同じ月次予算・単価表・
+/// 今月の累計で確かめる（AI-04, AI-05。`OpenAIProvider.isTokenBilled == true`）。
+/// - OpenAI API キー方式の整形用モデル名を入力している（未入力なら送らない。モデル名をコードに固定しない）
+/// - ChatGPT（OpenAI）への整形の送信に同意している（AC-06。Sign in with ChatGPT と同じ送信先として確かめる）
+/// - OpenAI API キーが保存されていて読み出せる（クラウド STT と同じキー。Claude API キーとは別）
+/// - 予算上限を確かめられる（上の 6 と同じ）
+/// 失敗したら Local Basic へ退避し、Sign in with ChatGPT や Claude へは切り替えない（AI-01, S7）。
+///
 /// 失敗時に別のクラウドへ切り替える設定（`AppSettings.cloudRefinementFallbackEnabled`, AI-04。既定は無効）を選んだときだけ、
 /// 選んだ送信先へ送って退避した（`cloudFallback`）後に、もう一方（Claude ↔ Sign in with ChatGPT）へ1回だけ送り直す。
 /// 切り替え先へも上の条件（その送信先への送信の同意・API キーと予算、またはサインインとモデル名・入力先）を同じく確かめ、
 /// そろわなければ送らない（AC-06）。同意・キー・サインインがなくて最初の送信先へ送らなかったとき（`localOnly`）は切り替えない。
 /// 切り替え先の応答が検証を通ったときだけ使い、それ以外は最初の送信先の退避の結果（理由）を返す。
+/// OpenAI API キー方式は切り替え先にせず、OpenAI API キー方式を選んだときは切り替えない（`alternative`）。
 @MainActor
 final class SessionRefinementPipeline: SessionRefining {
   /// 送信先のプロバイダーを作る。本番は `ClaudeProvider(apiKeyStore:configuration:)`、テストは Stub の送信部を使う
@@ -44,6 +54,10 @@ final class SessionRefinementPipeline: SessionRefining {
   /// Sign in with ChatGPT の送信先を作る。本番は `ChatGPTPlanProvider`、テストは Stub の送信部を使う
   typealias MakeChatGPTProvider =
     @Sendable (ChatGPTPlanProvider.Configuration, ChatGPTAccountSession) -> any AIProvider
+  /// OpenAI API キー方式の送信先を作る。本番は `OpenAIProvider`、テストは Stub の送信部を使う。
+  /// API キーは作った送信先だけが持ち、ここでは保持しない
+  typealias MakeOpenAIProvider =
+    @Sendable (OpenAIProvider.Configuration, APIKey) -> any AIProvider
 
   private let settingsStore: AppSettingsStore
   private let apiKeyStore: any APIKeyStore
@@ -51,6 +65,8 @@ final class SessionRefinementPipeline: SessionRefining {
   private let makeProvider: MakeProvider
   private let chatGPTAccount: ChatGPTAccountSession?
   private let makeChatGPTProvider: MakeChatGPTProvider
+  private let openAIAPIKeyStore: (any APIKeyStore)?
+  private let makeOpenAIProvider: MakeOpenAIProvider
   private let localRefiner: any LocalRefiner
   private let siteHostReader: any FrontmostSiteHostReading
   private let timeout: Duration
@@ -65,6 +81,8 @@ final class SessionRefinementPipeline: SessionRefining {
   ///   - apiKeyStore: Claude API キーの保存先。API キーの画面と同じものを渡す
   ///   - database: 辞書と推定費用の累計を保存するデータベース
   ///   - chatGPTAccount: Sign in with ChatGPT のアカウント（#50）。設定画面と同じものを渡す。`nil` なら ChatGPT へは送らない
+  ///   - openAIAPIKeyStore: OpenAI API キーの保存先（#58）。クラウド STT・API キーの画面と同じものを渡す。
+  ///     `nil` なら OpenAI API キー方式では送らない
   ///   - siteHostReader: 前面のブラウザで表示中のホスト名を読む口（CTX-02）。サイト単位の識別が許可されたときだけ呼ぶ
   ///   - timeout: クラウド整形の応答待ちの上限時間（4.1節）
   ///   - now: 実時刻（費用を計上する月の判定）
@@ -81,6 +99,10 @@ final class SessionRefinementPipeline: SessionRefining {
     makeChatGPTProvider: @escaping MakeChatGPTProvider = { configuration, account in
       ChatGPTPlanProvider(account: account, configuration: configuration)
     },
+    openAIAPIKeyStore: (any APIKeyStore)? = nil,
+    makeOpenAIProvider: @escaping MakeOpenAIProvider = { configuration, apiKey in
+      OpenAIProvider(apiKey: apiKey.value, configuration: configuration)
+    },
     localRefiner: any LocalRefiner = LocalBasicRefiner(),
     siteHostReader: any FrontmostSiteHostReading = AccessibilitySiteHostReader(),
     timeout: Duration = RefinementRouter.defaultTimeout,
@@ -94,6 +116,8 @@ final class SessionRefinementPipeline: SessionRefining {
     self.makeProvider = makeProvider
     self.chatGPTAccount = chatGPTAccount
     self.makeChatGPTProvider = makeChatGPTProvider
+    self.openAIAPIKeyStore = openAIAPIKeyStore
+    self.makeOpenAIProvider = makeOpenAIProvider
     self.localRefiner = localRefiner
     self.siteHostReader = siteHostReader
     self.timeout = timeout
@@ -157,11 +181,13 @@ final class SessionRefinementPipeline: SessionRefining {
       request, with: selected, selected: selected, settings: settings, sensitivity: sensitivity,
       willSend: willSend)
     // 送ろうとして退避したときだけ、設定で選んでいればもう一方へ切り替える（AI-04。既定は切り替えない）
-    guard case .cloudFallback = first.route, settings.cloudRefinementFallbackEnabled else {
+    guard case .cloudFallback = first.route, settings.cloudRefinementFallbackEnabled,
+      let alternative = selected.alternative
+    else {
       return first
     }
     let switched = try await refineInCloud(
-      request, with: selected.alternative, selected: selected, settings: settings,
+      request, with: alternative, selected: selected, settings: settings,
       sensitivity: sensitivity, willSend: willSend)
     return switched.route == .cloud ? switched : first
   }
@@ -181,6 +207,10 @@ final class SessionRefinementPipeline: SessionRefining {
         willSend: willSend)
     case .chatGPTSignIn:
       return try await refineWithChatGPT(
+        request, selected: selected, settings: settings, sensitivity: sensitivity,
+        willSend: willSend)
+    case .openAIAPIKey:
+      return try await refineWithOpenAI(
         request, selected: selected, settings: settings, sensitivity: sensitivity,
         willSend: willSend)
     }
@@ -217,7 +247,8 @@ final class SessionRefinementPipeline: SessionRefining {
     else { return local(.cloudUnavailable) }
     guard
       let budget = await makeBudget(
-        settings: settings, configuration: configuration, request: request)
+        settings: settings, model: configuration.model, maxOutputTokens: configuration.maxTokens,
+        request: request)
     else {
       if Task.isCancelled { throw CancellationError() }
       return local(.budgetUnavailable)
@@ -293,6 +324,77 @@ final class SessionRefinementPipeline: SessionRefining {
     return Self.result(of: outcome)
   }
 
+  /// OpenAI API キー方式で送る（#58）。Claude と同じく、予算の上限を確かめてから送る（AI-04, AI-05）
+  private func refineWithOpenAI(
+    _ request: RefinementRequest, selected: CloudRefinementProvider, settings: AppSettings,
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
+  ) async throws(CancellationError) -> SessionRefinementResult {
+    func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
+      SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
+    }
+    guard !hasUsagePersistenceFailure else { return local(.budgetUnavailable) }
+    guard let openAIAPIKeyStore,
+      let configuration = try? OpenAIProvider.Configuration(model: settings.openAIRefinementModel)
+    else { return local(.cloudUnavailable) }
+    // Sign in with ChatGPT と同じ送信先（OpenAI）への同意で確かめる。同意がなければ Keychain も読まない
+    guard currentConsent().allows(.textRefinement(.chatGPT)) else {
+      return local(.consentNotGranted)
+    }
+    // キーがなければ予算の確認も送信もしない
+    let apiKey: APIKey
+    do throws(APIKeyStoreError) {
+      guard let stored = try openAIAPIKeyStore.load() else { return local(.apiKeyNotSet) }
+      apiKey = stored
+    } catch {
+      return local(.apiKeyUnavailable)
+    }
+    let provider = measured(makeOpenAIProvider(configuration, apiKey))
+    // 送信先の申告が違えば、別の送信先への同意で送ってしまうため送らない（AC-06）
+    guard provider.destination == .chatGPT, provider.isTokenBilled else {
+      return local(.cloudUnavailable)
+    }
+    guard Self.decide(sensitivity(), settings: settings).allowsCloudTransmission else {
+      return local(.sensitiveInput)
+    }
+    guard
+      let router = try? RefinementRouter(
+        provider: provider, localRefiner: localRefiner, timeout: timeout)
+    else { return local(.cloudUnavailable) }
+    guard
+      let budget = await makeBudget(
+        settings: settings, model: configuration.model,
+        maxOutputTokens: configuration.maxOutputTokens, request: request)
+    else {
+      if Task.isCancelled { throw CancellationError() }
+      return local(.budgetUnavailable)
+    }
+
+    // 予算の確認を待つ間の変更も反映するよう、送る直前に最新の設定・同意・入力先を読み直す
+    let latest = settingsStore.load()
+    guard Self.stillSends(to: .openAIAPIKey, selected: selected, latest: latest) else {
+      return local(.localEngineSelected)
+    }
+    let consent = currentConsent()
+    // `RefinementRouter` は同期的に同意と判定を求めるため、ここで読み直した同意と判定した値を渡す。Router は予約を
+    // 待った後にも求めるが、入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の
+    // 変化はここでの読み直しと判定までしか反映しない（Claude と同じ）
+    let decision = Self.decide(sensitivity(), settings: latest)
+    let outcome: RefinementOutcome
+    do throws(CancellationError) {
+      // 送信先は、Router が予算の予約まで済ませてプロバイダーを呼ぶ直前に知らせる
+      outcome = try await router.refine(
+        request, consent: { consent }, budget: budget, sensitivity: { decision },
+        willSend: { await willSend(.chatGPT) })
+    } catch {
+      // 送信後にキャンセルされても推定費用は記録されるため、保存の失敗は確かめる
+      await noteUsagePersistence(of: budget.guard)
+      throw error
+    }
+    await noteUsagePersistence(of: budget.guard)
+    return Self.result(of: outcome)
+  }
+
   /// 送る直前の最新の設定でも `provider` へ送ってよいか。クラウド AI と最初に選んだ送信先が選ばれたままで、
   /// 切り替え先へ送るときは切り替えの設定も残っているときだけ
   private static func stillSends(
@@ -359,9 +461,11 @@ final class SessionRefinementPipeline: SessionRefining {
   }
 
   /// 今月の予算判定に使う `BudgetGuard` を、保存済みの累計から作る（AI-04, AI-05）。
+  /// Claude と OpenAI API キー方式で同じ月次予算・単価表・累計を使う。`model` は単価表で引くモデル名、
+  /// `maxOutputTokens` は見込みの出力の上限。
   /// 予算・単価表が未設定、通貨が一致しない、累計を読めない場合は `nil`（送らない）
   private func makeBudget(
-    settings: AppSettings, configuration: ClaudeProvider.Configuration, request: RefinementRequest
+    settings: AppSettings, model: String, maxOutputTokens: Int, request: RefinementRequest
   ) async -> RefinementBudget? {
     guard
       let cost = try? CloudCostBridge.configuration(for: settings, at: now(), in: calendar),
@@ -374,8 +478,8 @@ final class SessionRefinementPipeline: SessionRefining {
       }).value
     else { return nil }
     return RefinementBudget(
-      guard: budgetGuard, model: configuration.model,
-      expectedUsage: Self.expectedUsage(for: request, maxOutputTokens: configuration.maxTokens),
+      guard: budgetGuard, model: model,
+      expectedUsage: Self.expectedUsage(for: request, maxOutputTokens: maxOutputTokens),
       month: cost.month)
   }
 
@@ -430,9 +534,9 @@ enum SessionRefinementRoute: Hashable, Sendable {
     case localEngineSelected
     /// クラウド整形の設定（モデル名など）を使えない
     case cloudUnavailable
-    /// Claude への整形の送信に同意していない
+    /// 選んだ送信先（Claude・ChatGPT）への整形の送信に同意していない
     case consentNotGranted
-    /// API キーが保存されていない
+    /// API キー（Claude、または OpenAI API キー方式の OpenAI）が保存されていない
     case apiKeyNotSet
     /// API キーを読み出せない（Mac のロック中・署名のないビルドなど）
     case apiKeyUnavailable
@@ -446,11 +550,17 @@ enum SessionRefinementRoute: Hashable, Sendable {
 }
 
 extension CloudRefinementProvider {
-  /// 失敗時に切り替える先（AI-04）。OpenAI API キー方式へは切り替えない（AI-01）
-  fileprivate var alternative: CloudRefinementProvider {
+  /// 失敗時に切り替える先（AI-04）。切り替えないなら `nil`。
+  ///
+  /// 切り替えの設定は「もう一方」を選ぶ1つのオン・オフで、Claude と Sign in with ChatGPT の2つの間だけで使う。
+  /// OpenAI API キー方式へは切り替えない（AI-01。Sign in with ChatGPT からは同じ OpenAI の別方式になり、
+  /// Claude からは「もう一方」が2つになって決められない）。OpenAI API キー方式を選んだときも切り替えない
+  /// （Sign in with ChatGPT へは AI-01 で切り替えず、Claude へ切り替えるかは切り替え先を選ぶ設定がないため決めない）
+  fileprivate var alternative: CloudRefinementProvider? {
     switch self {
     case .claude: .chatGPTSignIn
     case .chatGPTSignIn: .claude
+    case .openAIAPIKey: nil
     }
   }
 }

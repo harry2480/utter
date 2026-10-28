@@ -253,17 +253,21 @@ struct FirstRunSetupModelTests {
     #expect(model.nextIncompleteStep == nil)
   }
 
-  @Test("AI-03: 準備中の選択肢（OpenAI API キー方式）は選んでも保存せず、進まない")
-  func ignoresUnselectableRefinement() async {
+  @Test("AI-03, #58: OpenAI API キー方式を選んで保存し、最後まで進める。同意は変えない")
+  func choosesOpenAIAPIKeyRefinement() async {
     let model = makeModel(access: grantedAccess())
     await model.refresh()
     advanceToRefinement(model)
+    let consentsBefore = store.load().consentState
 
     model.chooseRefinement(.openAIAPIKey)
 
-    #expect(store.load().refinementEngine == .localBasic)
-    #expect(!model.progress.isFinished)
-    #expect(model.state(of: .refinement) == .needsAction)
+    let saved = store.load()
+    #expect(saved.refinementEngine == .cloudAI)
+    #expect(saved.cloudRefinementProvider == .openAIAPIKey)
+    #expect(saved.consentState == consentsBefore)
+    #expect(model.refinementChoice == .openAIAPIKey)
+    #expect(model.progress.isFinished)
   }
 
   // MARK: あとで

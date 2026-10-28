@@ -77,6 +77,8 @@ struct SettingsForm: Hashable, Sendable {
   var refinementModel: String
   /// Sign in with ChatGPT の整形用モデル名（AI-07, #50）。サインインしたアカウントのモデル一覧から選ぶ。空は未選択
   var chatGPTRefinementModel: String
+  /// OpenAI API キー方式の整形用モデル名（AI-07, #58）。利用者が入力する。空は未選択
+  var openAIRefinementModel: String
   /// 失敗時にもう一方のクラウドで整形し直すか（AI-04）。切り替え先への送信の同意がなければ送らない（AC-06）
   var cloudRefinementFallbackEnabled: Bool
 
@@ -133,6 +135,7 @@ struct SettingsForm: Hashable, Sendable {
     refinementMode = settings.refinementMode
     refinementModel = settings.refinementModel
     chatGPTRefinementModel = settings.chatGPTRefinementModel
+    openAIRefinementModel = settings.openAIRefinementModel
     cloudRefinementFallbackEnabled = settings.cloudRefinementFallbackEnabled
     temporaryAudioRetentionHours = settings.temporaryAudioRetentionHours
 
@@ -232,11 +235,18 @@ struct SettingsForm: Hashable, Sendable {
     if modelRetentionMode == .performance, !performanceRetentionAllowed {
       notices.append(.performanceRetentionNotAllowed)
     }
-    if provider == .claude {
+    // トークン課金の送信先（Claude・OpenAI API キー方式）は予算と単価表で送るかを決める（AI-04, AI-05）
+    let billedModel: String? =
+      switch provider {
+      case .claude: refinementModel
+      case .openAIAPIKey: openAIRefinementModel
+      case .localBasic, .chatGPTSignIn: nil
+      }
+    if let billedModel {
       if !budgetEnabled {
         notices.append(.budgetNotSet)
       } else {
-        let model = refinementModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = billedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let listed = priceRows.contains {
           $0.model.trimmingCharacters(in: .whitespacesAndNewlines) == model
         }
@@ -248,6 +258,10 @@ struct SettingsForm: Hashable, Sendable {
     let chatGPTModel = chatGPTRefinementModel.trimmingCharacters(in: .whitespacesAndNewlines)
     if provider == .chatGPTSignIn, chatGPTModel.isEmpty {
       notices.append(.chatGPTModelNotSelected)
+    }
+    let openAIModel = openAIRefinementModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    if provider == .openAIAPIKey, openAIModel.isEmpty {
+      notices.append(.openAIModelNotEntered)
     }
     return notices
   }
@@ -287,11 +301,7 @@ struct SettingsForm: Hashable, Sendable {
     // 範囲外の値は保存用の型が既定値に戻す。画面の選択肢は範囲の中だけ
     settings.temporaryAudioRetentionHours = temporaryAudioRetentionHours
 
-    if let engine = provider.engine {
-      settings.refinementEngine = engine
-    } else {
-      issues.append(.providerUnavailable)
-    }
+    settings.refinementEngine = provider.engine
     // Local Basic を選んだときは送信先を変えない（次にクラウド AI を選んだときに前の送信先を使わないよう、
     // 画面ではクラウドの送信先を選ばせてから保存する）
     if let cloudProvider = provider.cloudProvider {
@@ -299,6 +309,8 @@ struct SettingsForm: Hashable, Sendable {
     }
     // 送るかはサインイン・同意・モデル名で送る直前に決める（AC-06）。空のままでも保存できる
     settings.chatGPTRefinementModel = chatGPTRefinementModel
+    // 送るかは同意・API キー・予算・モデル名で送る直前に決める（AC-06, AI-04）。空のままでも保存できる
+    settings.openAIRefinementModel = openAIRefinementModel
     // 切り替え先へ送るかは、その送信先への同意と条件で送る直前に決める（AC-06）。ここでは同意を変えない
     settings.cloudRefinementFallbackEnabled = cloudRefinementFallbackEnabled
     settings.refinementMode = refinementMode
@@ -524,8 +536,6 @@ enum SettingsIssue: Hashable, Sendable {
   case editModeShortcutSameAsRecording
   /// 最大録音時間（分）が数でない、または範囲外（REC-05）
   case maxRecordingDuration
-  /// 選べない処理系（ChatGPT）が選ばれている（AC-05）
-  case providerUnavailable
   /// 整形用モデル名が空（AI-07）
   case refinementModelEmpty
   /// 月次予算の上限が数でない（AI-04, AI-05）
@@ -570,8 +580,6 @@ enum SettingsIssue: Hashable, Sendable {
       return "Edit Mode のショートカットは、録音のショートカットとは別のキーにしてください。"
     case .maxRecordingDuration:
       return "最大録音時間は 1〜60 分の数を半角で入力してください（例: 5、1.5）。"
-    case .providerUnavailable:
-      return "OpenAI API キー方式は整形ではまだ選べません。Local Basic・Claude・Sign in with ChatGPT から選んでください。"
     case .refinementModelEmpty:
       return "整形用モデル名を入力してください。"
     case .budgetLimit:
@@ -608,16 +616,18 @@ enum SettingsNotice: Hashable, Sendable {
   case performanceRetentionNotAllowed
   /// クラウド AI を選んでいるが、月次予算が未設定（AI-04）
   case budgetNotSet
-  /// 月次予算はあるが、単価表に整形用モデルがない（AI-05）。費用を推定できない
+  /// 月次予算はあるが、単価表に選んだ送信先（Claude・OpenAI API キー方式）の整形用モデルがない（AI-05）。費用を推定できない
   case refinementModelNotInPriceTable
   /// Sign in with ChatGPT を選んでいるが、整形用モデルを選んでいない（#50）。選ぶまで送らない
   case chatGPTModelNotSelected
+  /// OpenAI API キー方式を選んでいるが、整形用モデル名を入力していない（#58）。入力するまで送らない
+  case openAIModelNotEntered
 
   /// 費用のタブに出す案内か
   var isCostNotice: Bool {
     switch self {
     case .budgetNotSet, .refinementModelNotInPriceTable: true
-    case .performanceRetentionNotAllowed, .chatGPTModelNotSelected: false
+    case .performanceRetentionNotAllowed, .chatGPTModelNotSelected, .openAIModelNotEntered: false
     }
   }
 
@@ -631,6 +641,8 @@ enum SettingsNotice: Hashable, Sendable {
       "単価表に整形用モデルがないため、費用を推定できません。予算の判定では、推定できない送信は行いません。"
     case .chatGPTModelNotSelected:
       "ChatGPT の整形用モデルが選ばれていません。サインインしてからモデルを選ぶまで、ChatGPT へは送らず Local Basic で整形します。"
+    case .openAIModelNotEntered:
+      "OpenAI API キー方式の整形用モデル名が入力されていません。入力するまで、ChatGPT（OpenAI）へは送らず Local Basic で整形します。"
     }
   }
 }

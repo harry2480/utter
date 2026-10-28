@@ -37,7 +37,6 @@ struct MenuBarSwitchItems: View {
     Menu("整形の実行先: \(MenuBarModel.providerName(model.provider))") {
       ForEach(RefinementProviderChoice.allCases) { choice in
         Toggle(title(of: choice), isOn: binding(for: choice))
-          .disabled(!choice.isSelectable)
       }
     }
     if model.saveFailed {
@@ -81,7 +80,7 @@ struct MenuBarSwitchItems: View {
       // 同意の画面へ案内する。同意はその画面で利用者が行う
       openWindow(id: ConsentSettingsScene.windowID)
       bringToFront()
-    case .saved, .notSelectable, .saveFailed:
+    case .saved, .saveFailed:
       break
     }
   }

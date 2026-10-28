@@ -169,6 +169,30 @@ struct AppSettingsTests {
     #expect(version1.cloudRefinementProvider == .claude)
   }
 
+  @Test("AI-01, AI-07, #58: OpenAI API キー方式の送信先とモデル名を保存・復元でき、ない保存値・読めない値は未選択で読む")
+  func openAIAPIKeyProviderRoundTripsAndMigrates() throws {
+    #expect(AppSettings().openAIRefinementModel.isEmpty)
+
+    let decoded = try roundTrip(
+      AppSettings(cloudRefinementProvider: .openAIAPIKey, openAIRefinementModel: " model-y "))
+    #expect(decoded.cloudRefinementProvider == .openAIAPIKey)
+    #expect(decoded.openAIRefinementModel == "model-y")
+    // Sign in with ChatGPT のモデル名とは別に持つ
+    #expect(decoded.chatGPTRefinementModel.isEmpty)
+
+    // 項目を足す前に保存した版 2 の値は、ほかの項目を変えずに未選択で読む
+    let stored = try decode(#"{"version": 2, "cloudRefinementProvider": "chatGPTSignIn"}"#)
+    #expect(stored.cloudRefinementProvider == .chatGPTSignIn)
+    #expect(stored.openAIRefinementModel.isEmpty)
+
+    let broken = try decode(#"{"version": 2, "openAIRefinementModel": 1}"#)
+    #expect(broken.openAIRefinementModel.isEmpty)
+
+    var settings = AppSettings()
+    settings.openAIRefinementModel = "  model-z\n"
+    #expect(settings.openAIRefinementModel == "model-z")
+  }
+
   @Test("REC-01, REC-06, AI-04, 7章: 処理中の押下は何もしない・Esc でキャンセルする・クラウドを切り替えない・一時音声は24時間が既定")
   func issue199Defaults() {
     let settings = AppSettings()
@@ -950,7 +974,8 @@ struct AppSettingsTests {
         "recordingPressWhileProcessing", "escapeCancelEnabled",
         "editModeShortcut", "inputMode", "cloudSpeechRecognitionEnabled",
         "refinementMode", "refinementEngine", "cloudRefinementProvider", "chatGPTRefinementModel",
-        "cloudRefinementFallbackEnabled", "appStyleOverrides", "siteIdentificationAllowed",
+        "openAIRefinementModel", "cloudRefinementFallbackEnabled", "appStyleOverrides",
+        "siteIdentificationAllowed",
         "siteStyleOverrides", "refinementModel",
         "priceTable", "monthlyBudget", "consentState", "historyEnabled", "modelRetentionMode",
         "performanceRetentionAllowed", "temporaryAudioRetentionHours", "excludedApps",

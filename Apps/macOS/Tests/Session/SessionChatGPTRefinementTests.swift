@@ -32,6 +32,11 @@ final class PlanStreamingTransport: HTTPStreamingTransport {
     sent.withLock { $0.compactMap { $0.httpBody.flatMap { String(data: $0, encoding: .utf8) } } }
   }
 
+  /// 送られた Authorization ヘッダー
+  var authorizations: [String?] {
+    sent.withLock { $0.map { $0.value(forHTTPHeaderField: "authorization") } }
+  }
+
   func bytes(for request: URLRequest) async throws -> (
     AsyncThrowingStream<UInt8, any Error>, HTTPURLResponse
   ) {

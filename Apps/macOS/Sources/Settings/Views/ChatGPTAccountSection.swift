@@ -81,7 +81,7 @@ struct ChatGPTAccountSection: View {
         .font(.callout)
       Button("ChatGPT プランの利用を有効にする") { account.signIn(requestsConsent: true) }
         .disabled(account.activity != .idle)
-      Text("ChatGPT プランを使わない場合は、Local Basic か Claude を選んでください（OpenAI API キー方式は準備中です）。")
+      Text("ChatGPT プランを使わない場合は、Local Basic・Claude・ChatGPT（OpenAI API キー方式）から選んでください。")
         .font(.caption).foregroundStyle(.secondary)
     case .pausedForUsageLimit:
       Text("Usage limit reached. ChatGPT プランまたは utter の利用上限に達したため、ChatGPT への送信を止めています。")

@@ -114,7 +114,6 @@ struct FirstRunSetupView: View {
           }
           Button("この実行先にする") { model.chooseRefinement(refinementChoice) }
             .buttonStyle(.borderedProminent)
-            .disabled(!refinementChoice.isSelectable)
         } else {
           Button("次へ") { model.advance() }
             .buttonStyle(.borderedProminent)
@@ -468,7 +467,7 @@ private struct ShortcutStepSection: View {
 
 // MARK: - 整形の実行先の手順
 
-/// 整形の実行先の手順（AI-03, AC-06）。選択肢は設定画面と同じ（`RefinementProviderChoice`）で、選べないものは選べない。
+/// 整形の実行先の手順（AI-03, AC-06）。選択肢は設定画面と同じ（`RefinementProviderChoice`）。
 /// 「あとで」で飛ばせる。既定は Local Basic で、送信しない
 private struct RefinementStepSection: View {
   @Binding var selection: RefinementProviderChoice
@@ -477,7 +476,7 @@ private struct RefinementStepSection: View {
     Section {
       Picker("整形の実行先", selection: $selection) {
         ForEach(RefinementProviderChoice.allCases) { choice in
-          Text(choice.label).tag(choice).disabled(!choice.isSelectable)
+          Text(choice.label).tag(choice)
         }
       }
       .pickerStyle(.radioGroup)
@@ -488,7 +487,12 @@ private struct RefinementStepSection: View {
       case .chatGPTSignIn:
         Text("ChatGPT へは、同意の画面での送信の同意と、設定画面でのサインインがそろうまで送信しません。")
           .font(.caption).foregroundStyle(.secondary)
-      case .localBasic, .openAIAPIKey:
+      case .openAIAPIKey:
+        Text(
+          "ChatGPT（OpenAI API キー方式）へは、同意の画面での送信の同意と、設定画面の OpenAI API キー・整形用モデル名・月次予算と単価表がそろうまで送信しません。"
+        )
+        .font(.caption).foregroundStyle(.secondary)
+      case .localBasic:
         EmptyView()
       }
     } header: {
