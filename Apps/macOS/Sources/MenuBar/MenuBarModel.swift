@@ -321,7 +321,7 @@ extension MenuBarModel {
     engine: STTEngineKind?, cloudEnabled: Bool, availability: UtterSpeech.SpeechModelAvailability?
   ) -> String {
     // クラウド STT は同意・API キー・予算がそろわなければ送らない（`CloudSpeechRecognitionPipeline`）
-    if cloudEnabled { return "音声認識: クラウド（OpenAI。音声を送信）" }
+    if cloudEnabled { return "音声認識: クラウド（OpenAI へ音声を送る設定）" }
     switch engine {
     case nil: return "音声認識: 未設定"
     case .stub: return "音声認識: 固定の結果（開発用）"
