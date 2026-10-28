@@ -24,6 +24,8 @@ targets:
       - path: Sources/Settings
         excludes:
           - "Views/**"
+      # メニューの状態と切り替え（View と OS の通知の受け取りを除く, #197）
+      - path: Sources/MenuBar/MenuBarModel.swift
       # 初回セットアップの手順・進み具合と権限オンボーディングの状態（画面と OS の権限 API のアダプターは含めない, #198）
       - path: Sources/Permissions
         excludes:

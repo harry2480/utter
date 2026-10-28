@@ -132,11 +132,11 @@ final class ShortcutCoordinator {
     onKeyHintsChange(HUDKeyHints(status: status, escapeStatus: escapeStatus))
   }
 
-  /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。
+  /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。設定画面の Esc の説明にも使う。
   ///
   /// Debug ビルドに限り、実機確認のため起動引数で有効にできる:
   /// `-UtterDebugModifierOnlyShortcut YES`（修飾キー単独）、`-UtterDebugEscapeCapture YES`（Esc 捕捉）
-  private static func capabilities() -> ShortcutCapabilities {
+  static func capabilities() -> ShortcutCapabilities {
     #if DEBUG
       let arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
       func enabled(_ name: String) -> Bool {

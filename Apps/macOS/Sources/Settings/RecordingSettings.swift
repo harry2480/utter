@@ -31,9 +31,15 @@ extension GlobalShortcutSetting {
   ///
   /// ショートカットが未設定なら `nil`（何も登録しない）。割り当てられるか（修飾キー単独・競合・Esc の予約）は
   /// ここでは判定せず、登録時に `GlobalShortcutController` が `ShortcutValidator` で判定する
+  ///
+  /// 処理中の押下の動作（REC-06）と Esc でのキャンセル（REC-01）も同じ設定から読む。Esc の捕捉は capability
+  /// （#51 の判定待ち）が有効なときだけ使い、設定でオンにしても有効にならない
   static func fromSettings(_ settings: AppSettings) -> GlobalShortcutSetting? {
     settings.recordingShortcut.map {
-      GlobalShortcutSetting(combination: $0, mode: settings.recordingTrigger)
+      var setting = GlobalShortcutSetting(combination: $0, mode: settings.recordingTrigger)
+      setting.pressWhileProcessing = settings.recordingPressWhileProcessing
+      setting.cancelsWithEscape = settings.escapeCancelEnabled
+      return setting
     }
   }
 }

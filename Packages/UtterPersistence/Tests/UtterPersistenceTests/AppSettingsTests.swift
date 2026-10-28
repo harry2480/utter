@@ -169,6 +169,64 @@ struct AppSettingsTests {
     #expect(version1.cloudRefinementProvider == .claude)
   }
 
+  @Test("REC-01, REC-06, AI-04, 7章: 処理中の押下は何もしない・Esc でキャンセルする・クラウドを切り替えない・一時音声は24時間が既定")
+  func issue199Defaults() {
+    let settings = AppSettings()
+    #expect(settings.recordingPressWhileProcessing == .ignore)
+    #expect(settings.escapeCancelEnabled)
+    #expect(!settings.cloudRefinementFallbackEnabled)
+    #expect(settings.temporaryAudioRetentionHours == 24)
+    #expect(AppSettings.defaultTemporaryAudioRetentionHours == 24)
+  }
+
+  @Test("REC-01, REC-06, AI-04, 7章: #199 で足した項目を保存・復元でき、ない保存値・読めない値は既定値で読む")
+  func issue199SettingsRoundTripAndMigrate() throws {
+    let decoded = try roundTrip(
+      AppSettings(
+        recordingPressWhileProcessing: .confirmCancel, escapeCancelEnabled: false,
+        cloudRefinementFallbackEnabled: true, temporaryAudioRetentionHours: 72))
+    #expect(decoded.recordingPressWhileProcessing == .confirmCancel)
+    #expect(!decoded.escapeCancelEnabled)
+    #expect(decoded.cloudRefinementFallbackEnabled)
+    #expect(decoded.temporaryAudioRetentionHours == 72)
+
+    // 項目を足す前に保存した版 2 の値は、ほかの項目を変えずに既定値で読む
+    let stored = try decode(#"{"version": 2, "historyEnabled": true}"#)
+    #expect(stored == AppSettings(historyEnabled: true))
+
+    let broken = try decode(
+      #"""
+      {"version": 2, "historyEnabled": true, "recordingPressWhileProcessing": "unknown",
+       "escapeCancelEnabled": "no", "cloudRefinementFallbackEnabled": "yes",
+       "temporaryAudioRetentionHours": "24"}
+      """#)
+    #expect(broken == AppSettings(historyEnabled: true))
+
+    // 版 1 にはない項目のため、版 1 の保存値では読まない
+    let version1 = try decode(
+      #"{"version": 1, "cloudRefinementFallbackEnabled": true, "temporaryAudioRetentionHours": 2}"#)
+    #expect(!version1.cloudRefinementFallbackEnabled)
+    #expect(version1.temporaryAudioRetentionHours == 24)
+  }
+
+  @Test(
+    "7章, AC-10: 一時音声の保持期限は 1〜168 時間だけを受け付け、範囲外は既定の24時間に戻す",
+    arguments: [0, -1, 169, 10_000])
+  func invalidRetentionHoursReverted(hours: Int) throws {
+    #expect(AppSettings(temporaryAudioRetentionHours: hours).temporaryAudioRetentionHours == 24)
+    var settings = AppSettings(temporaryAudioRetentionHours: 6)
+    settings.temporaryAudioRetentionHours = hours
+    #expect(settings.temporaryAudioRetentionHours == 24)
+    let stored = try decode(#"{"version": 2, "temporaryAudioRetentionHours": \#(hours)}"#)
+    #expect(stored.temporaryAudioRetentionHours == 24)
+  }
+
+  @Test("7章, AC-10: 範囲の両端の保持期限は受け付ける", arguments: [1, 168])
+  func retentionHoursBounds(hours: Int) throws {
+    let decoded = try roundTrip(AppSettings(temporaryAudioRetentionHours: hours))
+    #expect(decoded.temporaryAudioRetentionHours == hours)
+  }
+
   @Test("2.2節, TXT-01: 入力モードは既定で Instant、整形モードは既定で Natural")
   func inputAndRefinementModeDefaults() {
     let settings = AppSettings()
@@ -889,12 +947,13 @@ struct AppSettingsTests {
     #expect(
       Set(object.keys) == [
         "version", "maxRecordingDuration", "recordingTrigger", "recordingShortcut",
+        "recordingPressWhileProcessing", "escapeCancelEnabled",
         "editModeShortcut", "inputMode", "cloudSpeechRecognitionEnabled",
         "refinementMode", "refinementEngine", "cloudRefinementProvider", "chatGPTRefinementModel",
-        "appStyleOverrides", "siteIdentificationAllowed",
+        "cloudRefinementFallbackEnabled", "appStyleOverrides", "siteIdentificationAllowed",
         "siteStyleOverrides", "refinementModel",
         "priceTable", "monthlyBudget", "consentState", "historyEnabled", "modelRetentionMode",
-        "performanceRetentionAllowed", "excludedApps",
+        "performanceRetentionAllowed", "temporaryAudioRetentionHours", "excludedApps",
       ])
     #expect(Set(object.keys) == Set(AppSettings.CodingKeys.allCases.map(\.stringValue)))
   }

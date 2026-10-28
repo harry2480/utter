@@ -5,16 +5,16 @@ import UtterSpeech
 
 /// 設定画面（`Settings` シーン, ⌘,）。
 ///
-/// 設定画面は1つの Settings シーンにまとめ、項目はタブで分ける（API キーなどの画面もタブとして足す）
+/// 設定画面は1つの Settings シーンにまとめ、項目は設計の6つのタブで分ける（API キーは関係するタブの欄に置く）
 struct SettingsScene: Scene {
   @State private var model: SettingsModel
-  /// 「API キー」タブの Claude API キーの状態（AC-12）
+  /// 「整形の実行先と費用」タブの Claude API キーの状態（AC-12）
   @State private var apiKeyModel: APIKeySettingsModel
-  /// 「API キー」タブの OpenAI API キーの状態（クラウド STT, #188）
+  /// 「認識モデルと省電力」タブの OpenAI API キーの状態（クラウド STT, #188）
   @State private var openAIAPIKeyModel: APIKeySettingsModel
-  /// 「整形」タブの Sign in with ChatGPT の状態（#50）
+  /// 「整形の実行先と費用」タブの Sign in with ChatGPT の状態（#50）
   @State private var chatGPTAccount: ChatGPTAccountSettingsModel
-  /// 「音声認識」タブのモデルの取得状態。OS が管理するモデルを使うエンジンを選んだときだけ（PERM-03）
+  /// 「認識モデルと省電力」タブのモデルの取得状態。OS が管理するモデルを使うエンジンを選んだときだけ（PERM-03）
   @State private var speechModel: SpeechModelSettingsModel?
   private let sttEngine: STTEngineKind?
 

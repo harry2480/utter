@@ -8,7 +8,7 @@ import UtterPersistence
 /// 検証に通らない項目があれば何も保存せず、項目ごとの問題（`SettingsIssue`）を返す。
 /// 画面が扱わない項目（同意状態・履歴）は保存の基準にした設定の値をそのまま残す。
 ///
-/// 金額と秒数は地域設定によらず、半角数字と小数点（`.`）だけを受け付ける（桁区切りは使わない）。
+/// 金額と分数は地域設定によらず、半角数字と小数点（`.`）だけを受け付ける（桁区切りは使わない）。
 struct SettingsForm: Hashable, Sendable {
   /// 単価表の1行（AI-05）。100万トークンあたりの単価
   struct PriceRow: Hashable, Sendable, Identifiable {
@@ -55,9 +55,13 @@ struct SettingsForm: Hashable, Sendable {
   /// Edit Mode を始めるショートカット（AC-14）。未割り当てなら `nil`（Edit Mode を使わない）。録音ショートカットとは別のキーにする
   var editModeShortcut: KeyCombination?
   var recordingTrigger: ShortcutTriggerMode
+  /// 認識中・整形中にもう一度ショートカットを押したときの動作（REC-06）
+  var pressWhileProcessing: ShortcutPressWhileProcessing
+  /// セッション中の Esc でキャンセルするか（REC-01）。Esc の捕捉は #51 の判定まで使わず、オンにしても有効にならない
+  var escapeCancelEnabled: Bool
   var inputMode: InputMode
-  /// 最大録音時間（秒, REC-05）
-  var maxRecordingSeconds: String
+  /// 最大録音時間（分, REC-05）。保存は秒（`AppSettings.maxRecordingDuration`）
+  var maxRecordingMinutes: String
   var modelRetentionMode: ModelRetentionModeSetting
   var performanceRetentionAllowed: Bool
 
@@ -73,6 +77,8 @@ struct SettingsForm: Hashable, Sendable {
   var refinementModel: String
   /// Sign in with ChatGPT の整形用モデル名（AI-07, #50）。サインインしたアカウントのモデル一覧から選ぶ。空は未選択
   var chatGPTRefinementModel: String
+  /// 失敗時にもう一方のクラウドで整形し直すか（AI-04）。切り替え先への送信の同意がなければ送らない（AC-06）
+  var cloudRefinementFallbackEnabled: Bool
 
   // MARK: 予算と単価表（AI-04, AI-05）
 
@@ -94,6 +100,15 @@ struct SettingsForm: Hashable, Sendable {
   /// 利用者が指定した除外アプリ。保存した順に並べる
   var excludedAppRows: [ExcludedAppRow]
 
+  // MARK: プライバシー（7章, AC-10）
+
+  /// 異常終了で残った一時音声の保持期限（時間）
+  var temporaryAudioRetentionHours: Int
+
+  /// 読み込んだときの最大録音時間（秒）と、その表示。表示を変えずに保存したときは、分への丸めで値を変えない
+  private let loadedMaxRecordingSeconds: Double
+  private let loadedMaxRecordingMinutes: String
+
   /// 行の識別子の採番。画面の行を並べ替え・削除しても取り違えないよう、値ではなく識別子で行を指す
   private var nextRowID = 0
 
@@ -102,8 +117,13 @@ struct SettingsForm: Hashable, Sendable {
     recordingShortcut = settings.recordingShortcut
     editModeShortcut = settings.editModeShortcut
     recordingTrigger = settings.recordingTrigger
+    pressWhileProcessing = settings.recordingPressWhileProcessing
+    escapeCancelEnabled = settings.escapeCancelEnabled
     inputMode = settings.inputMode
-    maxRecordingSeconds = Self.text(seconds: settings.maxRecordingDuration)
+    let minutes = Self.text(minutesOf: settings.maxRecordingDuration)
+    maxRecordingMinutes = minutes
+    loadedMaxRecordingSeconds = settings.maxRecordingDuration
+    loadedMaxRecordingMinutes = minutes
     modelRetentionMode = settings.modelRetentionMode
     performanceRetentionAllowed = settings.performanceRetentionAllowed
     cloudSpeechRecognitionEnabled = settings.cloudSpeechRecognitionEnabled
@@ -113,6 +133,8 @@ struct SettingsForm: Hashable, Sendable {
     refinementMode = settings.refinementMode
     refinementModel = settings.refinementModel
     chatGPTRefinementModel = settings.chatGPTRefinementModel
+    cloudRefinementFallbackEnabled = settings.cloudRefinementFallbackEnabled
+    temporaryAudioRetentionHours = settings.temporaryAudioRetentionHours
 
     budgetEnabled = settings.monthlyBudget != nil
     budgetLimit = settings.monthlyBudget.map { Self.text(amount: $0.limitAmount) } ?? ""
@@ -249,18 +271,21 @@ struct SettingsForm: Hashable, Sendable {
     }
     applyEditModeShortcut(to: &settings, issues: &issues)
     settings.recordingTrigger = recordingTrigger
+    settings.recordingPressWhileProcessing = pressWhileProcessing
+    // Esc の捕捉そのものは capability（#51）が有効なときだけ使う。ここでは選んだ値を保存するだけ
+    settings.escapeCancelEnabled = escapeCancelEnabled
     settings.inputMode = inputMode
     settings.modelRetentionMode = modelRetentionMode
     settings.performanceRetentionAllowed = performanceRetentionAllowed
     // 選んでも、送るかは同意・API キー・予算で送る直前に決める（AC-06）。ここでは同意を変えない
     settings.cloudSpeechRecognitionEnabled = cloudSpeechRecognitionEnabled
-    if let seconds = Self.amount(maxRecordingSeconds),
-      AppSettings.maxRecordingDurationRange.contains(seconds.doubleValue)
-    {
-      settings.maxRecordingDuration = seconds.doubleValue
+    if let seconds = maxRecordingDurationSeconds {
+      settings.maxRecordingDuration = seconds
     } else {
       issues.append(.maxRecordingDuration)
     }
+    // 範囲外の値は保存用の型が既定値に戻す。画面の選択肢は範囲の中だけ
+    settings.temporaryAudioRetentionHours = temporaryAudioRetentionHours
 
     if let engine = provider.engine {
       settings.refinementEngine = engine
@@ -274,6 +299,8 @@ struct SettingsForm: Hashable, Sendable {
     }
     // 送るかはサインイン・同意・モデル名で送る直前に決める（AC-06）。空のままでも保存できる
     settings.chatGPTRefinementModel = chatGPTRefinementModel
+    // 切り替え先へ送るかは、その送信先への同意と条件で送る直前に決める（AC-06）。ここでは同意を変えない
+    settings.cloudRefinementFallbackEnabled = cloudRefinementFallbackEnabled
     settings.refinementMode = refinementMode
     let model = refinementModel.trimmingCharacters(in: .whitespacesAndNewlines)
     if model.isEmpty {
@@ -290,6 +317,20 @@ struct SettingsForm: Hashable, Sendable {
       throw SettingsValidationError(issues: issues)
     }
     return settings
+  }
+
+  /// 最大録音時間（秒）。入力（分）が数でない・範囲外なら `nil`。
+  /// 読み込んだときの表示のままなら、読み込んだ値をそのまま使う（端数のある秒を分に丸めた表示で書き換えない）
+  private var maxRecordingDurationSeconds: Double? {
+    if maxRecordingMinutes == loadedMaxRecordingMinutes,
+      AppSettings.maxRecordingDurationRange.contains(loadedMaxRecordingSeconds)
+    {
+      return loadedMaxRecordingSeconds
+    }
+    guard let minutes = Self.amount(maxRecordingMinutes),
+      Self.maxRecordingMinutesRange.contains(minutes)
+    else { return nil }
+    return (minutes * 60).doubleValue
   }
 
   /// Edit Mode のショートカット（AC-14）。録音ショートカットと同じキーは、どちらの操作か決められないため保存しない
@@ -429,8 +470,14 @@ struct SettingsForm: Hashable, Sendable {
     NSDecimalNumber(decimal: amount).description(withLocale: posix)
   }
 
-  static func text(seconds: Double) -> String {
-    text(amount: Decimal(seconds))
+  /// 最大録音時間として入力できる範囲（分, REC-05）。`AppSettings.maxRecordingDurationRange`（1〜3600 秒）の中に収める
+  static let maxRecordingMinutesRange: ClosedRange<Decimal> = 1...60
+
+  /// 秒を分にした文字列。小数第2位までに丸める（例: 300 秒 → "5"、90 秒 → "1.5"）
+  static func text(minutesOf seconds: Double) -> String {
+    // 保存値は 1〜3600 秒に収めてあるため、100 分の 1 分の整数にしても桁あふれしない
+    let hundredths = Int((seconds / 60 * 100).rounded())
+    return text(amount: Decimal(hundredths) / 100)
   }
 
   /// bundle ID として入力ミスでないか。ASCII の英数字・`.`・`-`・`_` だけからなる
@@ -475,7 +522,7 @@ enum SettingsIssue: Hashable, Sendable {
   case editModeShortcut
   /// Edit Mode のショートカットが録音ショートカットと同じ（AC-14）
   case editModeShortcutSameAsRecording
-  /// 最大録音時間が数でない、または範囲外（REC-05）
+  /// 最大録音時間（分）が数でない、または範囲外（REC-05）
   case maxRecordingDuration
   /// 選べない処理系（ChatGPT）が選ばれている（AC-05）
   case providerUnavailable
@@ -522,8 +569,7 @@ enum SettingsIssue: Hashable, Sendable {
     case .editModeShortcutSameAsRecording:
       return "Edit Mode のショートカットは、録音のショートカットとは別のキーにしてください。"
     case .maxRecordingDuration:
-      let range = AppSettings.maxRecordingDurationRange
-      return "最大録音時間は \(Int(range.lowerBound))〜\(Int(range.upperBound)) 秒の数で入力してください。"
+      return "最大録音時間は 1〜60 分の数を半角で入力してください（例: 5、1.5）。"
     case .providerUnavailable:
       return "OpenAI API キー方式は整形ではまだ選べません。Local Basic・Claude・Sign in with ChatGPT から選んでください。"
     case .refinementModelEmpty:

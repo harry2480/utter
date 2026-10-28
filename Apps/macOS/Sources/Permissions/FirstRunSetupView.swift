@@ -494,7 +494,7 @@ private struct RefinementStepSection: View {
     } header: {
       Text("整形の実行先")
     } footer: {
-      Text("既定は Local Basic で、Mac の中で整形し、どこへも送りません。「あとで」を選ぶと既定のままにします。設定画面の「整形」タブでいつでも変えられます。")
+      Text("既定は Local Basic で、Mac の中で整形し、どこへも送りません。「あとで」を選ぶと既定のままにします。設定画面の「整形の実行先と費用」タブで変えられます。")
     }
   }
 }
