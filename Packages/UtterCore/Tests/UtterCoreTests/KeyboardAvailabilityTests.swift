@@ -83,12 +83,12 @@ struct KeyboardAvailabilityTests {
     #expect(availability.notices == [.restrictedInputField([.secureTextEntry])])
   }
 
-  @Test("iAC-07: フルアクセスが無効で共有結果を読めなければ、フルアクセスの許可を案内する")
+  @Test("iAC-07: フルアクセスが無効で共有結果を読めなければ、フルアクセスの許可を案内し、オンにする手順を出す")
   func fullAccessDisabled() {
     let availability = Self.availability(
       Self.environment(hasFullAccess: false, sharedContainer: .unavailable))
 
-    #expect(availability.actions == [.typing, .openHostApp])
+    #expect(availability.actions == [.typing, .openHostApp, .fullAccessSteps])
     #expect(availability.notices == [.fullAccessRequired])
     #expect(availability.notices.map(\.remedies) == [[.enableFullAccess]])
   }

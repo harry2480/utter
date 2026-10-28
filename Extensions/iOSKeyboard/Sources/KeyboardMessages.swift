@@ -34,7 +34,7 @@ enum KeyboardMessages {
     case .switchToSystemKeyboard:
       "地球儀キーで標準キーボードに切り替えてください"
     case .enableFullAccess:
-      "設定 > 一般 > キーボード > キーボード > utter で「フルアクセスを許可」をオンにしてください"
+      "設定アプリでフルアクセスをオンにしてください（「\(showFullAccessSteps)」で手順を表示します）"
     case .reinstallWithValidSigning:
       "本体アプリとキーボードを、App Group を含む同じ署名で入れ直してください"
     case .rebuildWithAppGroup:
@@ -55,11 +55,30 @@ enum KeyboardMessages {
     case .insertable:
       "本体アプリの結果です。挿入先を確かめてから「挿入」を押してください。"
     case .needsConfirmation:
-      "前回の挿入を確認できませんでした。入力欄に入っていなければ「再挿入」を押してください。"
+      "前回の挿入を確認できませんでした。入力欄に入っていれば「入っていた」、入っていなければ「もう一度入れる」を押してください（自動ではやり直しません）。"
     case .notInsertable(let reason):
       notInsertable(reason)
     }
   }
+
+  /// 表示している間に有効期限を過ぎた
+  static let previewExpiredWhileShown = "結果の有効期限が切れたため、挿入しません。本体アプリでもう一度録音してください。"
+
+  /// 有効期限までの残り時間（iOS-IPC-02）
+  static func remaining(minutes: Int) -> String {
+    "あと \(minutes) 分"
+  }
+
+  /// フルアクセスをオンにする手順（iAC-07）。設定アプリは開かず、手順を表示するだけ
+  static let fullAccessSteps =
+    "1. ホーム画面から「設定」アプリを開く\n"
+    + "2. 「一般」→「キーボード」→「キーボード」→「utter」の順にタップする\n"
+    + "3. 「フルアクセスを許可」をオンにする\n"
+    + "4. このアプリに戻り、utter キーボードを表示し直す"
+
+  static let showFullAccessSteps = "オンにする手順を見る"
+
+  static let hideFullAccessSteps = "手順を閉じる"
 
   static let previewLoading = "本体アプリの結果を読み込んでいます…"
 
@@ -70,13 +89,35 @@ enum KeyboardMessages {
     case .inserted:
       "挿入しました。"
     case .insertionUnknown:
-      "挿入を確認できませんでした。入力欄を確かめてください（自動では再挿入しません）。"
+      "挿入を確認できませんでした。入力欄を確かめて「入っていた」か「もう一度入れる」を選んでください（自動ではやり直しません）。"
     case .notInserted(let reason):
       notInsertable(reason)
     case .notFound:
       "本体アプリの結果はありません。"
     case nil:
       "結果を読み書きできなかったため、挿入していません。"
+    }
+  }
+
+  /// 「消す」「入っていた」の結果
+  static func dismissal(
+    _ outcome: SharedResultDismissalOutcome?, action: SharedResultKeyboardAction
+  ) -> String {
+    switch outcome {
+    case .dismissed:
+      action == .confirmInserted ? "挿入済みにしました。" : "消しました。本体アプリでも使えません。"
+    case .notDismissed(.inProgress):
+      "挿入中のため、変更していません。"
+    case .notDismissed(.insertable):
+      "挿入を確認できない結果ではないため、変更していません。"
+    case .notDismissed(let reason):
+      notInsertable(reason)
+    case .conflicted:
+      "別の操作と重なったため、変更していません。「更新」で読み直してください。"
+    case .notFound:
+      "本体アプリの結果はありません。"
+    case nil:
+      "結果を読み書きできなかったため、変更していません。"
     }
   }
 
