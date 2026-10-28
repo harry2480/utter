@@ -21,7 +21,10 @@ public struct AppSettings: Hashable, Sendable {
   ///   クラウド整形の送信先（Sign in with ChatGPT, #50）と ChatGPT の整形用モデル名も同じ理由で版 2 に足した。
   ///   ない保存値は Claude・モデル名未選択で読む。
   ///   処理中の押下の動作・Esc でのキャンセル・クラウド間の自動切り替え・一時音声の保持期限（#199）も同じ理由で版 2 に足した。
-  ///   ない保存値は、何もしない・キャンセルする・切り替えない・24時間で読む
+  ///   ない保存値は、何もしない・キャンセルする・切り替えない・24時間で読む。
+  ///   クラウド整形の送信先の OpenAI API キー方式（#58）と、その整形用モデル名も同じ理由で版 2 に足した。
+  ///   ない保存値はモデル名未選択で読む。足す前のアプリは知らない送信先を Claude として読むが、Claude への送信には
+  ///   Claude への同意・API キー・予算が別に要るため、黙って送ることはない
   public static let currentVersion = 2
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
@@ -90,8 +93,8 @@ public struct AppSettings: Hashable, Sendable {
   /// 整形の処理系（Local Basic / クラウド AI）。AI-03
   public var refinementEngine: RefinementEngine
 
-  /// クラウド AI を選んだときの送信先（AI-01, #50）。既定は Claude。
-  /// Sign in with ChatGPT は macOS だけが使う（iOS は当面 OpenAI API キー方式のみ）。iOS はこの項目を読まず Claude を使う。
+  /// クラウド AI を選んだときの送信先（AI-01, #50, #58）。既定は Claude。
+  /// Sign in with ChatGPT と OpenAI API キー方式は macOS だけが使う。iOS はこの項目を読まず Claude を使う。
   /// 選んでも、同意・サインイン（または API キー・予算）がそろわなければ送らない（AC-06）
   public var cloudRefinementProvider: CloudRefinementProvider
 
@@ -99,6 +102,12 @@ public struct AppSettings: Hashable, Sendable {
   /// 既定は空（未選択）で、空の間は送らない。モデル名をコードに固定しない
   public var chatGPTRefinementModel: String {
     didSet { chatGPTRefinementModel = Self.trimmed(chatGPTRefinementModel) }
+  }
+
+  /// OpenAI API キー方式の整形用モデル名（AI-07, #58）。利用者が入力する。
+  /// 既定は空（未選択）で、空の間は送らない。モデル名をコードに固定しない
+  public var openAIRefinementModel: String {
+    didSet { openAIRefinementModel = Self.trimmed(openAIRefinementModel) }
   }
 
   /// クラウド整形が失敗したとき、もう一方のクラウド（Claude / Sign in with ChatGPT）で整形し直すか（AI-04, macOS のみ）。
@@ -172,6 +181,7 @@ public struct AppSettings: Hashable, Sendable {
     refinementEngine: RefinementEngine = .localBasic,
     cloudRefinementProvider: CloudRefinementProvider = .claude,
     chatGPTRefinementModel: String = "",
+    openAIRefinementModel: String = "",
     cloudRefinementFallbackEnabled: Bool = false,
     appStyleOverrides: [String: RefinementStyle] = [:],
     siteIdentificationAllowed: Bool = false,
@@ -198,6 +208,7 @@ public struct AppSettings: Hashable, Sendable {
     self.refinementEngine = refinementEngine
     self.cloudRefinementProvider = cloudRefinementProvider
     self.chatGPTRefinementModel = Self.trimmed(chatGPTRefinementModel)
+    self.openAIRefinementModel = Self.trimmed(openAIRefinementModel)
     self.cloudRefinementFallbackEnabled = cloudRefinementFallbackEnabled
     self.appStyleOverrides = Self.normalizedOverrides(appStyleOverrides)
     self.siteIdentificationAllowed = siteIdentificationAllowed
@@ -285,6 +296,7 @@ extension AppSettings: Codable {
     case refinementEngine
     case cloudRefinementProvider
     case chatGPTRefinementModel
+    case openAIRefinementModel
     case cloudRefinementFallbackEnabled
     case appStyleOverrides
     case siteIdentificationAllowed
@@ -377,6 +389,8 @@ extension AppSettings: Codable {
     // 初期化子の中では didSet が呼ばれないため、ここで整える
     chatGPTRefinementModel = Self.trimmed(
       value(String.self, .chatGPTRefinementModel) ?? chatGPTRefinementModel)
+    openAIRefinementModel = Self.trimmed(
+      value(String.self, .openAIRefinementModel) ?? openAIRefinementModel)
     // 読めない・ない値は切り替えないに倒す（AI-04。明示的に選んだときだけ）
     cloudRefinementFallbackEnabled =
       value(Bool.self, .cloudRefinementFallbackEnabled) ?? cloudRefinementFallbackEnabled
@@ -436,6 +450,7 @@ extension AppSettings: Codable {
     try container.encode(refinementEngine, forKey: .refinementEngine)
     try container.encode(cloudRefinementProvider, forKey: .cloudRefinementProvider)
     try container.encode(chatGPTRefinementModel, forKey: .chatGPTRefinementModel)
+    try container.encode(openAIRefinementModel, forKey: .openAIRefinementModel)
     try container.encode(cloudRefinementFallbackEnabled, forKey: .cloudRefinementFallbackEnabled)
     try container.encode(appStyleOverrides, forKey: .appStyleOverrides)
     try container.encode(siteIdentificationAllowed, forKey: .siteIdentificationAllowed)
@@ -460,15 +475,17 @@ public enum RefinementEngine: String, Codable, Hashable, Sendable, CaseIterable 
   case cloudAI
 }
 
-/// クラウド整形の送信先（AI-01, #50）。整形の処理系（`RefinementEngine`）でクラウド AI を選んだときに使う。
+/// クラウド整形の送信先（AI-01, #50, #58）。整形の処理系（`RefinementEngine`）でクラウド AI を選んだときに使う。
 ///
 /// 保存値は rawValue で、知らない値・読めない値は Claude に倒す（版を上げずに足せる）。
-/// OpenAI API キー方式は、整形の送信先としてはまだアプリから組み立てていないため、ここには持たない
+/// Sign in with ChatGPT と OpenAI API キー方式はどちらも OpenAI へ送るが、別の選択肢として持ち、黙って切り替えない（AI-01, S7）
 public enum CloudRefinementProvider: String, Codable, Hashable, Sendable, CaseIterable {
   /// Claude API（利用者の API キー）
   case claude
   /// Sign in with ChatGPT（利用者の ChatGPT プランの利用枠, macOS のみ）
   case chatGPTSignIn
+  /// OpenAI API キー方式（利用者の OpenAI API キー。トークン課金のため予算の対象, macOS のみ）
+  case openAIAPIKey
 }
 
 /// 入力モード（2.2節）。
