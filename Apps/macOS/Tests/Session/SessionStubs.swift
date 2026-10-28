@@ -22,6 +22,13 @@ final class StubHUDPresenter: HUDPresenting {
     isVisible ? shown.last : nil
   }
 
+  /// 表示した1行目。録音中の経過時間・入力音量だけが変わった更新のように、同じ1行目が続く表示は1つにまとめる
+  var titles: [String] {
+    shown.map(\.title).reduce(into: [String]()) { result, title in
+      if result.last != title { result.append(title) }
+    }
+  }
+
   func show(_ presentation: HUDPresentation) {
     shown.append(presentation)
     isVisible = true
@@ -64,10 +71,15 @@ final class StubSessionRefiner: SessionRefining {
   /// 停止→挿入の計測区間の判定に返す値。整形の結果には影響しない
   var selectsCloudRefinement = false
 
+  func refinementSummary(frontmostApp: String?) -> HUDRefinementSummary {
+    HUDRefinementSummary(mode: .raw, style: nil)
+  }
+
   func refine(
     _ transcript: String,
     frontmostApp: String?,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     SessionRefinementResult(text: transcript, route: .localOnly(.rawMode))
   }

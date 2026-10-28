@@ -36,18 +36,38 @@ protocol SessionRefining: AnyObject {
   /// 同意・API キー・予算・入力先はここでは確かめないため、`true` でも整形がローカルへ退避することがある
   var selectsCloudRefinement: Bool { get }
 
+  /// 今の設定の整形モードと、`frontmostApp` のアプリ別スタイル（CTX-01, CTX-02）。録音開始時に HUD のチップに出す（REC-03）。
+  ///
+  /// 録音開始を遅らせないよう、前面のブラウザのホスト名は読まない（サイト別の上書きは反映しない）。送信しない
+  func refinementSummary(frontmostApp: String?) -> HUDRefinementSummary
+
   /// 整形する。発話を失わないよう失敗しない（クラウド整形できなければローカル整形の結果を返す）。
   ///
   /// - Parameters:
   ///   - transcript: 認識したテキスト
   ///   - frontmostApp: 録音開始時の前面アプリの bundle ID。スタイル区分の判定にだけ使い、送信しない（CTX-03）
   ///   - sensitivity: 今の入力先の状態。クラウドへ送る直前に呼ぶ
+  ///   - willSend: 同意・機密入力・予算の確認と予約を済ませ、送る直前に送信先を渡して1回だけ呼ぶ
+  ///     （HUD に送信先を出すため, REC-03）。送らないときは呼ばない
   /// - Throws: 呼び出し元の Task がキャンセルされた場合
   func refine(
     _ transcript: String,
     frontmostApp: String?,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult
+}
+
+extension SessionRefining {
+  /// 送信先を知らせずに整形する
+  func refine(
+    _ transcript: String,
+    frontmostApp: String?,
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+  ) async throws(CancellationError) -> SessionRefinementResult {
+    try await refine(
+      transcript, frontmostApp: frontmostApp, sensitivity: sensitivity, willSend: { _ in })
+  }
 }
 
 /// 整形の経路を知らせる差し込み口（4.1節, AC-16）。

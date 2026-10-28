@@ -52,6 +52,8 @@ public struct RefinementRouter: Sendable {
   ///     プロバイダーを呼ばずに `.sensitiveInputSuppressed` で退避する。予約の前と、予約を待った後のプロバイダーを呼ぶ直前に呼ぶ。
   ///     予約を待つ間に機密入力へ変わった場合は、送信せずに予約を取り消す。確認を省略できないよう既定値は持たせない。
   ///     同期的に呼ぶため、メインスレッドを待たずに返す（入力先の最新の判定を保持しておき、それを返すなど）
+  ///   - willSend: 同意・機密入力・予算の確認と予約を済ませ、プロバイダーを呼ぶ直前に1回だけ呼ぶ（HUD に送信先を出すため, REC-03）。
+  ///     Raw・同意なし・機密入力・予算超過・キャンセルで送らないときは呼ばない
   /// - Returns: 整形結果。予算の台帳に記録した推定費用は `recordedCost` に入る（AI-05）
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わないため退避しない。
   ///   送信後にキャンセルされた場合も推定費用は台帳に記録し、`BudgetGuard` の `onRecord` に渡す
@@ -59,7 +61,8 @@ public struct RefinementRouter: Sendable {
     _ request: RefinementRequest,
     consent: @Sendable () -> ConsentState,
     budget: RefinementBudget?,
-    sensitivity: @Sendable () -> SensitiveInputDecision
+    sensitivity: @Sendable () -> SensitiveInputDecision,
+    willSend: @Sendable () async -> Void = {}
   ) async throws(CancellationError) -> RefinementOutcome {
     if Task.isCancelled {
       throw CancellationError()
@@ -100,6 +103,14 @@ public struct RefinementRouter: Sendable {
       }
     }
 
+    await willSend()
+    // 通知を待つ間にキャンセルされたら、送信せずに予約を取り消す
+    if Task.isCancelled {
+      if let budget, let reservation {
+        await budget.guard.cancel(reservation)
+      }
+      throw CancellationError()
+    }
     let provider = provider
     let result = await Self.requestWithTimeout(timeout) { () async -> RefinementResult in
       do throws(AIProviderError) {
