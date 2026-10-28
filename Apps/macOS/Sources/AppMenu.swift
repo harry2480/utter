@@ -7,9 +7,12 @@ import SwiftUI
 struct AppMenu: View {
   var body: some View {
     // 機能ごとの項目。1機能1行で、関係する機能の近くに足す
+    SessionStatusMenuItem()
     ShortcutStatusMenuItem()
     Divider()
     SessionMenuItems()
+    Divider()
+    MenuBarSwitchItems()
     Divider()
     EditModeMenuItems()
     Divider()

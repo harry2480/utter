@@ -39,6 +39,8 @@ final class SettingsModel {
   private var saved: AppSettings
   /// 推定費用の読み込みの世代。古い読み込みの結果で新しい表示を上書きしない
   private var costGeneration = 0
+  /// 保存先の変更を受けているか（`followStoreChanges()`）
+  private var isFollowingStoreChanges = false
 
   init(
     store: AppSettingsStore,
@@ -63,6 +65,45 @@ final class SettingsModel {
     saveFailed = false
   }
 
+  /// メニューで保存された入力モード・文体・整形の実行先を取り込む（#197）。
+  ///
+  /// この画面で編集中の項目は編集中の値のままにし、編集していない項目だけを保存先の値にする。
+  /// 開いたままの画面で「保存」しても、メニューで変えた値を画面を開いた時点の値に戻さない
+  func adoptExternalChanges() {
+    let latest = store.load()
+    if form.inputMode == saved.inputMode {
+      form.inputMode = latest.inputMode
+    }
+    if form.refinementMode == saved.refinementMode {
+      form.refinementMode = latest.refinementMode
+    }
+    let savedProvider = RefinementProviderChoice(
+      engine: saved.refinementEngine, cloudProvider: saved.cloudRefinementProvider)
+    if form.provider == savedProvider {
+      form.provider = RefinementProviderChoice(
+        engine: latest.refinementEngine, cloudProvider: latest.cloudRefinementProvider)
+    }
+    saved.inputMode = latest.inputMode
+    saved.refinementMode = latest.refinementMode
+    saved.refinementEngine = latest.refinementEngine
+    saved.cloudRefinementProvider = latest.cloudRefinementProvider
+  }
+
+  /// 保存先が変わるたびに `adoptExternalChanges()` を呼ぶ。何度呼んでも登録は1回だけ
+  func followStoreChanges() {
+    guard !isFollowingStoreChanges else { return }
+    isFollowingStoreChanges = true
+    // 設定画面はアプリの終了まで同じものを使うため、戻り値（登録の解除に使う）は持たない
+    _ = NotificationCenter.default.addObserver(
+      forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.adoptExternalChanges()
+      }
+    }
+  }
+
   /// 編集中の値を捨て、保存済みの値に戻す
   func revert() {
     form = SettingsForm(settings: saved)
@@ -75,6 +116,7 @@ final class SettingsModel {
   /// 保存の基準には保存先の最新の値を使い、この画面で扱わない項目（同意状態など）をほかの画面の変更ごと残す
   @discardableResult
   func save() -> Bool {
+    adoptExternalChanges()
     let latest = store.load()
     let settings: AppSettings
     do throws(SettingsValidationError) {
