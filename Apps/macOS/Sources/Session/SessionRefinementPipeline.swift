@@ -376,9 +376,13 @@ final class SessionRefinementPipeline: SessionRefining {
       return local(.localEngineSelected)
     }
     let consent = currentConsent()
+    // `RefinementRouter` は同期的に同意と判定を求めるため、ここで読み直した同意と判定した値を渡す。Router は予約を
+    // 待った後にも求めるが、入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の
+    // 変化はここでの読み直しと判定までしか反映しない（Claude と同じ）
     let decision = Self.decide(sensitivity(), settings: latest)
     let outcome: RefinementOutcome
     do throws(CancellationError) {
+      // 送信先は、Router が予算の予約まで済ませてプロバイダーを呼ぶ直前に知らせる
       outcome = try await router.refine(
         request, consent: { consent }, budget: budget, sensitivity: { decision },
         willSend: { await willSend(.chatGPT) })

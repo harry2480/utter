@@ -74,12 +74,22 @@ struct SessionOpenAIRefinementTests {
     _ settings: AppSettings, transports: Transports,
     openAIKeys: StubAPIKeyStore? = SessionOpenAIRefinementTests.openAIKeys(),
     claudeKeys: StubAPIKeyStore = RefinementSettings.apiKeyStore(),
-    sent: SentDestinations = SentDestinations()
+    sent: SentDestinations = SentDestinations(),
+    input: SensitiveInputContext = SessionOpenAIRefinementTests.safeInput,
+    whileCheckingBudget: (@MainActor (AppSettingsStore) throws -> Void)? = nil
   ) async throws -> SessionRefinementResult {
     try store.save(settings)
     let database = database
+    let store = store
+    let opens = DatabaseOpenCounter()
     let pipeline = SessionRefinementPipeline(
-      settingsStore: store, apiKeyStore: claudeKeys, database: { database },
+      settingsStore: store, apiKeyStore: claudeKeys,
+      database: {
+        // 1回目は辞書、2回目は予算の確認（`makeBudget`）で開く。予算を確かめる間の変更として `whileCheckingBudget` を呼ぶ
+        opens.count += 1
+        if opens.count == 2 { try whileCheckingBudget?(store) }
+        return database
+      },
       makeProvider: { configuration, keys in
         ClaudeProvider(
           apiKeyStore: keys, configuration: configuration, transport: transports.claude)
@@ -98,7 +108,7 @@ struct SessionOpenAIRefinementTests {
       },
       now: { RefinementSettings.now }, calendar: RefinementSettings.calendar)
     return try await pipeline.refine(
-      Self.transcript, frontmostApp: "com.example.secretapp", sensitivity: { Self.safeInput },
+      Self.transcript, frontmostApp: "com.example.secretapp", sensitivity: { input },
       willSend: { sent.append($0) })
   }
 
@@ -273,4 +283,106 @@ struct SessionOpenAIRefinementTests {
     #expect(transports.openAI.count == 0)
     #expect(result.route == .cloud)
   }
+
+  enum ChangeWhileCheckingBudget: String, CaseIterable, Sendable {
+    /// 送信先を Claude に変えた
+    case switchedToClaude
+    /// 処理系を Local Basic に変えた
+    case switchedToLocalBasic
+    /// ChatGPT への整形の送信の同意を取り消した
+    case consentRevoked
+  }
+
+  @Test(
+    "AC-06: 予算を確かめる間に送信先・処理系・同意が変わったら、送る直前の読み直しで止めて送らない",
+    arguments: ChangeWhileCheckingBudget.allCases)
+  func rereadsBeforeSending(_ change: ChangeWhileCheckingBudget) async throws {
+    let transports = Transports()
+    let sent = SentDestinations()
+    let expected: SessionRefinementRoute.LocalReason
+    switch change {
+    case .switchedToClaude, .switchedToLocalBasic: expected = .localEngineSelected
+    case .consentRevoked: expected = .consentNotGranted
+    }
+
+    let result = try await refine(
+      Self.ready(), transports: transports, sent: sent,
+      whileCheckingBudget: { store in
+        var latest = store.load()
+        switch change {
+        case .switchedToClaude: latest.cloudRefinementProvider = .claude
+        case .switchedToLocalBasic: latest.refinementEngine = .localBasic
+        case .consentRevoked: latest.consentState.revoke(.transmission(.textRefinement(.chatGPT)))
+        }
+        try store.save(latest)
+      })
+
+    #expect(result.route == .localOnly(expected))
+    #expect(result.text == Self.localBasic())
+    #expect(transports.openAI.count == 0)
+    #expect(transports.plan.count == 0)
+    #expect(transports.claude.count == 0)
+    #expect(sent.kinds.isEmpty)
+    // 予約は取り消し、推定費用を記録しない
+    #expect(try MonthlyUsageStore(database: database).entries().isEmpty)
+  }
+
+  enum Sensitive: String, CaseIterable, Sendable {
+    case secureField
+    case secureEventInput
+    case excludedApp
+  }
+
+  @Test("7章, AC-12: 入力先が機密入力なら OpenAI へ送らない", arguments: Sensitive.allCases)
+  func sensitiveInputIsNotSent(_ sensitive: Sensitive) async throws {
+    var settings = Self.ready()
+    let input: SensitiveInputContext
+    switch sensitive {
+    case .secureField:
+      input = SensitiveInputContext(
+        secureField: .on, secureEventInput: .off, app: "com.example.editor")
+    case .secureEventInput:
+      input = SensitiveInputContext(
+        secureField: .off, secureEventInput: .on, app: "com.example.editor")
+    case .excludedApp:
+      settings.excludedApps = ["com.example.editor"]
+      input = Self.safeInput
+    }
+    let transports = Transports()
+    let sent = SentDestinations()
+
+    let result = try await refine(settings, transports: transports, sent: sent, input: input)
+
+    #expect(result.route == .localOnly(.sensitiveInput))
+    #expect(result.text == Self.localBasic())
+    #expect(transports.openAI.count == 0)
+    #expect(transports.plan.count == 0)
+    #expect(transports.claude.count == 0)
+    #expect(sent.kinds.isEmpty)
+  }
+
+  @Test("7章, AC-12: 予算を確かめる間に入力先のアプリを除外したら、送る直前の判定で止めて送らない")
+  func excludedAppAddedBeforeSendingIsNotSent() async throws {
+    let transports = Transports()
+    let sent = SentDestinations()
+
+    let result = try await refine(
+      Self.ready(), transports: transports, sent: sent,
+      whileCheckingBudget: { store in
+        var latest = store.load()
+        latest.excludedApps = ["com.example.editor"]
+        try store.save(latest)
+      })
+
+    #expect(result.route == .localOnly(.sensitiveInput))
+    #expect(transports.openAI.count == 0)
+    #expect(sent.kinds.isEmpty)
+    #expect(try MonthlyUsageStore(database: database).entries().isEmpty)
+  }
+}
+
+/// データベースを開いた回数
+@MainActor
+private final class DatabaseOpenCounter {
+  var count = 0
 }

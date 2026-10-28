@@ -300,6 +300,8 @@ private struct RefinementSettingsTab: View {
       }
       Section("失敗したとき") {
         Toggle("別のクラウドへ自動で切り替える", isOn: $model.form.cloudRefinementFallbackEnabled)
+          // OpenAI API キー方式を選んでいる間は切り替えないため、操作できなくする（保存値は変えない）
+          .disabled(model.form.provider == .openAIAPIKey)
         Text(Self.fallbackCaption)
           .font(.caption).foregroundStyle(.secondary)
       }
