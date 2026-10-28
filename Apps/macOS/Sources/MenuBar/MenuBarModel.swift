@@ -40,7 +40,7 @@ final class MenuBarModel {
   /// 今月の推定費用（AI-05）。表示の値は設定画面と同じ
   private(set) var cost: SettingsModel.CostState = .loading
   /// 音声認識モデルの取得状態（PERM-03）。まだ確かめていない・OS が管理するモデルを使わないエンジンなら `nil`
-  private(set) var speechModelAvailability: SpeechModelAvailability?
+  private(set) var speechModelAvailability: UtterSpeech.SpeechModelAvailability?
   /// 前面のアプリ。分からなければ `nil`
   private(set) var frontmostApp: FrontmostApp?
   /// 直前のメニューからの保存に失敗したか
@@ -318,7 +318,7 @@ extension MenuBarModel {
 
   /// 認識の状態（4章, PERM-03）
   static func speechRecognitionText(
-    engine: STTEngineKind?, cloudEnabled: Bool, availability: SpeechModelAvailability?
+    engine: STTEngineKind?, cloudEnabled: Bool, availability: UtterSpeech.SpeechModelAvailability?
   ) -> String {
     // クラウド STT は同意・API キー・予算がそろわなければ送らない（`CloudSpeechRecognitionPipeline`）
     if cloudEnabled { return "音声認識: クラウド（OpenAI。音声を送信）" }
@@ -331,7 +331,7 @@ extension MenuBarModel {
     }
   }
 
-  private static func modelStatus(_ availability: SpeechModelAvailability?) -> String {
+  private static func modelStatus(_ availability: UtterSpeech.SpeechModelAvailability?) -> String {
     switch availability {
     case nil: "確認中"
     case .unsupported: "この Mac・言語では使えません"
