@@ -4,13 +4,14 @@ import UtterSpeech
 
 /// 初回セットアップの画面（PERM-01〜03, REC-01, REC-02, AI-03, #198）。
 ///
-/// 最後の手順まで終えていなければ、起動時に開いて続きの手順から始める。終えた後はメニューから開いたときだけ出す。
+/// 最後まで進めていなければ、起動時に開いて続きの手順から始める。一度最後まで進めたら（飛ばした手順があっても）、
+/// メニューから開いたときだけ出し、飛ばした手順を続きから済ませられる。
 struct PermissionOnboardingScene: Scene {
   static let windowID = "permission-onboarding"
 
   @State private var model: FirstRunSetupModel
   private let shortcuts: ShortcutCoordinator
-  /// 起動時に開くか。セットアップを終えていなければ開く
+  /// 起動時に開くか。最後まで進めていなければ開く
   private let launchBehavior: SceneLaunchBehavior
 
   /// - Parameters:
@@ -34,7 +35,7 @@ struct PermissionOnboardingScene: Scene {
         loadSystemShortcuts: { SystemShortcuts.loadEnabledBindings() },
         shortcutStatus: { [shortcuts] in shortcuts.status }))
     self.shortcuts = shortcuts
-    launchBehavior = setupDefaults.progress.isFinished ? .suppressed : .presented
+    launchBehavior = setupDefaults.progress.opensAtLaunch ? .presented : .suppressed
   }
 
   var body: some Scene {
@@ -42,7 +43,7 @@ struct PermissionOnboardingScene: Scene {
       FirstRunSetupView(model: model, shortcuts: shortcuts)
     }
     .windowResizability(.contentSize)
-    // 終えた後は、メニューから開いたときだけ出す。前回終了時の状態の復元では開かない
+    // 最後まで進めた後は、メニューから開いたときだけ出す。前回終了時の状態の復元では開かない
     .defaultLaunchBehavior(launchBehavior)
     .restorationBehavior(.disabled)
   }

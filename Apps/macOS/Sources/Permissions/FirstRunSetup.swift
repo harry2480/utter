@@ -39,7 +39,7 @@ enum FirstRunSetupStep: String, CaseIterable, Identifiable, Hashable, Sendable {
   }
 }
 
-/// 手順の状態。今の権限・モデル・設定から毎回求め、保存しない（保存するのは進み具合だけ）。
+/// 手順の状態。今の権限・モデル・設定と、「あとで」で飛ばした手順から毎回求める（手順の状態そのものは保存しない）。
 enum FirstRunSetupStepState: Hashable, Sendable {
   /// 済んでいる
   case completed
@@ -47,14 +47,14 @@ enum FirstRunSetupStepState: Hashable, Sendable {
   case notNeeded
   /// OS が進めている（モデルの取得中）。終わりを待たずに次へ進める
   case inProgress
-  /// 利用者の操作が要る
+  /// 利用者の操作が要る。「あとで」で飛ばせる
   case needsAction
   /// この画面では済ませられない。次へ進める
   case unavailable(FirstRunSetupUnavailableReason)
-  /// 利用者が「あとで」を選んだ（整形の実行先）
+  /// 済ませていないが、利用者が「あとで」で飛ばした。メニューから開いて続きから済ませられる
   case deferred
 
-  /// 「次へ」で進めるか。利用者の操作が要る手順だけは進めない
+  /// 「次へ」で進めるか。利用者の操作が要る手順は「あとで」で飛ばす
   var allowsAdvancing: Bool {
     self != .needsAction
   }
@@ -70,42 +70,39 @@ enum FirstRunSetupUnavailableReason: Hashable, Sendable {
   case speechModelUnsupported
 }
 
-/// 整形の実行先の手順での利用者の選択。
-enum FirstRunRefinementDecision: String, Hashable, Sendable {
-  /// 実行先を選んで保存した
-  case chosen
-  /// 「あとで」で飛ばした。設定は変えない（既定は Local Basic で、送信しない）
-  case deferred
-}
-
 /// 初回セットアップの進み具合。次の起動で続きから始めるため保存する（`FirstRunSetupDefaults`）。
 struct FirstRunSetupProgress: Hashable, Sendable {
-  /// 今の手順
-  var current: FirstRunSetupStep = .microphone
-  /// 最後の手順まで終えたか。終えていなければ次の起動で画面を開く
+  /// 今の手順。最後の手順の先（まとめの表示）なら `nil`
+  var current: FirstRunSetupStep? = .microphone
+  /// 一度でも最後の手順の先まで進めたか（飛ばした手順があっても）。進めた後は起動時に開かない
   var isFinished = false
 
-  /// 今の手順の状態が進めるものなら、次の手順へ進む。最後の手順なら終える。進んだら `true`
+  /// 起動時に画面を開くか。最後まで進めるまでは開き、進めた後は権限を拒否したままでも開かない
+  var opensAtLaunch: Bool {
+    !isFinished
+  }
+
+  /// 今の手順の状態が進めるものなら、次の手順へ進む。最後の手順の先は、まとめの表示にして終えた扱いにする。進んだら `true`
   mutating func advance(currentState: FirstRunSetupStepState) -> Bool {
-    guard !isFinished, currentState.allowsAdvancing else { return false }
-    if let next = current.next {
+    guard let step = current, currentState.allowsAdvancing else { return false }
+    if let next = step.next {
       current = next
     } else {
+      current = nil
       isFinished = true
     }
     return true
   }
 
-  /// 前の手順へ戻る。最初の手順・終えた後は何もしない
+  /// 前の手順へ戻る。最初の手順・まとめの表示では何もしない
   mutating func goBack() {
-    guard !isFinished, let previous = current.previous else { return }
+    guard let previous = current?.previous else { return }
     current = previous
   }
 
-  /// 最初の手順からやり直す（終えた後の見直し）
-  mutating func restart() {
-    current = .microphone
-    isFinished = false
+  /// 指定した手順を開く（まとめの表示から、飛ばした手順を続きから済ませる・最初から見直す）。終えた扱いは変えない
+  mutating func open(_ step: FirstRunSetupStep) {
+    current = step
   }
 }
 
@@ -160,13 +157,16 @@ enum FirstRunSetupEvaluation {
     return permissionState == .needsAction ? .needsAction : .completed
   }
 
-  /// 整形の実行先の手順の状態
-  static func refinementState(decision: FirstRunRefinementDecision?) -> FirstRunSetupStepState {
-    switch decision {
-    case .chosen: .completed
-    case .deferred: .deferred
-    case nil: .needsAction
-    }
+  /// 整形の実行先の手順の状態。この画面で実行先を選んで保存したら済み
+  static func refinementState(isChosen: Bool) -> FirstRunSetupStepState {
+    isChosen ? .completed : .needsAction
+  }
+
+  /// 「あとで」で飛ばした手順は、まだ利用者の操作が要るときだけ「あとで」と示す。済んだ後は済みとして示す
+  static func applyingDeferral(
+    _ state: FirstRunSetupStepState, isDeferred: Bool
+  ) -> FirstRunSetupStepState {
+    state == .needsAction && isDeferred ? .deferred : state
   }
 }
 

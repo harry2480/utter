@@ -19,7 +19,7 @@ struct FirstRunSetupTests {
     #expect(FirstRunSetupStep.refinement.next == nil)
   }
 
-  @Test("PERM-03: 利用者の操作が要る手順からは進まない")
+  @Test("PERM-03: 利用者の操作が要る手順からは「次へ」では進まない（「あとで」で飛ばす）")
   func doesNotAdvanceWhenActionNeeded() {
     var progress = FirstRunSetupProgress()
 
@@ -44,7 +44,7 @@ struct FirstRunSetupTests {
     #expect(progress.current == .accessibility)
   }
 
-  @Test("PERM-03: 最後の手順から進むと終わり、終えた後は進まず戻らない")
+  @Test("PERM-03: 最後の手順から進むと、まとめの表示になって終えた扱いになり、それ以上は進まず戻らない")
   func finishesAfterLastStep() {
     var progress = FirstRunSetupProgress(current: .refinement, isFinished: false)
 
@@ -54,18 +54,27 @@ struct FirstRunSetupTests {
 
     #expect(finished)
     #expect(!again)
-    #expect(progress == FirstRunSetupProgress(current: .refinement, isFinished: true))
+    #expect(progress == FirstRunSetupProgress(current: nil, isFinished: true))
   }
 
-  @Test("PERM-03: 戻ると前の手順になり、見直すと最初の手順から始める")
-  func goesBackAndRestarts() {
+  @Test("PERM-03: 最後まで進めるまでは起動時に開き、進めた後は開かない")
+  func opensAtLaunchUntilFinished() {
+    #expect(FirstRunSetupProgress().opensAtLaunch)
+    #expect(FirstRunSetupProgress(current: .shortcut, isFinished: false).opensAtLaunch)
+    #expect(!FirstRunSetupProgress(current: nil, isFinished: true).opensAtLaunch)
+    // 最後まで進めた後に手順を開き直しても、起動時には開かない
+    #expect(!FirstRunSetupProgress(current: .microphone, isFinished: true).opensAtLaunch)
+  }
+
+  @Test("PERM-03: 戻ると前の手順になり、手順を開き直しても終えた扱いは変わらない")
+  func goesBackAndReopens() {
     var progress = FirstRunSetupProgress(current: .shortcut, isFinished: false)
     progress.goBack()
     #expect(progress.current == .speechModel)
 
-    progress = FirstRunSetupProgress(current: .refinement, isFinished: true)
-    progress.restart()
-    #expect(progress == FirstRunSetupProgress(current: .microphone, isFinished: false))
+    progress = FirstRunSetupProgress(current: nil, isFinished: true)
+    progress.open(.accessibility)
+    #expect(progress == FirstRunSetupProgress(current: .accessibility, isFinished: true))
   }
 
   // MARK: 権限の手順
@@ -272,10 +281,25 @@ struct FirstRunSetupTests {
 
   // MARK: 整形の実行先の手順
 
-  @Test("AI-03: 整形の実行先は、選ぶと完了、あとでなら飛ばした扱い、まだなら操作が要る")
+  @Test("AI-03: 整形の実行先は、この画面で選ぶと完了、まだなら操作が要る")
   func refinementState() {
-    #expect(FirstRunSetupEvaluation.refinementState(decision: .chosen) == .completed)
-    #expect(FirstRunSetupEvaluation.refinementState(decision: .deferred) == .deferred)
-    #expect(FirstRunSetupEvaluation.refinementState(decision: nil) == .needsAction)
+    #expect(FirstRunSetupEvaluation.refinementState(isChosen: true) == .completed)
+    #expect(FirstRunSetupEvaluation.refinementState(isChosen: false) == .needsAction)
+  }
+
+  // MARK: あとで
+
+  @Test("PERM-03: 飛ばした手順は、まだ操作が要るときだけ「あとで」と示し、済んだら済みと示す")
+  func deferralOnlyAppliesWhileActionNeeded() {
+    #expect(
+      FirstRunSetupEvaluation.applyingDeferral(.needsAction, isDeferred: true) == .deferred)
+    #expect(
+      FirstRunSetupEvaluation.applyingDeferral(.needsAction, isDeferred: false) == .needsAction)
+    #expect(
+      FirstRunSetupEvaluation.applyingDeferral(.completed, isDeferred: true) == .completed)
+    #expect(
+      FirstRunSetupEvaluation.applyingDeferral(
+        .unavailable(.speechEngineNotConfigured), isDeferred: true)
+        == .unavailable(.speechEngineNotConfigured))
   }
 }

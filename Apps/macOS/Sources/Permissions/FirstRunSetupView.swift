@@ -21,22 +21,22 @@ struct FirstRunSetupView: View {
         ForEach(Array(FirstRunSetupStep.allCases.enumerated()), id: \.element) { index, step in
           FirstRunSetupStepListRow(
             number: index + 1, step: step, state: model.state(of: step),
-            isCurrent: !model.progress.isFinished && step == model.progress.current)
+            isCurrent: step == model.progress.current)
         }
       } header: {
         Text("手順")
       } footer: {
-        Text("途中で閉じても、次の起動で続きの手順から始めます。")
+        VStack(alignment: .leading, spacing: 4) {
+          Text("最後まで進めるまでは、途中で閉じても次の起動で続きの手順から始めます。")
+          Text("「あとで」にした手順は、メニューの「初回セットアップ…」から続きを済ませられます。")
+        }
       }
 
-      if model.progress.isFinished {
-        Section {
-          Text("初回セットアップを終えました。設定はメニューの「設定…」でいつでも変えられます。")
-          Button("最初から見直す") { model.restart() }
-        }
+      if let step = model.progress.current {
+        stepContent(step)
+        navigation(step)
       } else {
-        currentStepContent
-        navigation
+        summary
       }
     }
     .formStyle(.grouped)
@@ -50,8 +50,27 @@ struct FirstRunSetupView: View {
     }
   }
 
-  @ViewBuilder private var currentStepContent: some View {
-    switch model.progress.current {
+  /// 最後の手順の先のまとめ。飛ばした・まだ済んでいない手順があれば、続きから済ませられる
+  private var summary: some View {
+    Section {
+      if model.nextIncompleteStep == nil {
+        Text("初回セットアップを終えました。設定はメニューの「設定…」でいつでも変えられます。")
+      } else {
+        Text("「あとで」にした手順や、まだ済んでいない手順があります。続きから済ませられます。")
+      }
+      HStack {
+        Button("最初から見直す") { model.restart() }
+        Spacer()
+        if model.nextIncompleteStep != nil {
+          Button("続きから済ませる") { model.resumeIncompleteStep() }
+            .buttonStyle(.borderedProminent)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private func stepContent(_ step: FirstRunSetupStep) -> some View {
+    switch step {
     case .microphone:
       PermissionStepSection(
         model: model, step: .microphone,
@@ -79,14 +98,20 @@ struct FirstRunSetupView: View {
     }
   }
 
-  private var navigation: some View {
+  /// 「戻る」「あとで」「次へ」。「あとで」は利用者の操作が要る手順にだけ出し、権限の状態・設定は変えない
+  private func navigation(_ step: FirstRunSetupStep) -> some View {
     Section {
       HStack {
         Button("戻る") { model.goBack() }
-          .disabled(model.progress.current.previous == nil)
+          .disabled(step.previous == nil)
         Spacer()
-        if model.progress.current == .refinement {
-          Button("あとで") { model.deferRefinement() }
+        if model.canDefer {
+          Button("あとで") { model.deferCurrentStep() }
+        }
+        if step == .refinement {
+          if model.canAdvance {
+            Button("次へ") { model.advance() }
+          }
           Button("この実行先にする") { model.chooseRefinement(refinementChoice) }
             .buttonStyle(.borderedProminent)
             .disabled(!refinementChoice.isSelectable)
@@ -101,8 +126,8 @@ struct FirstRunSetupView: View {
           .font(.caption).foregroundStyle(.red)
       }
     } footer: {
-      if model.progress.current != .refinement, !model.canAdvance {
-        Text("この手順を済ませると「次へ」に進めます。")
+      if !model.canAdvance {
+        Text("この手順を済ませるか「あとで」を選ぶと、次へ進めます。「あとで」では権限も設定も変えません。")
       }
     }
   }

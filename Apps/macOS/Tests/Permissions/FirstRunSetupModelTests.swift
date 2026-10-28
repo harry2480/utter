@@ -215,26 +215,26 @@ struct FirstRunSetupModelTests {
 
   // MARK: 整形の実行先
 
-  @Test("AC-06: 「あとで」は設定を変えず（Local Basic のまま）、セットアップを終える")
+  @Test("AC-06: 整形の実行先の「あとで」は設定を変えず（Local Basic のまま）、最後まで進めた扱いにする")
   func defersRefinement() async {
     let model = makeModel(access: grantedAccess())
     await model.refresh()
     advanceToRefinement(model)
     #expect(model.progress.current == .refinement)
-    // 整形の実行先の手順は「次へ」では終えない
     #expect(!model.canAdvance)
+    #expect(model.canDefer)
 
-    model.deferRefinement()
+    model.deferCurrentStep()
 
-    #expect(model.progress == FirstRunSetupProgress(current: .refinement, isFinished: true))
+    #expect(model.progress == FirstRunSetupProgress(current: nil, isFinished: true))
     #expect(model.state(of: .refinement) == .deferred)
     #expect(store.load().refinementEngine == .localBasic)
     let reopened = FirstRunSetupDefaults(defaults: suite.defaults)
-    #expect(reopened.progress.isFinished)
-    #expect(reopened.refinementDecision == .deferred)
+    #expect(!reopened.progress.opensAtLaunch)
+    #expect(reopened.deferredSteps == [.refinement])
   }
 
-  @Test("AI-03: 選んだ実行先を保存してセットアップを終える。同意は変えない")
+  @Test("AI-03: 選んだ実行先を保存して最後まで進める。同意は変えない")
   func choosesRefinement() async {
     let model = makeModel(access: grantedAccess())
     await model.refresh()
@@ -250,9 +250,10 @@ struct FirstRunSetupModelTests {
     #expect(model.refinementChoice == .chatGPTSignIn)
     #expect(model.progress.isFinished)
     #expect(model.state(of: .refinement) == .completed)
+    #expect(model.nextIncompleteStep == nil)
   }
 
-  @Test("AI-03: 準備中の選択肢（OpenAI API キー方式）は選んでも保存せず、終えない")
+  @Test("AI-03: 準備中の選択肢（OpenAI API キー方式）は選んでも保存せず、進まない")
   func ignoresUnselectableRefinement() async {
     let model = makeModel(access: grantedAccess())
     await model.refresh()
@@ -265,16 +266,98 @@ struct FirstRunSetupModelTests {
     #expect(model.state(of: .refinement) == .needsAction)
   }
 
-  @Test("PERM-03: 終えた後に見直すと、最初の手順から始める")
+  // MARK: あとで
+
+  @Test("PERM-01: どの手順も「あとで」で飛ばして最後まで進め、権限は求めず設定も変えない")
+  func defersEveryStep() async {
+    let access = StubPermissionAccess()
+    let assets = StubSpeechModelAssets(availability: .notInstalled)
+    let model = makeModel(access: access, engine: .speechAnalyzer, assets: assets)
+    await model.refresh()
+    let settingsBefore = store.load()
+
+    for _ in FirstRunSetupStep.allCases {
+      model.deferCurrentStep()
+    }
+
+    #expect(model.progress == FirstRunSetupProgress(current: nil, isFinished: true))
+    #expect(Set(FirstRunSetupStep.allCases.map { model.state(of: $0) }) == [.deferred])
+    #expect(access.requested.isEmpty)
+    #expect(assets.installCount == 0)
+    #expect(store.load() == settingsBefore)
+    #expect(!FirstRunSetupDefaults(defaults: suite.defaults).progress.opensAtLaunch)
+  }
+
+  @Test("PERM-03: 「あとで」は操作が要る手順にだけ使え、済んだ手順では使えない")
+  func defersOnlyWhenActionNeeded() async {
+    let model = makeModel(access: grantedAccess())
+    await model.refresh()
+
+    #expect(!model.canDefer)
+    model.deferCurrentStep()
+
+    #expect(model.progress.current == .microphone)
+    #expect(model.deferredSteps.isEmpty)
+  }
+
+  @Test("PERM-02: 最後まで進めた後は、マイクを拒否したままでも起動時に開かない")
+  func doesNotReopenAtLaunchWithDeniedPermission() async {
+    let access = StubPermissionAccess(PermissionSnapshot([.microphone: .denied]))
+    let model = makeModel(access: access)
+    await model.refresh()
+    for _ in FirstRunSetupStep.allCases {
+      if model.canDefer {
+        model.deferCurrentStep()
+      } else {
+        model.advance()
+      }
+    }
+
+    let reopened = makeModel(access: access)
+    await reopened.refresh()
+
+    #expect(reopened.progress.isFinished)
+    #expect(!reopened.progress.opensAtLaunch)
+    #expect(reopened.state(of: .microphone) == .deferred)
+  }
+
+  @Test("PERM-03: 飛ばした手順は、まとめの表示から続きを開いて済ませられる")
+  func resumesDeferredStep() async throws {
+    let access = StubPermissionAccess(PermissionSnapshot([.accessibility: .granted]))
+    let model = makeModel(access: access)
+    await model.refresh()
+    model.deferCurrentStep()
+    model.advance()
+    model.advance()
+    model.assignShortcut(shortcut)
+    model.advance()
+    model.chooseRefinement(.localBasic)
+    #expect(model.progress == FirstRunSetupProgress(current: nil, isFinished: true))
+    #expect(model.nextIncompleteStep == .microphone)
+
+    model.resumeIncompleteStep()
+    #expect(model.progress == FirstRunSetupProgress(current: .microphone, isFinished: true))
+    // 飛ばした手順は「次へ」で進める
+    #expect(model.canAdvance)
+
+    let step = try #require(model.permissionSteps(for: .microphone).first)
+    await model.permissions.perform(step)
+
+    #expect(access.requested == [.microphone])
+    #expect(model.state(of: .microphone) == .completed)
+    #expect(model.nextIncompleteStep == nil)
+  }
+
+  @Test("PERM-03: 最後まで進めた後に最初から見直しても、起動時には開かない")
   func restartsAfterFinishing() async {
     let model = makeModel(access: grantedAccess())
     await model.refresh()
     advanceToRefinement(model)
-    model.deferRefinement()
+    model.deferCurrentStep()
 
     model.restart()
 
-    #expect(model.progress == FirstRunSetupProgress(current: .microphone, isFinished: false))
-    #expect(!FirstRunSetupDefaults(defaults: suite.defaults).progress.isFinished)
+    #expect(model.progress == FirstRunSetupProgress(current: .microphone, isFinished: true))
+    #expect(!FirstRunSetupDefaults(defaults: suite.defaults).progress.opensAtLaunch)
   }
 }

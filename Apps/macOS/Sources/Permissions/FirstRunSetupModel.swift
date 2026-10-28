@@ -8,6 +8,9 @@ import UtterSpeech
 ///
 /// 手順は「マイク → アクセシビリティ → 認識モデル → ショートカット → 整形の実行先」の順（`FirstRunSetupStep`）。
 /// 手順ごとの状態は今の権限・モデル・設定から求め（`FirstRunSetupEvaluation`）、進み具合だけを保存して次の起動で続きから始める。
+/// どの手順も「あとで」で飛ばせる。飛ばした手順は「あとで」と示し、まとめの表示（メニューから開いたとき）から続きを済ませられる。
+/// 一度最後まで進めたら、飛ばした手順があっても起動時には開かない（`FirstRunSetupProgress.opensAtLaunch`）。
+/// 「あとで」は進み具合だけを書き、権限の状態・設定は変えない。権限の要求は手順のボタンからだけ行う。
 ///
 /// - 権限: 判定と要求は `PermissionOnboardingModel`。要求は画面のボタンからだけ
 /// - 認識モデル: 状態の確認と取得は `SpeechModelSettingsModel`（設定画面と同じ）。状態の確認はネットワークを使わず、
@@ -28,7 +31,10 @@ final class FirstRunSetupModel {
   let sttEngine: STTEngineKind?
 
   private(set) var progress: FirstRunSetupProgress
-  private(set) var refinementDecision: FirstRunRefinementDecision?
+  /// 「あとで」で飛ばした手順
+  private(set) var deferredSteps: Set<FirstRunSetupStep>
+  /// 整形の実行先をこの画面で選んで保存したか
+  private(set) var hasChosenRefinement: Bool
   /// 保存済みの録音ショートカット
   private(set) var recordingShortcut: KeyCombination?
   /// 保存済みの整形の実行先
@@ -67,7 +73,8 @@ final class FirstRunSetupModel {
     self.loadSystemShortcuts = loadSystemShortcuts
     self.shortcutStatus = shortcutStatus
     progress = defaults.progress
-    refinementDecision = defaults.refinementDecision
+    deferredSteps = defaults.deferredSteps
+    hasChosenRefinement = defaults.hasChosenRefinement
     let settings = store.load()
     recordingShortcut = settings.recordingShortcut
     editModeShortcut = settings.editModeShortcut
@@ -77,8 +84,14 @@ final class FirstRunSetupModel {
 
   // MARK: 状態
 
-  /// 手順の状態
+  /// 手順の状態。「あとで」で飛ばし、まだ済んでいない手順は `.deferred`
   func state(of step: FirstRunSetupStep) -> FirstRunSetupStepState {
+    FirstRunSetupEvaluation.applyingDeferral(
+      currentState(of: step), isDeferred: deferredSteps.contains(step))
+  }
+
+  /// 「あとで」を考えない、今の権限・モデル・設定からの状態
+  private func currentState(of step: FirstRunSetupStep) -> FirstRunSetupStepState {
     switch step {
     case .microphone, .accessibility:
       return FirstRunSetupEvaluation.permissionState(
@@ -93,7 +106,7 @@ final class FirstRunSetupModel {
         permissionState: FirstRunSetupEvaluation.permissionState(
           for: .shortcut, onboarding: permissions.onboarding))
     case .refinement:
-      return FirstRunSetupEvaluation.refinementState(decision: refinementDecision)
+      return FirstRunSetupEvaluation.refinementState(isChosen: hasChosenRefinement)
     }
   }
 
@@ -109,10 +122,24 @@ final class FirstRunSetupModel {
       status: shortcutStatus())
   }
 
-  /// 「次へ」で進めるか
+  /// 「次へ」で進めるか。まとめの表示では `false`
   var canAdvance: Bool {
-    !progress.isFinished && progress.current != .refinement
-      && state(of: progress.current).allowsAdvancing
+    guard let step = progress.current else { return false }
+    return state(of: step).allowsAdvancing
+  }
+
+  /// 「あとで」で飛ばせるか。今の手順に利用者の操作が要るときだけ
+  var canDefer: Bool {
+    guard let step = progress.current else { return false }
+    return state(of: step) == .needsAction
+  }
+
+  /// 続きから済ませる手順。飛ばした・まだ済んでいない最初の手順。なければ `nil`
+  var nextIncompleteStep: FirstRunSetupStep? {
+    FirstRunSetupStep.allCases.first { step in
+      let value = state(of: step)
+      return value == .deferred || value == .needsAction
+    }
   }
 
   // MARK: 操作
@@ -125,11 +152,29 @@ final class FirstRunSetupModel {
     await speechModel?.refresh()
   }
 
-  /// 次の手順へ進む。整形の実行先の手順は「この実行先にする」「あとで」で終える
+  /// 次の手順へ進む。最後の手順の先は、まとめの表示にして終えた扱いにする
   func advance() {
-    guard canAdvance else { return }
+    guard let step = progress.current else { return }
     var progress = self.progress
-    guard progress.advance(currentState: state(of: progress.current)) else { return }
+    guard progress.advance(currentState: state(of: step)) else { return }
+    update(progress)
+  }
+
+  /// 今の手順を済ませずに「あとで」で飛ばし、次の手順へ進む。権限の状態・設定は変えない
+  func deferCurrentStep() {
+    guard canDefer, let step = progress.current else { return }
+    deferredSteps.insert(step)
+    defaults.deferredSteps = deferredSteps
+    var progress = self.progress
+    guard progress.advance(currentState: state(of: step)) else { return }
+    update(progress)
+  }
+
+  /// まとめの表示から、飛ばした・まだ済んでいない最初の手順を開く
+  func resumeIncompleteStep() {
+    guard let step = nextIncompleteStep else { return }
+    var progress = self.progress
+    progress.open(step)
     update(progress)
   }
 
@@ -140,10 +185,10 @@ final class FirstRunSetupModel {
     update(progress)
   }
 
-  /// 終えた後に、最初の手順から見直す
+  /// まとめの表示から、最初の手順から見直す。終えた扱いは変えない（起動時には開かない）
   func restart() {
     var progress = self.progress
-    progress.restart()
+    progress.open(.microphone)
     update(progress)
   }
 
@@ -172,7 +217,7 @@ final class FirstRunSetupModel {
     save { $0.recordingShortcut = combination }
   }
 
-  /// 整形の実行先を保存して、セットアップを終える。選べない選択肢は保存しない
+  /// 整形の実行先を保存して、次へ進む（最後の手順のため、まとめの表示になる）。選べない選択肢は保存しない
   func chooseRefinement(_ choice: RefinementProviderChoice) {
     guard progress.current == .refinement, let engine = choice.engine else { return }
     let saved = save { settings in
@@ -183,24 +228,12 @@ final class FirstRunSetupModel {
       }
     }
     guard saved else { return }
-    finishRefinement(.chosen)
-  }
-
-  /// 整形の実行先を「あとで」にして、セットアップを終える。設定は変えない
-  func deferRefinement() {
-    guard progress.current == .refinement else { return }
-    finishRefinement(.deferred)
+    hasChosenRefinement = true
+    defaults.hasChosenRefinement = true
+    advance()
   }
 
   // MARK: 内部
-
-  private func finishRefinement(_ decision: FirstRunRefinementDecision) {
-    refinementDecision = decision
-    defaults.refinementDecision = decision
-    var progress = self.progress
-    guard progress.advance(currentState: state(of: .refinement)) else { return }
-    update(progress)
-  }
 
   private func update(_ progress: FirstRunSetupProgress) {
     guard progress != self.progress else { return }
