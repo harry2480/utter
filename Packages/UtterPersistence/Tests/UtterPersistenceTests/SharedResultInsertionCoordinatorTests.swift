@@ -67,7 +67,7 @@ struct SharedResultInsertionCoordinatorTests {
 
     let preview = try await coordinator(inserter).preview(sessionID: sessionID)
 
-    #expect(preview == .insertable(text: ready.text))
+    #expect(preview == .insertable(text: ready.text, expiresAt: ready.expiresAt))
     #expect(inserter.insertedTexts.isEmpty)
     #expect(try await stored() == ready)
   }
@@ -173,7 +173,9 @@ struct SharedResultInsertionCoordinatorTests {
 
     let retry = RecordingInserter()
     let later = coordinator(retry, at: 5)
-    #expect(try await later.preview(sessionID: sessionID) == .needsConfirmation(text: ready.text))
+    #expect(
+      try await later.preview(sessionID: sessionID)
+        == .needsConfirmation(text: ready.text, expiresAt: ready.expiresAt))
     #expect(try await later.insert(sessionID: sessionID) == .notInserted(.needsConfirmation))
     #expect(retry.insertedTexts.isEmpty)
 
@@ -217,10 +219,69 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(try await stored() == nil)
   }
 
+  @Test("iOS-IPC-01〜03, iOS-IPC-05: 消した結果は挿入済みと同じく削除し、キーボードでも本体アプリでも使えない")
+  func discardMakesResultUnusable() async throws {
+    _ = try await saveReady()
+    let inserter = RecordingInserter()
+    let coordinator = coordinator(inserter)
+
+    #expect(try await coordinator.discard(sessionID: sessionID) == .dismissed)
+
+    #expect(try await stored() == nil)
+    #expect(try await coordinator.latestSessionID() == nil)
+    #expect(try await coordinator.insert(sessionID: sessionID) == .notFound)
+    #expect(inserter.insertedTexts.isEmpty)
+    let copier = SharedResultRescueCoordinatorTests.RecordingCopier()
+    let now = after(2)
+    let rescue = SharedResultRescueCoordinator(
+      store: SharedResultStore(directory: directory.url), copier: copier, now: { now })
+    #expect(try await rescue.items().items.isEmpty)
+    #expect(try await rescue.copy(sessionID: sessionID) == .notFound)
+    #expect(copier.copiedTexts.isEmpty)
+  }
+
+  @Test("iOS-IPC-03: 挿入中（猶予時間内）の結果は消さず、結果がなければ消さない")
+  func discardSkipsInProgressAndMissing() async throws {
+    var inserting = try await saveReady()
+    try inserting.beginInsertion(for: sessionID, at: after(1))
+    try await SharedResultStore(directory: directory.url).save(inserting, expectedRevision: 0)
+    let coordinator = coordinator(RecordingInserter(), at: 5)
+
+    #expect(try await coordinator.discard(sessionID: sessionID) == .notDismissed(.inProgress))
+    #expect(try await stored() == inserting)
+    #expect(try await coordinator.discard(sessionID: SessionID()) == .notFound)
+  }
+
+  @Test("iOS-IPC-03: 挿入結果が不明な結果を「入っていた」と確かめたら、挿入し直さずに挿入済みとして削除する")
+  func confirmInsertedResolvesUnknownWithoutInserting() async throws {
+    _ = try await saveReady()
+    let unconfirmed = RecordingInserter(confirmation: .unknown)
+    #expect(try await coordinator(unconfirmed).insert(sessionID: sessionID) == .insertionUnknown)
+    let later = RecordingInserter()
+
+    let outcome = try await coordinator(later, at: 5).confirmInserted(sessionID: sessionID)
+
+    #expect(outcome == .dismissed)
+    #expect(later.insertedTexts.isEmpty)
+    #expect(unconfirmed.insertedTexts.count == 1)
+    #expect(try await stored() == nil)
+  }
+
+  @Test("iOS-IPC-03: 挿入結果が不明でない結果は、「入っていた」で挿入済みにしない")
+  func confirmInsertedRequiresUnknownState() async throws {
+    let ready = try await saveReady()
+
+    let outcome = try await coordinator(RecordingInserter()).confirmInserted(sessionID: sessionID)
+
+    #expect(outcome == .notDismissed(.insertable))
+    #expect(try await stored() == ready)
+  }
+
   @Test(
     "iOS-05, iAC-10: プレビューの文字列表現とリフレクションに本文を出さない",
     arguments: [
-      SharedResultPreview.insertable(text: "秘密の本文"), .needsConfirmation(text: "秘密の本文"),
+      SharedResultPreview.insertable(text: "秘密の本文", expiresAt: .distantFuture),
+      .needsConfirmation(text: "秘密の本文", expiresAt: .distantFuture),
     ])
   func previewDescriptionHidesText(_ preview: SharedResultPreview) {
     var dumped = ""
