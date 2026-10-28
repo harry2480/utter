@@ -49,10 +49,11 @@ final class AppComposition {
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先（API キーの画面と同じもの, AC-12）
   ///   - openAIAPIKeyStore: OpenAI API キーの保存先（API キーの画面と同じもの）。クラウド STT（#188）だけが使う
+  ///   - chatGPTAccount: Sign in with ChatGPT のアカウント（設定画面と同じもの, #50）。整形の送信先に選んだときだけ使う
   ///   - database: 辞書・推定費用の累計・入力履歴のデータベース（入力履歴の画面と同じもの）
   init(
     claudeAPIKeyStore: any APIKeyStore, openAIAPIKeyStore: any APIKeyStore,
-    database: AppDatabaseProvider
+    chatGPTAccount: ChatGPTAccountSession, database: AppDatabaseProvider
   ) {
     let hud = HUDController(
       presenter: HUDPanelPresenter(),
@@ -83,7 +84,7 @@ final class AppComposition {
       recognizer: recognizer,
       refiner: SessionRefinementPipeline(
         settingsStore: settingsStore, apiKeyStore: claudeAPIKeyStore, database: openDatabase,
-        measurer: measurer),
+        chatGPTAccount: chatGPTAccount, measurer: measurer),
       inputMode: sessionSettings.inputMode,
       inserter: SystemSessionInserter(executor: insertion.executor, inspector: insertion.inspector),
       history: InputHistoryRecorder.standard(database: openDatabase),

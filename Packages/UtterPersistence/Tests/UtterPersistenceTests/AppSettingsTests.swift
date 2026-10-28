@@ -139,6 +139,36 @@ struct AppSettingsTests {
     #expect(!version1.cloudSpeechRecognitionEnabled)
   }
 
+  @Test("AI-01, #50: クラウド整形の送信先は既定で Claude、ChatGPT のモデル名は既定で未選択")
+  func cloudRefinementProviderDefaults() {
+    let settings = AppSettings()
+    #expect(settings.cloudRefinementProvider == .claude)
+    #expect(settings.chatGPTRefinementModel.isEmpty)
+  }
+
+  @Test("AI-01, #50: 送信先とモデル名を保存・復元でき、ない保存値・読めない値は Claude・未選択で読む")
+  func cloudRefinementProviderRoundTripsAndMigrates() throws {
+    let decoded = try roundTrip(
+      AppSettings(cloudRefinementProvider: .chatGPTSignIn, chatGPTRefinementModel: " model-x "))
+    #expect(decoded.cloudRefinementProvider == .chatGPTSignIn)
+    #expect(decoded.chatGPTRefinementModel == "model-x")
+
+    // 項目を足す前に保存した版 2 の値は、ほかの項目を変えずに既定値で読む
+    let stored = try decode(#"{"version": 2, "historyEnabled": true}"#)
+    #expect(stored.cloudRefinementProvider == .claude)
+    #expect(stored.chatGPTRefinementModel.isEmpty)
+    #expect(stored.historyEnabled)
+
+    let broken = try decode(
+      #"{"version": 2, "cloudRefinementProvider": "unknown", "chatGPTRefinementModel": 1}"#)
+    #expect(broken.cloudRefinementProvider == .claude)
+    #expect(broken.chatGPTRefinementModel.isEmpty)
+
+    // 版 1 にはない項目のため、版 1 の保存値では読まない
+    let version1 = try decode(#"{"version": 1, "cloudRefinementProvider": "chatGPTSignIn"}"#)
+    #expect(version1.cloudRefinementProvider == .claude)
+  }
+
   @Test("2.2節, TXT-01: 入力モードは既定で Instant、整形モードは既定で Natural")
   func inputAndRefinementModeDefaults() {
     let settings = AppSettings()
@@ -860,7 +890,8 @@ struct AppSettingsTests {
       Set(object.keys) == [
         "version", "maxRecordingDuration", "recordingTrigger", "recordingShortcut",
         "editModeShortcut", "inputMode", "cloudSpeechRecognitionEnabled",
-        "refinementMode", "refinementEngine", "appStyleOverrides", "siteIdentificationAllowed",
+        "refinementMode", "refinementEngine", "cloudRefinementProvider", "chatGPTRefinementModel",
+        "appStyleOverrides", "siteIdentificationAllowed",
         "siteStyleOverrides", "refinementModel",
         "priceTable", "monthlyBudget", "consentState", "historyEnabled", "modelRetentionMode",
         "performanceRetentionAllowed", "excludedApps",

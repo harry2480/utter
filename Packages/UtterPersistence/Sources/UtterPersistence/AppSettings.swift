@@ -17,7 +17,9 @@ public struct AppSettings: Hashable, Sendable {
   ///   サイト別の項目は版 2 のリリース前に足した。ない保存値は既定値（許可なし・上書きなし）で読むため、版を分けない。
   ///   Edit Mode のショートカット（AC-14）も版 2 に足した。ない保存値は未割り当てで読み、既存の項目は変えないため版を分けない
   ///   （版を上げると、上げる前のアプリが新しい保存値を未知の版としてすべて既定値で読むため）。
-  ///   クラウド STT を使うか（#188）も同じ理由で版 2 に足した。ない保存値は無効で読む
+  ///   クラウド STT を使うか（#188）も同じ理由で版 2 に足した。ない保存値は無効で読む。
+  ///   クラウド整形の送信先（Sign in with ChatGPT, #50）と ChatGPT の整形用モデル名も同じ理由で版 2 に足した。
+  ///   ない保存値は Claude・モデル名未選択で読む
   public static let currentVersion = 2
 
   /// 最大録音時間の既定値（秒）。REC-05（暫定5分）
@@ -72,6 +74,17 @@ public struct AppSettings: Hashable, Sendable {
 
   /// 整形の処理系（Local Basic / クラウド AI）。AI-03
   public var refinementEngine: RefinementEngine
+
+  /// クラウド AI を選んだときの送信先（AI-01, #50）。既定は Claude。
+  /// Sign in with ChatGPT は macOS だけが使う（iOS は当面 OpenAI API キー方式のみ）。iOS はこの項目を読まず Claude を使う。
+  /// 選んでも、同意・サインイン（または API キー・予算）がそろわなければ送らない（AC-06）
+  public var cloudRefinementProvider: CloudRefinementProvider
+
+  /// Sign in with ChatGPT の整形用モデル名（AI-07, S4）。サインインしたアカウントのモデル一覧から選ぶ。
+  /// 既定は空（未選択）で、空の間は送らない。モデル名をコードに固定しない
+  public var chatGPTRefinementModel: String {
+    didSet { chatGPTRefinementModel = Self.trimmed(chatGPTRefinementModel) }
+  }
 
   /// アプリ別のスタイル上書き（CTX-02）。キーは小文字に正規化した bundle ID（`AppStyleResolver` と同じ）
   public var appStyleOverrides: [String: RefinementStyle] {
@@ -128,6 +141,8 @@ public struct AppSettings: Hashable, Sendable {
     cloudSpeechRecognitionEnabled: Bool = false,
     refinementMode: RefinementModeSetting = .natural,
     refinementEngine: RefinementEngine = .localBasic,
+    cloudRefinementProvider: CloudRefinementProvider = .claude,
+    chatGPTRefinementModel: String = "",
     appStyleOverrides: [String: RefinementStyle] = [:],
     siteIdentificationAllowed: Bool = false,
     siteStyleOverrides: [String: RefinementStyle] = [:],
@@ -148,6 +163,8 @@ public struct AppSettings: Hashable, Sendable {
     self.cloudSpeechRecognitionEnabled = cloudSpeechRecognitionEnabled
     self.refinementMode = refinementMode
     self.refinementEngine = refinementEngine
+    self.cloudRefinementProvider = cloudRefinementProvider
+    self.chatGPTRefinementModel = Self.trimmed(chatGPTRefinementModel)
     self.appStyleOverrides = Self.normalizedOverrides(appStyleOverrides)
     self.siteIdentificationAllowed = siteIdentificationAllowed
     self.siteStyleOverrides = Self.normalizedSiteOverrides(siteStyleOverrides)
@@ -199,6 +216,10 @@ public struct AppSettings: Hashable, Sendable {
     return trimmed.isEmpty ? defaultRefinementModel : trimmed
   }
 
+  private static func trimmed(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   private static func normalizedExcludedApps(_ apps: [String]) -> [String] {
     var seen: Set<String> = []
     return apps.filter { app in
@@ -221,6 +242,8 @@ extension AppSettings: Codable {
     case cloudSpeechRecognitionEnabled
     case refinementMode
     case refinementEngine
+    case cloudRefinementProvider
+    case chatGPTRefinementModel
     case appStyleOverrides
     case siteIdentificationAllowed
     case siteStyleOverrides
@@ -300,6 +323,12 @@ extension AppSettings: Codable {
     cloudSpeechRecognitionEnabled =
       value(Bool.self, .cloudSpeechRecognitionEnabled) ?? cloudSpeechRecognitionEnabled
     refinementMode = value(RefinementModeSetting.self, .refinementMode) ?? refinementMode
+    // 読めない・ない送信先は Claude に倒す（#50。Sign in with ChatGPT は明示的に選んだときだけ）
+    cloudRefinementProvider =
+      value(CloudRefinementProvider.self, .cloudRefinementProvider) ?? cloudRefinementProvider
+    // 初期化子の中では didSet が呼ばれないため、ここで整える
+    chatGPTRefinementModel = Self.trimmed(
+      value(String.self, .chatGPTRefinementModel) ?? chatGPTRefinementModel)
     modelRetentionMode =
       value(ModelRetentionModeSetting.self, .modelRetentionMode) ?? modelRetentionMode
     // 読めない許可は未許可に倒す
@@ -349,6 +378,8 @@ extension AppSettings: Codable {
     try container.encode(cloudSpeechRecognitionEnabled, forKey: .cloudSpeechRecognitionEnabled)
     try container.encode(refinementMode, forKey: .refinementMode)
     try container.encode(refinementEngine, forKey: .refinementEngine)
+    try container.encode(cloudRefinementProvider, forKey: .cloudRefinementProvider)
+    try container.encode(chatGPTRefinementModel, forKey: .chatGPTRefinementModel)
     try container.encode(appStyleOverrides, forKey: .appStyleOverrides)
     try container.encode(siteIdentificationAllowed, forKey: .siteIdentificationAllowed)
     try container.encode(siteStyleOverrides, forKey: .siteStyleOverrides)
@@ -369,6 +400,17 @@ public enum RefinementEngine: String, Codable, Hashable, Sendable, CaseIterable 
   case localBasic
   /// クラウド AI による整形（Claude / ChatGPT, AI-01, AI-06）。送信には同意が要る（AC-06）
   case cloudAI
+}
+
+/// クラウド整形の送信先（AI-01, #50）。整形の処理系（`RefinementEngine`）でクラウド AI を選んだときに使う。
+///
+/// 保存値は rawValue で、知らない値・読めない値は Claude に倒す（版を上げずに足せる）。
+/// OpenAI API キー方式は、整形の送信先としてはまだアプリから組み立てていないため、ここには持たない
+public enum CloudRefinementProvider: String, Codable, Hashable, Sendable, CaseIterable {
+  /// Claude API（利用者の API キー）
+  case claude
+  /// Sign in with ChatGPT（利用者の ChatGPT プランの利用枠, macOS のみ）
+  case chatGPTSignIn
 }
 
 /// 入力モード（2.2節）。

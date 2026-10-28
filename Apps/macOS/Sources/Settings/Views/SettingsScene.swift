@@ -12,6 +12,8 @@ struct SettingsScene: Scene {
   @State private var apiKeyModel: APIKeySettingsModel
   /// 「API キー」タブの OpenAI API キーの状態（クラウド STT, #188）
   @State private var openAIAPIKeyModel: APIKeySettingsModel
+  /// 「整形」タブの Sign in with ChatGPT の状態（#50）
+  @State private var chatGPTAccount: ChatGPTAccountSettingsModel
   /// 「音声認識」タブのモデルの取得状態。OS が管理するモデルを使うエンジンを選んだときだけ（PERM-03）
   @State private var speechModel: SpeechModelSettingsModel?
   private let sttEngine: STTEngineKind?
@@ -19,11 +21,13 @@ struct SettingsScene: Scene {
   /// - Parameters:
   ///   - claudeAPIKeyStore: Claude API キーの保存先。整形（`SessionRefinementPipeline`）と同じものを渡す
   ///   - openAIAPIKeyStore: OpenAI API キーの保存先。クラウド STT（`CloudSpeechRecognitionPipeline`）と同じものを渡す
+  ///   - chatGPTAccount: Sign in with ChatGPT のアカウント。整形（`SessionRefinementPipeline`）と同じものを渡す
   ///   - database: アプリで1つだけ開くデータベース。推定費用の累計を読む（辞書・入力履歴と共有する）
   ///   - sttEngine: 使っている STT エンジン（`AppComposition.selectedEngine()`）。未選択なら `nil`
   init(
     claudeAPIKeyStore: any APIKeyStore, openAIAPIKeyStore: any APIKeyStore,
-    database: AppDatabaseProvider, sttEngine: STTEngineKind?
+    chatGPTAccount: ChatGPTAccountSession, database: AppDatabaseProvider,
+    sttEngine: STTEngineKind?
   ) {
     _model = State(
       initialValue: SettingsModel(
@@ -31,6 +35,10 @@ struct SettingsScene: Scene {
         openUsageStore: { MonthlyUsageStore(database: try await database.database()) }))
     _apiKeyModel = State(initialValue: APIKeySettingsModel(store: claudeAPIKeyStore))
     _openAIAPIKeyModel = State(initialValue: APIKeySettingsModel(store: openAIAPIKeyStore))
+    // サインインは利用者の操作でだけ始める。作るだけではネットワークを使わない
+    _chatGPTAccount = State(
+      initialValue: ChatGPTAccountSettingsModel(
+        session: chatGPTAccount, server: NetworkLoopbackServer(), browser: WorkspaceBrowser()))
     // 作るだけで、状態の確認はタブを開いたときにする（どちらもネットワークを使わない）
     let modelAssets = STTEngineSetting.makeModelAssets(for: sttEngine)
     _speechModel = State(initialValue: modelAssets.map { SpeechModelSettingsModel(assets: $0) })
@@ -41,7 +49,7 @@ struct SettingsScene: Scene {
     Settings {
       SettingsView(
         model: model, apiKeyModel: apiKeyModel, openAIAPIKeyModel: openAIAPIKeyModel,
-        sttEngine: sttEngine, speechModel: speechModel)
+        chatGPTAccount: chatGPTAccount, sttEngine: sttEngine, speechModel: speechModel)
     }
   }
 }

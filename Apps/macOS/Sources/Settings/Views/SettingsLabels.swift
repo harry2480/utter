@@ -8,7 +8,8 @@ extension RefinementProviderChoice {
     switch self {
     case .localBasic: "Local Basic（オフライン）"
     case .claude: "Claude API"
-    case .chatGPT: "ChatGPT（準備中）"
+    case .chatGPTSignIn: "ChatGPT（Sign in with ChatGPT。ChatGPT プランを使う）"
+    case .openAIAPIKey: "ChatGPT（OpenAI API キー方式。準備中）"
     }
   }
 }

@@ -71,6 +71,8 @@ struct SettingsForm: Hashable, Sendable {
   var provider: RefinementProviderChoice
   var refinementMode: RefinementModeSetting
   var refinementModel: String
+  /// Sign in with ChatGPT の整形用モデル名（AI-07, #50）。サインインしたアカウントのモデル一覧から選ぶ。空は未選択
+  var chatGPTRefinementModel: String
 
   // MARK: 予算と単価表（AI-04, AI-05）
 
@@ -106,9 +108,11 @@ struct SettingsForm: Hashable, Sendable {
     performanceRetentionAllowed = settings.performanceRetentionAllowed
     cloudSpeechRecognitionEnabled = settings.cloudSpeechRecognitionEnabled
 
-    provider = RefinementProviderChoice(engine: settings.refinementEngine)
+    provider = RefinementProviderChoice(
+      engine: settings.refinementEngine, cloudProvider: settings.cloudRefinementProvider)
     refinementMode = settings.refinementMode
     refinementModel = settings.refinementModel
+    chatGPTRefinementModel = settings.chatGPTRefinementModel
 
     budgetEnabled = settings.monthlyBudget != nil
     budgetLimit = settings.monthlyBudget.map { Self.text(amount: $0.limitAmount) } ?? ""
@@ -219,6 +223,10 @@ struct SettingsForm: Hashable, Sendable {
         }
       }
     }
+    let chatGPTModel = chatGPTRefinementModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    if provider == .chatGPTSignIn, chatGPTModel.isEmpty {
+      notices.append(.chatGPTModelNotSelected)
+    }
     return notices
   }
 
@@ -259,6 +267,13 @@ struct SettingsForm: Hashable, Sendable {
     } else {
       issues.append(.providerUnavailable)
     }
+    // Local Basic を選んだときは送信先を変えない（次にクラウド AI を選んだときに前の送信先を使わないよう、
+    // 画面ではクラウドの送信先を選ばせてから保存する）
+    if let cloudProvider = provider.cloudProvider {
+      settings.cloudRefinementProvider = cloudProvider
+    }
+    // 送るかはサインイン・同意・モデル名で送る直前に決める（AC-06）。空のままでも保存できる
+    settings.chatGPTRefinementModel = chatGPTRefinementModel
     settings.refinementMode = refinementMode
     let model = refinementModel.trimmingCharacters(in: .whitespacesAndNewlines)
     if model.isEmpty {
@@ -510,7 +525,7 @@ enum SettingsIssue: Hashable, Sendable {
       let range = AppSettings.maxRecordingDurationRange
       return "最大録音時間は \(Int(range.lowerBound))〜\(Int(range.upperBound)) 秒の数で入力してください。"
     case .providerUnavailable:
-      return "ChatGPT はまだ選べません。Local Basic か Claude を選んでください。"
+      return "OpenAI API キー方式は整形ではまだ選べません。Local Basic・Claude・Sign in with ChatGPT から選んでください。"
     case .refinementModelEmpty:
       return "整形用モデル名を入力してください。"
     case .budgetLimit:
@@ -549,6 +564,16 @@ enum SettingsNotice: Hashable, Sendable {
   case budgetNotSet
   /// 月次予算はあるが、単価表に整形用モデルがない（AI-05）。費用を推定できない
   case refinementModelNotInPriceTable
+  /// Sign in with ChatGPT を選んでいるが、整形用モデルを選んでいない（#50）。選ぶまで送らない
+  case chatGPTModelNotSelected
+
+  /// 費用のタブに出す案内か
+  var isCostNotice: Bool {
+    switch self {
+    case .budgetNotSet, .refinementModelNotInPriceTable: true
+    case .performanceRetentionNotAllowed, .chatGPTModelNotSelected: false
+    }
+  }
 
   var message: String {
     switch self {
@@ -558,6 +583,8 @@ enum SettingsNotice: Hashable, Sendable {
       "月次予算が未設定です。クラウド AI の推定費用に上限を設けるには、予算を設定してください。"
     case .refinementModelNotInPriceTable:
       "単価表に整形用モデルがないため、費用を推定できません。予算の判定では、推定できない送信は行いません。"
+    case .chatGPTModelNotSelected:
+      "ChatGPT の整形用モデルが選ばれていません。サインインしてからモデルを選ぶまで、ChatGPT へは送らず Local Basic で整形します。"
     }
   }
 }

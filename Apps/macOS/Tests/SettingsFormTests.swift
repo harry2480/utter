@@ -289,19 +289,54 @@ struct SettingsFormTests {
 
   // MARK: - 処理系（AC-05）
 
-  @Test("AC-05: Local Basic と Claude は選べ、ChatGPT は判定待ちで選べない")
+  @Test("AC-05, #50: Local Basic・Claude・Sign in with ChatGPT は選べ、OpenAI API キー方式は準備中で選べない")
   func providerChoices() throws {
     #expect(RefinementProviderChoice.localBasic.engine == .localBasic)
     #expect(RefinementProviderChoice.claude.engine == .cloudAI)
-    #expect(!RefinementProviderChoice.chatGPT.isSelectable)
+    #expect(RefinementProviderChoice.chatGPTSignIn.engine == .cloudAI)
+    #expect(!RefinementProviderChoice.openAIAPIKey.isSelectable)
 
     var form = SettingsForm(settings: AppSettings(refinementEngine: .cloudAI))
-    form.provider = .chatGPT
+    form.provider = .openAIAPIKey
     #expect(issues(form) == [.providerUnavailable])
 
     form.provider = .localBasic
     #expect(
       try form.applied(to: AppSettings(refinementEngine: .cloudAI)).refinementEngine == .localBasic)
+  }
+
+  @Test("AC-05, #50: Sign in with ChatGPT を選ぶとクラウド AI の送信先を ChatGPT にし、Claude を選ぶと戻す")
+  func chatGPTSignInChoiceRoundTrips() throws {
+    var form = SettingsForm(settings: AppSettings())
+    form.provider = .chatGPTSignIn
+    form.chatGPTRefinementModel = "model-x"
+    let saved = try form.applied(to: AppSettings())
+    #expect(saved.refinementEngine == .cloudAI)
+    #expect(saved.cloudRefinementProvider == .chatGPTSignIn)
+    #expect(saved.chatGPTRefinementModel == "model-x")
+    #expect(SettingsForm(settings: saved).provider == .chatGPTSignIn)
+
+    form.provider = .claude
+    let claude = try form.applied(to: saved)
+    #expect(claude.cloudRefinementProvider == .claude)
+    #expect(SettingsForm(settings: claude).provider == .claude)
+
+    // Local Basic を選んでも送信先は変えない（クラウド AI を選び直すまで送らない）
+    form.provider = .localBasic
+    let local = try form.applied(to: saved)
+    #expect(local.refinementEngine == .localBasic)
+    #expect(local.cloudRefinementProvider == .chatGPTSignIn)
+    #expect(SettingsForm(settings: local).provider == .localBasic)
+  }
+
+  @Test("#50: Sign in with ChatGPT でモデルを選んでいなければ、保存はできるが送らないことを知らせる")
+  func chatGPTModelNotSelectedNotice() throws {
+    var form = SettingsForm(settings: AppSettings())
+    form.provider = .chatGPTSignIn
+    #expect(form.notices.contains(.chatGPTModelNotSelected))
+    #expect(try form.applied(to: AppSettings()).chatGPTRefinementModel.isEmpty)
+    form.chatGPTRefinementModel = "model-x"
+    #expect(!form.notices.contains(.chatGPTModelNotSelected))
   }
 
   @Test("AI-03: 既定の処理系は Local Basic")
