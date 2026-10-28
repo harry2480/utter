@@ -79,6 +79,14 @@ final class GlobalShortcutController {
     escapeTap?.invalidate()
   }
 
+  /// RegisterEventHotKey でいま登録している組み合わせ。登録していない（割当なし・登録の失敗・修飾キー単独）なら `nil`。
+  ///
+  /// セッション中に割当が変わると、待機に戻るまで前の組み合わせのまま（`update(_:)`）。Edit Mode のショートカットが
+  /// 同じ組み合わせを二重に登録しないよう、`ShortcutAssignments` が使う
+  var registeredCombination: KeyCombination? {
+    registration == nil ? nil : setting?.combination
+  }
+
   /// イベントタップを使う機能が有効か。有効なときだけ、アプリは権限の変化を `refreshPermissions` で反映する
   var usesEventTaps: Bool {
     capabilities.supportsModifierOnly || capabilities.supportsEscapeCapture

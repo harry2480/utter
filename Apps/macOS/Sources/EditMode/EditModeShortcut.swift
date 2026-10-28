@@ -26,6 +26,7 @@ final class EditModeShortcut {
   private struct Assignment: Equatable {
     let shortcut: KeyCombination?
     let recordingShortcut: KeyCombination?
+    let heldByRecording: KeyCombination?
   }
 
   /// - Parameters:
@@ -51,28 +52,42 @@ final class EditModeShortcut {
   /// 割当を置き換える。`shortcut` が `nil` なら何も登録しない（未割り当て）。
   ///
   /// 前の割当は先に解除する。同じ割当なら登録し直さない（登録失敗の表示をそのまま残す）。
-  /// - Parameter recordingShortcut: 録音ショートカット。同じキーなら登録しない
+  /// 録音ショートカットと同じ組み合わせを utter の中で二重に登録しないよう、録音の割当と、録音がいま登録している
+  /// 組み合わせの両方を避ける（録音と Edit Mode の登録の順序は `ShortcutAssignments` が決める）。
+  /// - Parameters:
+  ///   - recordingShortcut: 保存された録音ショートカット。同じキーなら登録しない
+  ///   - heldByRecording: 録音がいま登録している組み合わせ。セッション中に録音の割当が変わると、待機に戻るまで
+  ///     前の組み合わせを登録したままにする（`GlobalShortcutController.update(_:)`）ため、それとも同じキーなら
+  ///     録音が手放すまで登録しない（`.waitingForRecordingRelease`）
   @discardableResult
-  func apply(_ shortcut: KeyCombination?, recordingShortcut: KeyCombination?)
-    -> EditModeShortcutStatus
-  {
-    let next = Assignment(shortcut: shortcut, recordingShortcut: recordingShortcut)
+  func apply(
+    _ shortcut: KeyCombination?, recordingShortcut: KeyCombination?,
+    heldByRecording: KeyCombination?
+  ) -> EditModeShortcutStatus {
+    let next = Assignment(
+      shortcut: shortcut, recordingShortcut: recordingShortcut, heldByRecording: heldByRecording)
     guard next != assignment else { return status }
     assignment = next
     unregister()
-    status = register(shortcut, recordingShortcut: recordingShortcut)
+    status = register(next)
     return status
   }
 
-  private func register(_ shortcut: KeyCombination?, recordingShortcut: KeyCombination?)
-    -> EditModeShortcutStatus
-  {
-    guard let shortcut else { return .unassigned }
-    guard shortcut != recordingShortcut else {
+  private func register(_ assignment: Assignment) -> EditModeShortcutStatus {
+    guard let shortcut = assignment.shortcut else { return .unassigned }
+    guard shortcut != assignment.recordingShortcut else {
       return .unavailable(shortcut, .sameAsRecording)
     }
+    // 保存された録音の割当とは違うが、録音がまだ前の組み合わせとして登録している（セッション中に割当を変えた）
+    guard shortcut != assignment.heldByRecording else {
+      return .unavailable(shortcut, .waitingForRecordingRelease)
+    }
+    var recordingShortcuts = [assignment.recordingShortcut].compactMap { $0 }
+    if let held = assignment.heldByRecording, !recordingShortcuts.contains(held) {
+      recordingShortcuts.append(held)
+    }
     var registered = systemShortcuts()
-    if let recordingShortcut {
+    for recordingShortcut in recordingShortcuts {
       registered.append(
         ShortcutBinding(
           id: GlobalShortcutController.recordBindingID, combination: recordingShortcut))
@@ -117,8 +132,11 @@ enum EditModeShortcutStatus: Hashable, Sendable {
 }
 
 enum EditModeShortcutUnavailableReason: Hashable, Sendable {
-  /// 録音ショートカットと同じキー
+  /// 保存された録音ショートカットと同じキー
   case sameAsRecording
+  /// 録音がまだ登録している前の組み合わせと同じキー（セッション中に録音の割当を変えた）。
+  /// 録音が待機に戻って新しい割当を登録したら、登録し直す（`ShortcutAssignments`）
+  case waitingForRecordingRelease
   /// 割当の検証で問題がある（Esc の予約、システムのショートカット・録音ショートカットとの競合、修飾キー単独）
   case invalid([ShortcutValidationIssue])
   /// RegisterEventHotKey で扱えない組み合わせ
@@ -137,6 +155,8 @@ extension EditModeShortcutStatus {
       "Edit Mode: \(ShortcutNotation.display(shortcut))"
     case .unavailable(let shortcut, .sameAsRecording):
       "Edit Mode: \(ShortcutNotation.display(shortcut)) は録音と同じキーのため使えません"
+    case .unavailable(let shortcut, .waitingForRecordingRelease):
+      "Edit Mode: \(ShortcutNotation.display(shortcut)) は録音の終了後に使えます"
     case .unavailable(let shortcut, _):
       "Edit Mode: \(ShortcutNotation.display(shortcut)) を登録できません（ほかの割当と重なっている可能性があります）"
     }

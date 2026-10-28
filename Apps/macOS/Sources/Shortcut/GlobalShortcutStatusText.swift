@@ -63,6 +63,7 @@ enum GlobalShortcutStatusText {
       }
     case .registrationFailed(let failure):
       switch failure {
+      // utter の中の二重登録では返らない（`HotKeyRegistrationFailure.alreadyRegistered`）
       case .alreadyRegistered: return "他のアプリが同じ組み合わせを使っています"
       case .handlerUnavailable(let status), .rejected(let status):
         return "登録に失敗しました（OSStatus \(status)）"

@@ -24,6 +24,9 @@ final class ShortcutCoordinator {
   @ObservationIgnored private let usesDebugSetting: Bool
   /// HUD に出す停止・キャンセルのキーが変わりうるとき（状態を読み直すたび）に呼ぶ
   @ObservationIgnored private let onKeyHintsChange: @MainActor (HUDKeyHints) -> Void
+  /// 状態を読み直すたびに呼ぶ。セッション中に変わった割当を待機に戻ってから登録したときに、
+  /// Edit Mode のショートカットを登録し直すために使う（`ShortcutAssignments.recordingRegistrationDidChange()`）
+  @ObservationIgnored var onStatusChange: (@MainActor () -> Void)?
 
   /// 権限の取り消し・許可を確かめる間隔（仮置き。権限の変化を検出する OS の通知がないため定期的に確かめる。
   /// CGPreflightListenEventAccess・AXIsProcessTrusted は軽い呼び出しで、イベントタップを使う機能が有効なときだけ動かす）
@@ -35,22 +38,28 @@ final class ShortcutCoordinator {
   ///   - currentPhase: セッションの現在の状態
   ///   - perform: 実行するセッション操作
   ///   - onKeyHintsChange: HUD に出す停止・キャンセルのキー（REC-03）。状態を読み直すたびに呼ぶ
+  ///   - tapFactory: イベントタップの作成。テストは Stub を渡す
+  ///   - permissions: イベントタップの権限の確認。テストは Stub を渡す
+  ///   - systemShortcuts: 競合を検出する相手（有効なシステムのショートカット）。テストは固定の一覧を渡す
   init(
     setting: GlobalShortcutSetting?,
     registrar: any HotKeyRegistering,
     currentPhase: @escaping @MainActor () -> SessionPhase,
     perform: @escaping @MainActor (ShortcutCommand) -> Void,
-    onKeyHintsChange: @escaping @MainActor (HUDKeyHints) -> Void = { _ in }
+    onKeyHintsChange: @escaping @MainActor (HUDKeyHints) -> Void = { _ in },
+    tapFactory: any KeyEventTapFactory = CGKeyEventTapFactory(),
+    permissions: any EventTapPermissionChecking = SystemEventTapPermissions(),
+    systemShortcuts: @escaping () -> [ShortcutBinding] = SystemShortcuts.loadEnabledBindings
   ) {
     self.onKeyHintsChange = onKeyHintsChange
     let debugSetting = Self.debugSetting()
     usesDebugSetting = debugSetting != nil
     let controller = GlobalShortcutController(
       registrar: registrar,
-      tapFactory: CGKeyEventTapFactory(),
-      permissions: SystemEventTapPermissions(),
+      tapFactory: tapFactory,
+      permissions: permissions,
       capabilities: Self.capabilities(),
-      systemShortcuts: SystemShortcuts.loadEnabledBindings,
+      systemShortcuts: systemShortcuts,
       currentPhase: currentPhase,
       perform: perform
     )
@@ -82,6 +91,11 @@ final class ShortcutCoordinator {
       NSWorkspace.shared.notificationCenter.removeObserver(observer)
     }
     permissionTimer?.invalidate()
+  }
+
+  /// RegisterEventHotKey でいま登録している組み合わせ（`GlobalShortcutController.registeredCombination`）
+  var registeredCombination: KeyCombination? {
+    controller?.registeredCombination
   }
 
   var statusText: String {
@@ -130,6 +144,7 @@ final class ShortcutCoordinator {
     status = controller.status
     escapeStatus = controller.escapeStatus
     onKeyHintsChange(HUDKeyHints(status: status, escapeStatus: escapeStatus))
+    onStatusChange?()
   }
 
   /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。設定画面の Esc の説明にも使う。
