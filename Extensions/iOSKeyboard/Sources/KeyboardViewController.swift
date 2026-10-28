@@ -48,6 +48,10 @@ final class KeyboardViewController: UIInputViewController {
 
   private let configuration = KeyboardConfiguration()
   private lazy var services = makeServices()
+  /// 本体アプリのセットアップ画面への報告の書き込み先。App Group を設定したビルドだけ（#200）
+  private lazy var setupReportStore = configuration.appGroupID.flatMap {
+    KeyboardSetupReportStore(groupIdentifier: $0)
+  }
 
   private let keysView = KeyboardKeysView()
   private let noticesLabel = KeyboardViewController.makeLabel()
@@ -109,6 +113,7 @@ final class KeyboardViewController: UIInputViewController {
     startNetworkMonitor()
     startClock()
     reload()
+    reportSetup()
   }
 
   override func viewDidDisappear(_ animated: Bool) {
@@ -222,6 +227,17 @@ final class KeyboardViewController: UIInputViewController {
     }
     return SharedSnapshot(
       container: .available(hostApp: host), sessionID: sessionID, preview: preview)
+  }
+
+  /// キーボードが表示されたこととフルアクセスの有無を、本体アプリのセットアップ画面に伝える（#200）。
+  /// 書くのは観測時刻とフルアクセスの有無だけで、入力した文字・本文は書かない。
+  /// フルアクセスがないと書けない場合があり、そのときは本体アプリで手動で済んだことにしてもらう
+  private func reportSetup() {
+    guard let store = setupReportStore else { return }
+    let report = KeyboardSetupReport(observedAt: Date(), hasFullAccess: hasFullAccess)
+    Task {
+      try? await store.save(report)
+    }
   }
 
   // MARK: 操作

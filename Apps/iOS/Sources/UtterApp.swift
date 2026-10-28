@@ -16,6 +16,8 @@ import UtteriOSKit
 ///   Claude で整形する（iOS-10）。同意・設定は `UserDefaults.standard`（App Group ではない）に保存する
 /// - 共有結果と本体アプリの状態（キーボード拡張の案内用, iAC-07）は、App Group（Config/Local.xcconfig）を設定したときだけ
 ///   App Group に書く（#56）
+/// - セットアップ画面（#200）は、App Group を設定したときだけキーボード拡張からの報告を読む。個人署名の期限は
+///   `embedded.mobileprovision` から読み、読めなければ出さない
 @main
 struct UtterApp: App {
   @State private var model: RecordingSessionModel
@@ -24,6 +26,8 @@ struct UtterApp: App {
   @State private var consentSettings: ConsentSettingsModel
   @State private var claudeAPIKeySettings: APIKeySettingsModel
   @State private var speechModel: SpeechModelSettingsModel?
+  @State private var setup: SetupChecklistModel
+  private let signingExpiry: SigningExpiry?
   private let speechEngine: SpeechEngineSelection
   private let hostAppStatus: HostAppStatusPublisher?
   private let signals: RecordingSignalObserver
@@ -73,6 +77,16 @@ struct UtterApp: App {
       speechEngine: speechEngine, speechModel: modelAssets,
       settingsStore: settingsStore)
     signals = RecordingSignalObserver(model: model)
+    // キーボード拡張からの報告は、共有結果と同じ App Group を開けたときだけ読む（#56）
+    let sharesWithKeyboard = storage.sharing == .appGroup
+    let appGroupID = appGroupIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let setupReportStore =
+      sharesWithKeyboard ? KeyboardSetupReportStore(groupIdentifier: appGroupID) : nil
+    _setup = State(
+      initialValue: SetupChecklistModel(
+        store: SetupMarksStore(defaults: .standard), reportReader: setupReportStore,
+        sharesWithKeyboard: sharesWithKeyboard, microphone: SystemMicrophonePermission()))
+    signingExpiry = Self.signingExpiry()
   }
 
   var body: some Scene {
@@ -81,8 +95,20 @@ struct UtterApp: App {
         model: model, home: home, refinementSettings: refinementSettings,
         consentSettings: consentSettings,
         claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
-        speechModel: speechModel, hostAppStatus: hostAppStatus)
+        speechModel: speechModel, hostAppStatus: hostAppStatus, setup: setup,
+        signingExpiry: signingExpiry)
     }
+  }
+
+  /// アプリに埋め込まれたプロビジョニングプロファイルから個人署名の期限を読む（12.6節）。
+  /// App Store・TestFlight のビルドやシミュレータにはないため、読めなければ `nil`
+  private static func signingExpiry() -> SigningExpiry? {
+    guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+      let data = try? Data(contentsOf: url)
+    else {
+      return nil
+    }
+    return SigningExpiry(mobileProvision: data)
   }
 
   /// App Group を使わないときの共有結果の保存先。端末のバックアップに本文を含めない

@@ -16,3 +16,19 @@ struct SystemHostAppPermissionReader: HostAppPermissionReader {
     }
   }
 }
+
+/// マイクの権限を読み、セットアップ画面の「マイクを許可」で求める（#200）。
+struct SystemMicrophonePermission: MicrophonePermissionAccess {
+  func status() -> MicrophonePermissionStatus {
+    switch AVAudioApplication.shared.recordPermission {
+    case .granted: .granted
+    case .denied: .denied
+    case .undetermined: .undetermined
+    @unknown default: .undetermined
+    }
+  }
+
+  func request() async -> Bool {
+    await AVAudioApplication.requestRecordPermission()
+  }
+}
