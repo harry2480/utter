@@ -5,6 +5,11 @@ import Carbon.HIToolbox
 final class StubHotKeyRegistrar: HotKeyRegistering {
   /// 次の登録で返す失敗。`nil` なら成功
   var nextFailure: HotKeyRegistrationFailure?
+  /// 登録中と同じ組み合わせの登録を `.alreadyRegistered` で断るか。RegisterEventHotKey が同じプロセスの中の
+  /// 二重登録に eventHotKeyExistsErr を返す（CarbonEventsCore.h）のをまねる
+  var rejectsDuplicates = false
+  /// 登録中と同じ組み合わせを登録しようとした回数（`rejectsDuplicates` によらず数える）
+  private(set) var duplicateAttempts = 0
   private(set) var registered: [HotKeyRegistrationID: CarbonHotKeySpec] = [:]
   private(set) var unregisteredIDs: [HotKeyRegistrationID] = []
   private var handlers: [HotKeyRegistrationID: @MainActor (HotKeyPhase) -> Void] = [:]
@@ -17,6 +22,10 @@ final class StubHotKeyRegistrar: HotKeyRegistering {
     if let nextFailure {
       self.nextFailure = nil
       return .failure(nextFailure)
+    }
+    if registered.values.contains(spec) {
+      duplicateAttempts += 1
+      if rejectsDuplicates { return .failure(.alreadyRegistered) }
     }
     let id = HotKeyRegistrationID(rawValue: nextID)
     nextID += 1

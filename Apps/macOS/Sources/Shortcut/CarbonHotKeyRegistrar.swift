@@ -7,7 +7,8 @@ import Carbon.HIToolbox
 /// 両方を受け取り、Push-to-talk の解放に使う。
 ///
 /// 排他登録（kEventHotKeyExclusive）にして、他のプロセスが同じ組み合わせを排他登録済みなら
-/// eventHotKeyExistsErr で失敗させ、競合として扱う。
+/// eventHotKeyExistsErr で失敗させ、競合として扱う。eventHotKeyExistsErr は同じプロセスの中の二重登録でも返るため、
+/// 録音と Edit Mode が同じ組み合わせを登録しない順序は `ShortcutAssignments` が決める。
 /// 録音と Edit Mode（AC-14）のショートカットは1つの登録者で登録する。登録者が複数あっても取りこぼさないよう、
 /// 自分が登録していない ID のイベントは処理済みにせず、ほかのハンドラへ渡す。
 @MainActor

@@ -46,6 +46,8 @@ final class AppComposition {
   let editMode: EditModeController
   /// Edit Mode のショートカットの登録（AC-14）。メニューの表示に使う
   let editModeShortcut: EditModeShortcut
+  /// 録音と Edit Mode のショートカットを二重に登録しない順序で登録し直す（REC-02, AC-14）
+  private let shortcutAssignments: ShortcutAssignments
   /// 処理中にもう一度ショートカットを押したときのキャンセルの確認（REC-06）
   let cancelConfirmation: SessionCancelConfirmation
 
@@ -156,9 +158,6 @@ final class AppComposition {
       shortcuts?.sessionPhaseDidChange()
       cancelConfirmation?.sessionPhaseDidChange()
     }
-    Self.followRecordingSettings(
-      session: session, shortcuts: shortcuts,
-      from: RecordingSettingsSnapshot(session: sessionSettings, shortcut: shortcutSetting))
 
     let editMode = Self.makeEditMode(
       session: session, recorder: recorder, recognizer: recognizer,
@@ -168,11 +167,21 @@ final class AppComposition {
     let editModeShortcut = EditModeShortcut(
       registrar: registrar, systemShortcuts: SystemShortcuts.loadEnabledBindings,
       onPress: { [weak editMode] in editMode?.toggle() })
-    // 未割り当て（既定）なら何も登録しない
-    editModeShortcut.apply(
-      initialSettings.editModeShortcut, recordingShortcut: initialSettings.recordingShortcut)
     self.editModeShortcut = editModeShortcut
-    Self.followEditModeShortcut(editModeShortcut)
+    let shortcutAssignments = ShortcutAssignments(
+      editMode: editModeShortcut,
+      updateRecording: { [weak shortcuts] in shortcuts?.updateSetting($0) },
+      heldByRecording: { [weak shortcuts] in shortcuts?.registeredCombination })
+    self.shortcutAssignments = shortcutAssignments
+    // セッション中に変わった録音の割当を待機に戻ってから登録したら、Edit Mode も登録し直す
+    shortcuts.onStatusChange = { [weak shortcutAssignments] in
+      shortcutAssignments?.recordingRegistrationDidChange()
+    }
+    // 録音は ShortcutCoordinator の作成時に登録済み。Edit Mode は未割り当て（既定）なら何も登録しない
+    shortcutAssignments.update(
+      recording: shortcutSetting, editModeShortcut: initialSettings.editModeShortcut)
+    Self.followRecordingSettings(
+      session: session, assignments: shortcutAssignments, from: sessionSettings)
   }
 
   /// Edit Mode の組み立て（AC-14）。選択範囲の読み取り・置き換えは挿入と同じ AX のアダプター、退避は挿入と同じパネルを使う。
@@ -221,23 +230,6 @@ final class AppComposition {
     return SensitiveInputPolicy(excludedApps: Set(excludedApps))
   }
 
-  /// 設定画面で Edit Mode のショートカット（または録音ショートカット）が変わったら登録し直す（AC-14）。
-  ///
-  /// 録音の設定と同じく UserDefaults の変更の通知で読み直す。同じ割当なら登録し直さない（`EditModeShortcut.apply`）。
-  /// 押下は始める・止めるだけのため、Edit の途中で登録し直しても進行中の Edit は変えない
-  private static func followEditModeShortcut(_ shortcut: EditModeShortcut) {
-    // アプリの終了まで登録したままにするため、戻り値（登録の解除に使う）は持たない
-    _ = NotificationCenter.default.addObserver(
-      forName: UserDefaults.didChangeNotification, object: nil, queue: .main
-    ) { [weak shortcut] _ in
-      MainActor.assumeIsolated {
-        guard let shortcut else { return }
-        let settings = AppSettingsStore(defaults: .standard).load()
-        shortcut.apply(settings.editModeShortcut, recordingShortcut: settings.recordingShortcut)
-      }
-    }
-  }
-
   /// アプリの終了時に端末の状態の監視をやめる（通知の登録を残さない）
   private static func stopAtTermination(_ monitoring: DeviceResourceMonitoring?) {
     guard let monitoring else { return }
@@ -271,32 +263,30 @@ final class AppComposition {
     }
   }
 
-  /// 設定画面で録音の設定が変わったら、セッションとショートカットへ送り直す（REC-01, REC-02, REC-05, 2.2節）。
+  /// 設定画面で録音の設定が変わったら、セッションとショートカットへ送り直す（REC-01, REC-02, REC-05, 2.2節, AC-14）。
   ///
   /// 保持モードと同じく UserDefaults の変更の通知で読み直し、値が変わったときだけ送る。
-  /// どちらも進行中のセッションは変えず、セッションは次の開始時から、ショートカットは待機に戻ってから使う
+  /// どちらも進行中のセッションは変えず、セッションは次の開始時から、録音ショートカットは待機に戻ってから使う。
+  /// 録音と Edit Mode のショートカットは、二重に登録しない順序で一緒に送る（`ShortcutAssignments`）。
+  /// Edit Mode の押下は始める・止めるだけのため、Edit の途中で登録し直しても進行中の Edit は変えない
   private static func followRecordingSettings(
-    session: SessionCoordinator, shortcuts: ShortcutCoordinator,
-    from initial: RecordingSettingsSnapshot
+    session: SessionCoordinator, assignments: ShortcutAssignments, from initial: SessionSettings
   ) {
     let tracker = ChangeTracker(current: initial)
     // アプリの終了まで登録したままにするため、戻り値（登録の解除に使う）は持たない
     _ = NotificationCenter.default.addObserver(
       forName: UserDefaults.didChangeNotification, object: nil, queue: .main
-    ) { [weak session, weak shortcuts] _ in
+    ) { [weak session, weak assignments] _ in
       MainActor.assumeIsolated {
-        guard let session, let shortcuts else { return }
+        guard let session, let assignments else { return }
         let settings = AppSettingsStore(defaults: .standard).load()
-        let snapshot = RecordingSettingsSnapshot(
-          session: Self.sessionSettings(from: settings),
-          shortcut: GlobalShortcutSetting.fromSettings(settings))
-        guard let previous = tracker.value, tracker.replace(with: snapshot) else { return }
-        if snapshot.session != previous.session {
-          session.useSettings(snapshot.session)
+        let sessionSettings = Self.sessionSettings(from: settings)
+        if tracker.replace(with: sessionSettings) {
+          session.useSettings(sessionSettings)
         }
-        if snapshot.shortcut != previous.shortcut {
-          shortcuts.updateSetting(snapshot.shortcut)
-        }
+        assignments.update(
+          recording: GlobalShortcutSetting.fromSettings(settings),
+          editModeShortcut: settings.editModeShortcut)
       }
     }
   }
@@ -361,10 +351,4 @@ private final class ChangeTracker<Value: Equatable> {
     value = newValue
     return true
   }
-}
-
-/// セッションとショートカットへ送った録音の設定。設定画面の保存のたびに比べ、変わった側だけへ送る
-private struct RecordingSettingsSnapshot: Equatable {
-  let session: SessionSettings
-  let shortcut: GlobalShortcutSetting?
 }

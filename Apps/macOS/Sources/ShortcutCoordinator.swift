@@ -24,6 +24,9 @@ final class ShortcutCoordinator {
   @ObservationIgnored private let usesDebugSetting: Bool
   /// HUD に出す停止・キャンセルのキーが変わりうるとき（状態を読み直すたび）に呼ぶ
   @ObservationIgnored private let onKeyHintsChange: @MainActor (HUDKeyHints) -> Void
+  /// 状態を読み直すたびに呼ぶ。セッション中に変わった割当を待機に戻ってから登録したときに、
+  /// Edit Mode のショートカットを登録し直すために使う（`ShortcutAssignments.recordingRegistrationDidChange()`）
+  @ObservationIgnored var onStatusChange: (@MainActor () -> Void)?
 
   /// 権限の取り消し・許可を確かめる間隔（仮置き。権限の変化を検出する OS の通知がないため定期的に確かめる。
   /// CGPreflightListenEventAccess・AXIsProcessTrusted は軽い呼び出しで、イベントタップを使う機能が有効なときだけ動かす）
@@ -84,6 +87,11 @@ final class ShortcutCoordinator {
     permissionTimer?.invalidate()
   }
 
+  /// RegisterEventHotKey でいま登録している組み合わせ（`GlobalShortcutController.registeredCombination`）
+  var registeredCombination: KeyCombination? {
+    controller?.registeredCombination
+  }
+
   var statusText: String {
     GlobalShortcutStatusText.text(for: status)
   }
@@ -130,6 +138,7 @@ final class ShortcutCoordinator {
     status = controller.status
     escapeStatus = controller.escapeStatus
     onKeyHintsChange(HUDKeyHints(status: status, escapeStatus: escapeStatus))
+    onStatusChange?()
   }
 
   /// 修飾キー単独・Esc 捕捉を使うか。#51 の判定までは使わない。設定画面の Esc の説明にも使う。

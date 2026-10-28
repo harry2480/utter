@@ -25,7 +25,13 @@ struct HotKeyRegistrationID: Hashable, Sendable {
 
 /// 登録の失敗。
 enum HotKeyRegistrationFailure: Error, Hashable, Sendable {
-  /// 同じ組み合わせが他で排他登録済み（eventHotKeyExistsErr）。他アプリとの競合
+  /// 同じ組み合わせが登録済み（eventHotKeyExistsErr）。他アプリとの競合として扱う。
+  ///
+  /// eventHotKeyExistsErr は、他のプロセスが排他で登録済みのときのほか、同じプロセスの中での二重登録でも返る
+  /// （CarbonEventsCore.h）。utter は録音と Edit Mode を1つの登録者で登録するが、どちらも登録の前に前の登録を解除し、
+  /// Edit Mode は録音と同じ組み合わせを断る。録音の割当を Edit Mode が使っていた組み合わせに変えるときも、
+  /// `ShortcutAssignments` が Edit Mode に先に手放させる。そのため utter の中の二重登録では返らない前提で、
+  /// 他のアプリとの競合として表示する（`GlobalShortcutStatusText`、`ShortcutAssignmentsTests` で確かめる）
   case alreadyRegistered
   /// イベントハンドラを登録できない
   case handlerUnavailable(OSStatus)

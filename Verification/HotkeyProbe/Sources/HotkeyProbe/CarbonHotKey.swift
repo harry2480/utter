@@ -178,7 +178,8 @@ enum SystemShortcuts {
   /// 修飾キーの値を UtterCore の型へ変換する。
   ///
   /// 0x20000 は Carbon では Fn、NSEvent では Shift になるため、形式は一覧全体から決める。
-  /// macOS 26 の実機では Carbon 形式（Cmd = 0x100）で返り、Fn / 地球儀キーの項目が 0x20000 だった。
+  /// 開発機（macOS 26）では Carbon 形式（Cmd = 0x100）で返り、Fn / 地球儀キーの項目が 0x20000 だったが、
+  /// docs/Phase0検証-修飾キー権限.md の「検証結果の記録」には記録がない（未確認。`system-shortcuts` の結果を記録する）。
   static func modifiers(fromRaw raw: Int, format: Format) -> ShortcutModifiers {
     var result: ShortcutModifiers = []
     switch format {

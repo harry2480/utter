@@ -7,7 +7,9 @@ import UtterCore
 /// CopySymbolicHotKeys で取得する（権限は不要）。RegisterEventHotKey の登録が成功しても、
 /// システムが先に処理する組み合わせは utter に届かないため、登録前にここで競合を検出する。
 /// 他のアプリが独自に登録したショートカットやメニューのショートカットは含まれない。
-/// Fn / 地球儀キーの割り当てと、Control 2回押し等の音声入力ショートカットも一覧に出ない（HotkeyProbe の結果）。
+/// Fn / 地球儀キーの割り当てと、Control 2回押し等の音声入力ショートカットも一覧に出ないとみている。
+/// ただし HotkeyProbe の README（「読み方」）の注意書きにあるだけで、docs/Phase0検証-修飾キー権限.md の
+/// 「検証結果の記録」には記録がない（未確認。実機の `HotkeyProbe system-shortcuts` で確かめる。#51）。
 enum SystemShortcuts {
   /// CopySymbolicHotKeys の1項目
   struct Entry: Hashable, Sendable {
@@ -62,7 +64,9 @@ enum SystemShortcuts {
   ///
   /// 0x20000 は Carbon では Fn、NSEvent では Shift になるため、項目ごとには決められない。
   /// Carbon 形式のビット（0x1F00）を持つ項目が1つでもあれば Carbon 形式。
-  /// macOS 26 の実機では Carbon 形式で返った（HotkeyProbe の結果）。
+  /// 開発機（macOS 26）の HotkeyProbe では Carbon 形式で返ったが、docs/Phase0検証-修飾キー権限.md の
+  /// 「検証結果の記録」には日付・機種つきの記録がない（未確認。実機の `HotkeyProbe system-shortcuts` で確かめる。#51）。
+  /// SDK のヘッダー（CarbonEvents.h）は形式を書いていない。
   static func format(of entries: [Entry]) -> Format? {
     if entries.contains(where: { $0.rawModifiers & carbonBits != 0 }) { return .carbon }
     if entries.contains(where: { $0.rawModifiers & nsEventOnlyBits != 0 }) { return .nsEvent }
