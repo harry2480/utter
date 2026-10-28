@@ -40,6 +40,9 @@ import UtterText
 ///   失敗した場合も同じ。書き込んだ後に照合に失敗したら、書き込みを残して全体をプレビューに出す（書き込み側が出す）。
 ///   キャンセルでは書き込んだ範囲を照合のうえ取り除き、完了後は `undoRealtimeDirect()` で取り除ける。
 ///   Realtime Direct のセッションでは、STT Worker の異常終了で認識し直さない（書き込んだ範囲と食い違うため）
+/// - HUD には、録音開始時に整形モード・アプリ別スタイル・音声認識の種別（チップ）を、録音中に録音のチャンクから求めた
+///   入力音量（音声は保持しない）を、クラウド整形を送ると決めたら送信先を渡す。入力先へ挿入したら、録音開始時の前面アプリの
+///   表示名を挿入完了として渡す（表示名が分からない・プレビューへ退避したときは渡さない, REC-03）
 /// - 計測器（`PerfIntervalMeasuring`）を渡すと、6章の区間（録音開始遅延・停止→挿入とその内訳）を名前だけの Signpost で記録する（#52）。
 ///   終点に達しないままセッションが終わったら、その時点で区間を閉じる。開始・終了の位置は docs/Phase0検証-性能目標.md
 @MainActor
@@ -73,6 +76,7 @@ final class SessionCoordinator {
   @ObservationIgnored private let realtimeDirect: (any SessionRealtimeDirectWriting)?
   @ObservationIgnored private let sensitivePolicy: @MainActor () -> SensitiveInputPolicy
   @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
+  @ObservationIgnored private let appDisplayName: @MainActor (String?) -> String?
   /// 進行中のセッションの性能計測の区間（#52）
   @ObservationIgnored private let perf: SessionPerfIntervals
   /// 進行中のセッションで停止→挿入の区間を測るか。STT Worker で認識し、停止後に一括挿入するセッションだけ測る
@@ -99,6 +103,7 @@ final class SessionCoordinator {
   ///   - realtimeDirect: Realtime Direct の書き込み（AC-15）。`nil` なら入力モードが Realtime Direct でも使えない扱いにする
   ///   - sensitivePolicy: 録音開始時の機密入力の判定（7章, AC-12）。保存済みの除外アプリを反映するため、開始のたびに呼ぶ
   ///   - measurer: 性能計測の区間の記録（6章, #52）。`nil` なら計測しない
+  ///   - appDisplayName: 前面アプリの bundle ID から表示名を引く（HUD のチップと挿入完了に出す）。分からなければ `nil`
   ///   - now: 現在時刻。テストでは手動で進める時刻を渡す
   init(
     configuration: SessionConfiguration = SessionConfiguration(),
@@ -119,6 +124,7 @@ final class SessionCoordinator {
     sensitivePolicy: @escaping @MainActor () -> SensitiveInputPolicy = { SensitiveInputPolicy() },
     measurer: (any PerfIntervalMeasuring)? = nil,
     makeSessionID: @escaping @Sendable () -> SessionID = { SessionID() },
+    appDisplayName: @escaping @MainActor (String?) -> String? = { _ in nil },
     now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
   ) {
     machine = SessionStateMachine(configuration: configuration, makeSessionID: makeSessionID)
@@ -140,6 +146,7 @@ final class SessionCoordinator {
     self.realtimeDirect = realtimeDirect
     self.sensitivePolicy = sensitivePolicy
     perf = SessionPerfIntervals(measurer: measurer)
+    self.appDisplayName = appDisplayName
     self.now = now
     hud.onErrorDisplayExpired = { [weak self] in
       guard let self else { return }
@@ -242,6 +249,12 @@ final class SessionCoordinator {
     audioRetention?.begin(session)
     // 前のセッションの書き込みは、次のセッションを始めたら取り消せない（入力欄の状態を確かめ直せないため）
     canUndoRealtimeDirect = false
+    let appName = appDisplayName(target.app)
+    // 録音中の表示を1回で出すよう、状態を反映する前にチップの内容を渡す
+    let details = HUDSessionDetails(
+      refinement: refiner.refinementSummary(frontmostApp: target.app), appName: appName,
+      speechRecognition: usesCloud ? .cloud : .local)
+    hud.recordSessionDetails(details, for: session)
     reflect()
     // 入力対象を記録した直後に、同じ入力欄で Realtime Direct を使えるか確かめる
     let writesDirectly = beginRealtimeDirect(session, target: target, usesCloud: usesCloud)
@@ -249,7 +262,8 @@ final class SessionCoordinator {
     measuresStopToInsert = !usesCloud && !writesDirectly
     runTask = Task { [weak self] in
       await self?.run(
-        session: session, target: target, usesCloud: usesCloud, writesDirectly: writesDirectly)
+        session: session, target: target, appName: appName, usesCloud: usesCloud,
+        writesDirectly: writesDirectly)
     }
   }
 
@@ -274,8 +288,10 @@ final class SessionCoordinator {
 
   // MARK: - セッションの処理
 
+  /// - Parameter appName: 録音開始時の前面アプリの表示名。挿入完了の表示に使う
   private func run(
-    session: SessionID, target: RecordedInsertionTarget, usesCloud: Bool, writesDirectly: Bool
+    session: SessionID, target: RecordedInsertionTarget, appName: String?, usesCloud: Bool,
+    writesDirectly: Bool
   ) async {
     // 前の録音の停止が終わってから始める（連打で2つ目の録音を始めない, REC-04）
     await recorderStop?.value
@@ -418,7 +434,7 @@ final class SessionCoordinator {
     switch directCompletion {
     case .finished, .stoppedAfterWriting:
       await finishRealtimeDirect(
-        session, text: text, completion: directCompletion, target: target,
+        session, text: text, completion: directCompletion, target: target, appName: appName,
         forwarding: forwarding.task)
       return
     case .stoppedBeforeWriting, nil:
@@ -430,10 +446,14 @@ final class SessionCoordinator {
     let sensitivity: @MainActor @Sendable () -> SensitiveInputContext = {
       inserter.sensitiveInputContext(for: target)
     }
+    // 送る間だけ HUD に送信先を出す（REC-03）。キャンセル済み・別のセッションなら HUD が無視する
+    let willSend: @MainActor @Sendable (CloudAIProviderKind) -> Void = { [weak self] destination in
+      self?.hud.recordRefinementDestination(destination, for: session)
+    }
     let refined: SessionRefinementResult
     do throws(CancellationError) {
       refined = try await refiner.refine(
-        text, frontmostApp: target.app, sensitivity: sensitivity)
+        text, frontmostApp: target.app, sensitivity: sensitivity, willSend: willSend)
     } catch {
       return
     }
@@ -454,6 +474,11 @@ final class SessionCoordinator {
       perf.end(.insert)
       perf.end(.stopToInsertLocal)
       perf.end(.stopToInsertAI)
+    }
+    // 入力先へ挿入したら、挿入先のアプリ名を挿入完了として残す（プレビューへの退避・空の本文では出さない）
+    if case .finished(let result) = report.outcome, let appName {
+      hud.recordInsertion(
+        HUDInsertion(appName: appName, isConfirmed: Self.isConfirmed(result)), for: session)
     }
     guard apply(.insertionCompleted, session: session) else { return }
     // 待機に戻ったため、以降に次のセッションが始まりうる。次のセッションのタスクを消さないよう先に外す
@@ -518,15 +543,18 @@ final class SessionCoordinator {
   /// 途中でやめたら、書き込み側が全体をプレビューに出しているため HUD で知らせるだけにする
   private func finishRealtimeDirect(
     _ session: SessionID, text: String, completion: RealtimeDirectCompletion?,
-    target: RecordedInsertionTarget, forwarding: Task<Void, Never>
+    target: RecordedInsertionTarget, appName: String?, forwarding: Task<Void, Never>
   ) async {
     let finished = completion == .finished
     if !finished {
       hud.recordRealtimeDirectFallback(.stoppedAfterWriting, for: session)
     }
-    guard apply(.refinementCompleted, session: session),
-      apply(.insertionCompleted, session: session)
-    else { return }
+    guard apply(.refinementCompleted, session: session) else { return }
+    // 全体を書き込んで終えたら、挿入先のアプリ名を挿入完了として残す（書き込みは照合のうえ行っている）
+    if finished, !text.isEmpty, let appName {
+      hud.recordInsertion(HUDInsertion(appName: appName, isConfirmed: true), for: session)
+    }
+    guard apply(.insertionCompleted, session: session) else { return }
     // 待機に戻ったため、以降に次のセッションが始まりうる。次のセッションのタスクを消さないよう先に外す
     runTask = nil
     canUndoRealtimeDirect = finished
@@ -600,6 +628,7 @@ final class SessionCoordinator {
           isFirstChunk = false
           self?.firstChunkArrived(session)
         }
+        self?.updateInputLevel(chunk, session: session)
         self?.retain(chunk, session: session)
         continuation.yield(chunk)
       }
@@ -616,6 +645,20 @@ final class SessionCoordinator {
   private func firstChunkArrived(_ session: SessionID) {
     guard isActive(session) else { return }
     perf.end(.recordingStart)
+  }
+
+  /// 録音のチャンクの入力音量を HUD に渡す（REC-03）。音量だけを求め、サンプルは保持しない。
+  /// 録音中でなければ（認識し直しのために停止後も読み続ける間など）HUD が無視する
+  private func updateInputLevel(_ chunk: AudioChunk, session: SessionID) {
+    hud.updateInputLevel(HUDInputLevel(samples: chunk.samples), for: session)
+  }
+
+  /// 挿入結果を読み戻しで確かめられたか（INS-05）
+  private static func isConfirmed(_ result: InsertionResult) -> Bool {
+    switch result {
+    case .verified: true
+    case .unconfirmed, .failed, .preview: false
+    }
   }
 
   /// `end` を伝える前のセッションのチャンクだけを差し込み口に渡す

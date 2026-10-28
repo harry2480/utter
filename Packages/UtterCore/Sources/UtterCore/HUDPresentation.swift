@@ -4,6 +4,13 @@
 /// 発話本文を持つのは Realtime Preview（2.2節, AC-03）の `transcript` だけで、録音中・認識中に限る。
 /// `transcript` は VoiceOver の読み上げ（`accessibilityLabel` / `announcement`）と `description` に含めない。
 /// 画面（Apps）はこの値をそのまま描画し、文言を独自に作らない。
+///
+/// 状態と通知のほかに、`HUDSessionInfo` から次を組み立てる（REC-03, REC-05）。
+/// - 録音中: 経過時間と最大録音時間、レベルメーター、チップ（整形モード・アプリ別スタイル・音声認識の種別）
+/// - 処理中: 4段階（録音 → 認識 → 整形 → 挿入）のどこにいるか
+/// - クラウドへ送る間（クラウド STT の認識中、クラウド整形を送ると決めた整形中）: 送信先
+/// - キャンセルが効く間（録音中・認識中・整形中）: 停止とキャンセルのキー。使えるキーだけを出す
+/// - 挿入完了: 挿入先のアプリ名
 public struct HUDPresentation: Hashable, Sendable {
   /// 表示の種類。画面はアイコンと色を選ぶのに使う
   public let indicator: HUDIndicator
@@ -13,20 +20,42 @@ public struct HUDPresentation: Hashable, Sendable {
   public let messages: [String]
   /// Realtime Preview の確定済み・暫定テキスト。録音中・認識中で、表示する文字があるときだけ持つ
   public let transcript: HUDTranscript?
+  /// 録音の経過時間と最大録音時間（例: `0:07 / 5:00`）。録音中だけ持つ
+  public let recordingTimeText: String?
+  /// レベルメーターの点灯する本数（0〜`HUDInputLevel.barCount`）。録音中だけ持つ
+  public let inputLevelBars: Int?
+  /// 録音中に出すチップの文言（整形モード・アプリ別スタイル・音声認識の種別の順）
+  public let chips: [String]
+  /// 処理中の段階。認識中・整形中・挿入中だけ持つ
+  public let stage: HUDProcessingStage?
+  /// クラウドへ送る間の送信先（例: `Claude へ送信`）。ローカルで処理する間は `nil`
+  public let destination: String?
+  /// 停止・キャンセルのキーの案内。キャンセルが効く間（録音中・認識中・整形中）だけ持つ
+  public let keyHints: [HUDKeyHint]
 
-  /// 状態も通知もない内容では `nil`（何も表示しない）。
-  /// - Parameter transcript: Realtime Preview の認識テキスト。録音中・認識中のときだけ使い、それ以外の段階では捨てる
-  public init?(_ content: HUDContent, transcript: HUDTranscript? = nil) {
-    switch content.status {
+  /// 状態も通知も挿入完了もない内容では `nil`（何も表示しない）。
+  /// - Parameters:
+  ///   - transcript: Realtime Preview の認識テキスト。録音中・認識中のときだけ使い、それ以外の段階では捨てる
+  ///   - info: 状態以外に表示に添える情報。段階ごとに使う部分だけを使う
+  public init?(
+    _ content: HUDContent, transcript: HUDTranscript? = nil,
+    info: HUDSessionInfo = HUDSessionInfo()
+  ) {
+    let status = content.status
+    switch status {
     case .recording, .recognizing:
       self.transcript = transcript.flatMap { $0.isEmpty ? nil : $0 }
     case .refining, .inserting, .failed, nil:
       self.transcript = nil
     }
     let texts = content.notices.map(Self.text(for:))
-    if let status = content.status {
+    if let status {
       indicator = HUDIndicator(status)
       title = Self.text(for: status)
+      messages = texts
+    } else if let insertion = content.insertion {
+      indicator = .completed
+      title = Self.insertionText(for: insertion)
       messages = texts
     } else if let first = texts.first {
       indicator = .notice
@@ -35,6 +64,18 @@ public struct HUDPresentation: Hashable, Sendable {
     } else {
       return nil
     }
+    if status == .recording {
+      recordingTimeText = info.recordingTime?.text
+      inputLevelBars = info.inputLevel?.bars ?? 0
+      chips = info.details.map(Self.chips(for:)) ?? []
+    } else {
+      recordingTimeText = nil
+      inputLevelBars = nil
+      chips = []
+    }
+    stage = status.flatMap(Self.stage(for:))
+    destination = status.flatMap { Self.destination(for: $0, info: info) }
+    keyHints = status.map { Self.keyHints(for: $0, hints: info.keyHints) } ?? []
   }
 
   /// 2行目の文言（先頭の通知）。なければ `nil`。
@@ -44,18 +85,22 @@ public struct HUDPresentation: Hashable, Sendable {
     messages.first
   }
 
-  /// VoiceOver で読み上げる文言。表示している文言を順に読む
+  /// VoiceOver で読み上げる文言。1行目・送信先・通知を順に読む
   public var accessibilityLabel: String {
-    ([title] + messages).joined(separator: "。")
+    var lines = [title]
+    if let destination {
+      lines.append(destination)
+    }
+    return (lines + messages).joined(separator: "。")
   }
 
   /// 表示したときに VoiceOver へ読み上げを依頼する文言。依頼しないときは `nil`。
   ///
-  /// 失敗と通知だけを読み上げる。録音中の読み上げは音声がマイクに入って認識結果に混ざるおそれがあり、
+  /// 失敗・通知・挿入完了だけを読み上げる。録音中の読み上げは音声がマイクに入って認識結果に混ざるおそれがあり、
   /// 認識・整形・挿入の各段階は短い間隔で変わって読み上げが途切れ続けるため、読み上げない（要素のラベルでは読める）。
   public var announcement: String? {
     switch indicator {
-    case .failure, .notice: accessibilityLabel
+    case .failure, .notice, .completed: accessibilityLabel
     case .recording: nil
     case .processing: messages.isEmpty ? nil : accessibilityLabel
     }
@@ -78,9 +123,12 @@ public struct HUDPresentation: Hashable, Sendable {
     return Set(noticeTexts).isSubset(of: previous.noticeTexts) ? nil : announcement
   }
 
-  /// 表示している通知の文言（通知だけを残しているときは1行目を含む）
+  /// 表示している通知の文言（通知・挿入完了だけを残しているときは1行目を含む）
   private var noticeTexts: [String] {
-    indicator == .notice ? [title] + messages : messages
+    switch indicator {
+    case .notice, .completed: [title] + messages
+    case .recording, .processing, .failure: messages
+    }
   }
 
   static func text(for status: HUDStatus) -> String {
@@ -93,6 +141,103 @@ public struct HUDPresentation: Hashable, Sendable {
     case .failed(.recognition): "認識に失敗しました"
     case .failed(.refinement): "整形に失敗しました"
     case .failed(.insertion): "挿入に失敗しました"
+    }
+  }
+
+  /// 挿入完了の1行目。読み戻しで確かめられなかったときは、入ったと言い切らない（INS-05）
+  static func insertionText(for insertion: HUDInsertion) -> String {
+    if insertion.isConfirmed {
+      return "\(insertion.appName) に挿入しました"
+    }
+    return "\(insertion.appName) へ入力しました（反映を確認できません）"
+  }
+
+  /// 処理中の段階。録音中・失敗の表示中は `nil`
+  private static func stage(for status: HUDStatus) -> HUDProcessingStage? {
+    switch status {
+    case .recognizing: .recognition
+    case .refining: .refinement
+    case .inserting: .insertion
+    case .recording, .failed: nil
+    }
+  }
+
+  /// クラウドへ送る間の送信先。クラウド STT は録音を止めた後（認識中）に音声を送る（#188）。
+  /// 整形はクラウドへ送ると決めた後（`HUDSessionInfo.refinementDestination`）だけ出す
+  private static func destination(for status: HUDStatus, info: HUDSessionInfo) -> String? {
+    switch status {
+    case .recognizing:
+      info.details?.speechRecognition == .cloud ? "OpenAI へ送信" : nil
+    case .refining:
+      info.refinementDestination.map(destinationText(for:))
+    case .recording, .inserting, .failed:
+      nil
+    }
+  }
+
+  private static func destinationText(for destination: CloudAIProviderKind) -> String {
+    switch destination {
+    case .claude: "Claude へ送信"
+    case .chatGPT: "ChatGPT へ送信"
+    }
+  }
+
+  /// キーの案内。キャンセルが効く間だけ出す（挿入中・失敗の表示中は出さない, REC-01）
+  private static func keyHints(for status: HUDStatus, hints: HUDKeyHints) -> [HUDKeyHint] {
+    var result: [HUDKeyHint] = []
+    switch status {
+    case .recording:
+      if let stopKey = hints.stopKey {
+        let action = hints.stopsOnRelease ? "離して停止" : "停止"
+        result.append(HUDKeyHint(key: stopKey, action: action))
+      }
+      if let cancelKey = hints.cancelKey {
+        result.append(HUDKeyHint(key: cancelKey, action: "キャンセル"))
+      }
+    case .recognizing, .refining:
+      if let cancelKey = hints.cancelKey {
+        result.append(HUDKeyHint(key: cancelKey, action: "キャンセル（挿入しません）"))
+      }
+    case .inserting, .failed:
+      break
+    }
+    return result
+  }
+
+  /// 録音中のチップ。Raw はスタイルを使わないため、アプリ別スタイルのチップを出さない
+  private static func chips(for details: HUDSessionDetails) -> [String] {
+    var chips = [modeText(for: details.refinement.mode)]
+    if let style = details.refinement.style {
+      let label = styleText(for: style)
+      chips.append(details.appName.map { "\($0)：\(label)" } ?? label)
+    }
+    chips.append(speechRecognitionText(for: details.speechRecognition))
+    return chips
+  }
+
+  private static func modeText(for mode: HUDRefinementMode) -> String {
+    switch mode {
+    case .raw: "Raw"
+    case .natural: "Natural"
+    case .structured: "Structured"
+    }
+  }
+
+  private static func styleText(for style: RefinementStyle) -> String {
+    switch style {
+    case .standard: "標準"
+    case .concise: "簡潔"
+    case .polite: "丁寧"
+    case .technical: "技術語"
+    case .command: "コマンド"
+    case .document: "文書"
+    }
+  }
+
+  private static func speechRecognitionText(for kind: HUDSpeechRecognitionKind) -> String {
+    switch kind {
+    case .local: "ローカルSTT"
+    case .cloud: "クラウドSTT"
     }
   }
 
@@ -190,10 +335,15 @@ public struct HUDPresentation: Hashable, Sendable {
 }
 
 // Realtime Preview の認識テキストをログに出さないよう、文字列表現とリフレクションでは `transcript` の文字数だけを出す。
+// チップ（アプリ名を含む）とキーの案内は件数だけを出す。
 extension HUDPresentation: CustomStringConvertible, CustomReflectable {
   public var description: String {
     "HUDPresentation(indicator: \(indicator), title: \(title), messages: \(messages), "
-      + "transcript: \(transcript.map(String.init(describing:)) ?? "nil"))"
+      + "transcript: \(transcript.map(String.init(describing:)) ?? "nil"), "
+      + "recordingTime: \(recordingTimeText ?? "nil"), "
+      + "inputLevelBars: \(inputLevelBars.map { "\($0)" } ?? "nil"), "
+      + "chips: \(chips.count), stage: \(stage.map(String.init(describing:)) ?? "nil"), "
+      + "destination: \(destination ?? "nil"), keyHints: \(keyHints.count))"
   }
 
   public var customMirror: Mirror {
@@ -211,6 +361,8 @@ public enum HUDIndicator: Hashable, Sendable {
   case failure
   /// セッション終了後に通知だけを残している
   case notice
+  /// 挿入を終え、挿入先を残している（通知が重なれば2行目以降に出す）
+  case completed
 
   init(_ status: HUDStatus) {
     switch status {

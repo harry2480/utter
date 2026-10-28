@@ -6,8 +6,12 @@ import UtterPersistence
 /// utter のカスタムキーボード（iOS-02〜09）。
 ///
 /// OS の状態を UtterCore の `KeyboardEnvironment` に変換し、提示する操作と案内は `KeyboardAvailability` に、
-/// 共有結果の選択・プレビュー・二重挿入の防止は UtterPersistence の `SharedResultInsertionCoordinator` に任せる。
+/// 共有結果の選択・プレビュー・二重挿入の防止・消す操作は UtterPersistence の `SharedResultInsertionCoordinator` に、
+/// 結果ごとに出す操作（挿入・入っていた・もう一度入れる・消す）と残り時間は `SharedResultKeyboardPanel` に任せる。
 /// ここは画面と OS の値の受け渡しだけを持つ。
+///
+/// - 挿入を確認できなくても自動ではやり直さず、「入っていた」か「もう一度入れる」を利用者に選んでもらう（iOS-IPC-03）
+/// - フルアクセスをオンにする手順は表示するだけで、設定アプリを開かない（iOS-03, iAC-07）
 ///
 /// - マイク録音・STT モデル・クラウド認証トークン・ネットワーク送信を持たない（iAC-08）。録音は本体アプリで行う
 /// - 挿入は `UITextDocumentProxy` だけで行い、利用者の明示的な挿入操作まで挿入しない（iOS-05, iAC-04）
@@ -51,10 +55,19 @@ final class KeyboardViewController: UIInputViewController {
   private let previewTextLabel = KeyboardViewController.makeLabel()
   private let statusLabel = KeyboardViewController.makeLabel()
   private let hostAppLabel = KeyboardViewController.makeLabel()
+  private let remainingLabel = KeyboardViewController.makeLabel()
+  private let fullAccessStepsLabel = KeyboardViewController.makeLabel()
   private let insertButton = KeyboardViewController.makeActionButton(title: "挿入")
+  private let confirmInsertedButton = KeyboardViewController.makeActionButton(title: "入っていた")
+  private let reinsertButton = KeyboardViewController.makeActionButton(title: "もう一度入れる")
+  private let discardButton = KeyboardViewController.makeActionButton(title: "消す")
   private let reloadButton = KeyboardViewController.makeActionButton(title: "更新")
+  private let fullAccessStepsButton = KeyboardViewController.makeActionButton(
+    title: KeyboardMessages.showFullAccessSteps)
   private let openHostAppButton = KeyboardViewController.makeActionButton(title: "本体アプリを開く")
+  private let primaryButtons = UIStackView()
   private let sharedResultSection = UIStackView()
+  private let fullAccessSection = UIStackView()
   private let hostAppSection = UIStackView()
 
   private var snapshot = SharedSnapshot(container: .notConfigured, preview: .loading)
@@ -62,13 +75,25 @@ final class KeyboardViewController: UIInputViewController {
   private var loadedRestrictions: Set<KeyboardFieldRestriction>?
   /// 古い読み込みの結果で上書きしないための番号
   private var loadGeneration = 0
-  private var isInserting = false
+  /// 挿入・消す・挿入済みにする操作の途中。終わるまで次の操作を受けない
+  private var isBusy = false
   private var statusMessage: String?
   private var hostAppOpenFailed = false
+  private var showsFullAccessSteps = false
 
   private var network = NetworkReachability.unknown
   private var networkMonitor: NWPathMonitor?
   private var networkTask: Task<Void, Never>?
+  /// 表示している間、残り時間を更新する
+  private var clockTask: Task<Void, Never>?
+
+  /// 共有結果への操作と、そのボタン。並べる順は `SharedResultKeyboardPanel.actions` が決める
+  private var actionButtons: [(SharedResultKeyboardAction, UIButton)] {
+    [
+      (.insert, insertButton), (.confirmInserted, confirmInsertedButton),
+      (.reinsert, reinsertButton), (.discard, discardButton),
+    ]
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -80,13 +105,16 @@ final class KeyboardViewController: UIInputViewController {
     super.viewWillAppear(animated)
     statusMessage = nil
     hostAppOpenFailed = false
+    showsFullAccessSteps = false
     startNetworkMonitor()
+    startClock()
     reload()
   }
 
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
     stopNetworkMonitor()
+    stopClock()
   }
 
   override func viewWillLayoutSubviews() {
@@ -198,33 +226,47 @@ final class KeyboardViewController: UIInputViewController {
 
   // MARK: 操作
 
-  private func insertSharedResult() {
-    guard !isInserting, case .ready(let coordinator, _) = services,
+  /// 表示している共有結果に対して出す操作と残り時間。表示する時刻で決める
+  private func currentPanel() -> SharedResultKeyboardPanel? {
+    guard case .loaded(let preview) = snapshot.preview else {
+      return nil
+    }
+    return SharedResultKeyboardPanel(preview, at: Date())
+  }
+
+  /// 利用者が選んだ共有結果への操作を行う。挿入結果が不明でも、自動ではやり直さない（iOS-IPC-03）
+  private func perform(_ action: SharedResultKeyboardAction) {
+    guard !isBusy, case .ready(let coordinator, _) = services,
       let sessionID = snapshot.sessionID
     else {
       return
     }
-    let confirmedReinsertion: Bool
-    switch snapshot.preview {
-    case .loaded(.insertable): confirmedReinsertion = false
-    case .loaded(.needsConfirmation): confirmedReinsertion = true
-    default: return
+    // 表示し直す前に期限を過ぎるなどして操作を出さなくなっていれば、何もせず表示を最新にする
+    guard currentPanel()?.actions.contains(action) == true else {
+      render()
+      return
     }
-    // 挿入の直前に、その時点の入力欄で判定し直す（`KeyboardAvailability` の契約）
+    // 操作の直前に、その時点の入力欄で判定し直す（`KeyboardAvailability` の契約）
     guard currentAvailability().actions.contains(.sharedResult) else {
       statusMessage = KeyboardMessages.restrictedAtInsertion
       reload()
       return
     }
-    isInserting = true
+    isBusy = true
     render()
+    let generation = loadGeneration
     Task {
-      let outcome = try? await coordinator.insert(
-        sessionID: sessionID, confirmedReinsertion: confirmedReinsertion)
-      isInserting = false
-      statusMessage = KeyboardMessages.outcome(outcome)
-      if outcome == .inserted {
-        // 挿入した結果は削除済み。続けて別の結果を出さず、次にキーボードを表示したときに読み直す
+      let (message, finished) = await Self.run(
+        action, sessionID: sessionID, coordinator: coordinator)
+      isBusy = false
+      // 操作の間に読み直した（「更新」・キーボードの再表示・入力欄の移動）なら、古い操作の結果で表示を上書きしない
+      guard generation == loadGeneration, snapshot.sessionID == sessionID else {
+        reload()
+        return
+      }
+      statusMessage = message
+      if finished {
+        // 挿入した・消した結果は削除済み。続けて別の結果を出さず、次にキーボードを表示したときに読み直す
         loadGeneration += 1
         snapshot.sessionID = nil
         snapshot.preview = .cleared
@@ -232,6 +274,25 @@ final class KeyboardViewController: UIInputViewController {
       } else {
         reload()
       }
+    }
+  }
+
+  /// 共有結果への操作を行い、表示する文言と、結果を使い終えたか（挿入済み・消した）を返す
+  private static func run(
+    _ action: SharedResultKeyboardAction, sessionID: SessionID,
+    coordinator: SharedResultInsertionCoordinator
+  ) async -> (message: String, finished: Bool) {
+    switch action {
+    case .insert, .reinsert:
+      let outcome = try? await coordinator.insert(
+        sessionID: sessionID, confirmedReinsertion: action == .reinsert)
+      return (KeyboardMessages.outcome(outcome), outcome == .inserted)
+    case .confirmInserted:
+      let outcome = try? await coordinator.confirmInserted(sessionID: sessionID)
+      return (KeyboardMessages.dismissal(outcome, action: action), outcome == .dismissed)
+    case .discard:
+      let outcome = try? await coordinator.discard(sessionID: sessionID)
+      return (KeyboardMessages.dismissal(outcome, action: action), outcome == .dismissed)
     }
   }
 
@@ -247,6 +308,25 @@ final class KeyboardViewController: UIInputViewController {
         self?.render()
       }
     }
+  }
+
+  // MARK: 残り時間
+
+  /// 表示している間、残り時間と期限切れを画面に反映するため、定期的に表示し直す（読み込み直しはしない）
+  private func startClock() {
+    guard clockTask == nil else { return }
+    clockTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(15))
+        guard !Task.isCancelled, let self else { return }
+        render()
+      }
+    }
+  }
+
+  private func stopClock() {
+    clockTask?.cancel()
+    clockTask = nil
   }
 
   // MARK: ネットワーク（案内のための観測だけ。送信はしない）
@@ -299,22 +379,30 @@ final class KeyboardViewController: UIInputViewController {
     noticesLabel.text = notices.joined(separator: "\n")
     noticesLabel.isHidden = notices.isEmpty
 
+    // フルアクセスの手順は、利用者が「オンにする手順を見る」を押したときだけ出す（iAC-07）
+    let offersFullAccessSteps = availability.actions.contains(.fullAccessSteps)
+    fullAccessSection.isHidden = !offersFullAccessSteps
+    fullAccessStepsButton.configuration?.title =
+      showsFullAccessSteps
+      ? KeyboardMessages.hideFullAccessSteps : KeyboardMessages.showFullAccessSteps
+    fullAccessStepsLabel.text = KeyboardMessages.fullAccessSteps
+    fullAccessStepsLabel.isHidden = !(offersFullAccessSteps && showsFullAccessSteps)
+
     let showsSharedResult = availability.actions.contains(.sharedResult)
     sharedResultSection.isHidden = !showsSharedResult
+    let panel = showsSharedResult ? currentPanel() : nil
     var previewText: String?
     var previewMessage: String?
     switch snapshot.preview {
     case .loading:
       previewMessage = KeyboardMessages.previewLoading
     case .loaded(let preview):
-      previewMessage = KeyboardMessages.preview(preview)
+      previewMessage =
+        panel?.isExpired == true
+        ? KeyboardMessages.previewExpiredWhileShown : KeyboardMessages.preview(preview)
       switch preview {
-      case .insertable(let text):
+      case .insertable(let text, _), .needsConfirmation(let text, _):
         previewText = text
-        insertButton.configuration?.title = "挿入"
-      case .needsConfirmation(let text):
-        previewText = text
-        insertButton.configuration?.title = "再挿入"
       case .notFound, .notInsertable:
         break
       }
@@ -323,14 +411,20 @@ final class KeyboardViewController: UIInputViewController {
     case .cleared:
       break
     }
-    let canInsert = showsSharedResult && previewText != nil
     previewMessageLabel.text = previewMessage
     previewMessageLabel.isHidden = previewMessage == nil
+    let remaining = panel?.remainingMinutes.map(KeyboardMessages.remaining(minutes:))
+    remainingLabel.text = remaining
+    remainingLabel.isHidden = remaining == nil
     // 本文は画面に表示するだけ。ログ・保存には出さない
     previewTextLabel.text = showsSharedResult ? previewText : nil
-    previewTextLabel.isHidden = !canInsert
-    insertButton.isHidden = !canInsert
-    insertButton.isEnabled = canInsert && !isInserting
+    previewTextLabel.isHidden = !showsSharedResult || previewText == nil
+    let actions = panel?.actions ?? []
+    for (action, button) in actionButtons {
+      button.isHidden = !actions.contains(action)
+      button.isEnabled = !isBusy
+    }
+    primaryButtons.isHidden = !actions.contains { $0 != .discard }
 
     statusLabel.text = statusMessage
     statusLabel.isHidden = statusMessage == nil
@@ -355,12 +449,20 @@ final class KeyboardViewController: UIInputViewController {
     keysView.globeButton.addTarget(
       self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
 
-    insertButton.addAction(
-      UIAction { [weak self] _ in self?.insertSharedResult() }, for: .touchUpInside)
+    for (action, button) in actionButtons {
+      button.addAction(
+        UIAction { [weak self] _ in self?.perform(action) }, for: .touchUpInside)
+    }
     reloadButton.addAction(
       UIAction { [weak self] _ in
         self?.statusMessage = nil
         self?.reload()
+      }, for: .touchUpInside)
+    fullAccessStepsButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        showsFullAccessSteps.toggle()
+        render()
       }, for: .touchUpInside)
     openHostAppButton.addAction(
       UIAction { [weak self] _ in self?.openHostApp() }, for: .touchUpInside)
@@ -368,15 +470,28 @@ final class KeyboardViewController: UIInputViewController {
     previewTextLabel.font = .preferredFont(forTextStyle: .body)
     previewTextLabel.textColor = .label
     previewTextLabel.numberOfLines = 4
+    remainingLabel.textColor = .label
+    discardButton.configuration?.baseForegroundColor = .systemRed
 
-    let sharedButtons = UIStackView(arrangedSubviews: [insertButton, reloadButton])
-    sharedButtons.axis = .horizontal
-    sharedButtons.spacing = 6
-    sharedButtons.distribution = .fillEqually
-    for (section, views) in [
-      (sharedResultSection, [previewMessageLabel, previewTextLabel, sharedButtons]),
+    // 挿入・入っていた・もう一度入れるの行と、消す・更新の行に分ける
+    for button in [insertButton, confirmInsertedButton, reinsertButton] {
+      primaryButtons.addArrangedSubview(button)
+    }
+    let secondaryButtons = UIStackView(arrangedSubviews: [discardButton, reloadButton])
+    for row in [primaryButtons, secondaryButtons] {
+      row.axis = .horizontal
+      row.spacing = 6
+      row.distribution = .fillEqually
+    }
+    let sharedResultViews: [UIView] = [
+      previewMessageLabel, remainingLabel, previewTextLabel, primaryButtons, secondaryButtons,
+    ]
+    let sections: [(UIStackView, [UIView])] = [
+      (sharedResultSection, sharedResultViews),
+      (fullAccessSection, [fullAccessStepsButton, fullAccessStepsLabel]),
       (hostAppSection, [hostAppLabel, openHostAppButton]),
-    ] {
+    ]
+    for (section, views) in sections {
       for view in views {
         section.addArrangedSubview(view)
       }
@@ -385,7 +500,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     let panel = UIStackView(arrangedSubviews: [
-      noticesLabel, statusLabel, sharedResultSection, hostAppSection,
+      noticesLabel, fullAccessSection, statusLabel, sharedResultSection, hostAppSection,
     ])
     panel.axis = .vertical
     panel.spacing = 8

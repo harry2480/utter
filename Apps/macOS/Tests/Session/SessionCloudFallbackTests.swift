@@ -4,6 +4,16 @@ import UtterAI
 import UtterCore
 import UtterPersistence
 
+/// HUD へ知らせた送信先を順に記録する
+@MainActor
+final class SentDestinations {
+  private(set) var kinds: [CloudAIProviderKind] = []
+
+  func append(_ kind: CloudAIProviderKind) {
+    kinds.append(kind)
+  }
+}
+
 /// 失敗時に別のクラウドへ切り替える設定（AI-04, AC-06, #199）。
 /// Claude と ChatGPT への送信は数えるだけの送信部に置き換え、ネットワークに出ない。
 @MainActor
@@ -33,7 +43,8 @@ struct SessionCloudFallbackTests {
   }
 
   private func refine(
-    _ settings: AppSettings, chatGPT: PlanStreamingTransport, claude: CountingTransport
+    _ settings: AppSettings, chatGPT: PlanStreamingTransport, claude: CountingTransport,
+    sent: SentDestinations = SentDestinations()
   ) async throws -> SessionRefinementResult {
     try store.save(settings)
     let database = database
@@ -51,7 +62,8 @@ struct SessionCloudFallbackTests {
       },
       now: { RefinementSettings.now }, calendar: RefinementSettings.calendar)
     return try await pipeline.refine(
-      Self.transcript, frontmostApp: "com.example.editor", sensitivity: { Self.safeInput })
+      Self.transcript, frontmostApp: "com.example.editor", sensitivity: { Self.safeInput },
+      willSend: { sent.append($0) })
   }
 
   private static func usageLimit() -> PlanStreamingTransport {
@@ -86,10 +98,14 @@ struct SessionCloudFallbackTests {
     let chatGPT = PlanStreamingTransport()
     let claude = CountingTransport(.status(500))
 
-    let result = try await refine(Self.ready(selected: .claude), chatGPT: chatGPT, claude: claude)
+    let sent = SentDestinations()
+    let result = try await refine(
+      Self.ready(selected: .claude), chatGPT: chatGPT, claude: claude, sent: sent)
 
     #expect(claude.count == 1)
     #expect(chatGPT.count == 1)
+    // HUD の送信先は、実際に送る直前にそれぞれ知らせる
+    #expect(sent.kinds == [.claude, .chatGPT])
     #expect(result.route == .cloud)
     #expect(result.text == "明日の会議は10時からです。")
     // CTX-03: 切り替え先へも前面アプリの bundle ID を送らない
@@ -117,8 +133,11 @@ struct SessionCloudFallbackTests {
     claudeFirst.consentState.grant(.transmission(.textRefinement(.claude)))
     let chatGPT = PlanStreamingTransport()
     let failing = CountingTransport(.status(500))
-    let fromClaude = try await refine(claudeFirst, chatGPT: chatGPT, claude: failing)
+    let sent = SentDestinations()
+    let fromClaude = try await refine(claudeFirst, chatGPT: chatGPT, claude: failing, sent: sent)
     #expect(chatGPT.count == 0)
+    // 送らなかった切り替え先は知らせない
+    #expect(sent.kinds == [.claude])
     guard case .cloudFallback(.providerFailed) = fromClaude.route else {
       Issue.record("退避していない: \(fromClaude.route)")
       return

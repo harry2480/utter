@@ -107,10 +107,18 @@ final class SessionRefinementPipeline: SessionRefining {
     return settings.refinementEngine == .cloudAI && RefinementMode(settings.refinementMode) != .raw
   }
 
+  func refinementSummary(frontmostApp: String?) -> HUDRefinementSummary {
+    let settings = settingsStore.load()
+    let mode = HUDRefinementMode(settings.refinementMode)
+    let style = settings.contextStyleResolver.app.style(forBundleID: frontmostApp)
+    return HUDRefinementSummary(mode: mode, style: style)
+  }
+
   func refine(
     _ transcript: String,
     frontmostApp: String?,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     let settings = settingsStore.load()
     let mode = RefinementMode(settings.refinementMode)
@@ -146,37 +154,43 @@ final class SessionRefinementPipeline: SessionRefining {
     guard settings.refinementEngine == .cloudAI else { return local(.localEngineSelected) }
     let selected = settings.cloudRefinementProvider
     let first = try await refineInCloud(
-      request, with: selected, selected: selected, settings: settings, sensitivity: sensitivity)
+      request, with: selected, selected: selected, settings: settings, sensitivity: sensitivity,
+      willSend: willSend)
     // 送ろうとして退避したときだけ、設定で選んでいればもう一方へ切り替える（AI-04。既定は切り替えない）
     guard case .cloudFallback = first.route, settings.cloudRefinementFallbackEnabled else {
       return first
     }
     let switched = try await refineInCloud(
       request, with: selected.alternative, selected: selected, settings: settings,
-      sensitivity: sensitivity)
+      sensitivity: sensitivity, willSend: willSend)
     return switched.route == .cloud ? switched : first
   }
 
-  /// `provider` へ送る。`selected` は設定で選んだ送信先で、`provider` と違えば失敗時の切り替え先として送る
+  /// `provider` へ送る。`selected` は設定で選んだ送信先で、`provider` と違えば失敗時の切り替え先として送る。
+  /// `willSend` は、その送信先へ実際に送る直前（同意・入力先・予算の確認と予約の後）にだけ呼ばれ、送らなければ呼ばれない
   private func refineInCloud(
     _ request: RefinementRequest, with provider: CloudRefinementProvider,
     selected: CloudRefinementProvider, settings: AppSettings,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     switch provider {
     case .claude:
       return try await refineWithClaude(
-        request, selected: selected, settings: settings, sensitivity: sensitivity)
+        request, selected: selected, settings: settings, sensitivity: sensitivity,
+        willSend: willSend)
     case .chatGPTSignIn:
       return try await refineWithChatGPT(
-        request, selected: selected, settings: settings, sensitivity: sensitivity)
+        request, selected: selected, settings: settings, sensitivity: sensitivity,
+        willSend: willSend)
     }
   }
 
   /// Claude へ送る。予算の上限を確かめてから送る（AI-04, AI-05）
   private func refineWithClaude(
     _ request: RefinementRequest, selected: CloudRefinementProvider, settings: AppSettings,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
       SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
@@ -221,8 +235,10 @@ final class SessionRefinementPipeline: SessionRefining {
     let decision = Self.decide(sensitivity(), settings: latest)
     let outcome: RefinementOutcome
     do throws(CancellationError) {
+      // 送信先は、Router が予算の予約まで済ませてプロバイダーを呼ぶ直前に知らせる
       outcome = try await router.refine(
-        request, consent: { consent }, budget: budget, sensitivity: { decision })
+        request, consent: { consent }, budget: budget, sensitivity: { decision },
+        willSend: { await willSend(.claude) })
     } catch {
       // 送信後にキャンセルされても推定費用は記録されるため、保存の失敗は確かめる
       await noteUsagePersistence(of: budget.guard)
@@ -235,7 +251,8 @@ final class SessionRefinementPipeline: SessionRefining {
   /// Sign in with ChatGPT へ送る（#50）。予算は使わず、サインインとプラン利用の許可を確かめてから送る
   private func refineWithChatGPT(
     _ request: RefinementRequest, selected: CloudRefinementProvider, settings: AppSettings,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor @Sendable (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
       SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
@@ -271,7 +288,8 @@ final class SessionRefinementPipeline: SessionRefining {
     let decision = Self.decide(sensitivity(), settings: latest)
     // トークン課金ではないため予算は渡さない（`ChatGPTPlanProvider.isTokenBilled == false`）
     let outcome = try await router.refine(
-      request, consent: { consent }, budget: nil, sensitivity: { decision })
+      request, consent: { consent }, budget: nil, sensitivity: { decision },
+      willSend: { await willSend(.chatGPT) })
     return Self.result(of: outcome)
   }
 
@@ -433,6 +451,17 @@ extension CloudRefinementProvider {
     switch self {
     case .claude: .chatGPTSignIn
     case .chatGPTSignIn: .claude
+    }
+  }
+}
+
+extension HUDRefinementMode {
+  /// 保存した整形モード（TXT-01）。HUD のチップに出す
+  init(_ setting: RefinementModeSetting) {
+    switch setting {
+    case .raw: self = .raw
+    case .natural: self = .natural
+    case .structured: self = .structured
     }
   }
 }

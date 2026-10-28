@@ -73,6 +73,11 @@ struct SessionCoordinatorRefinementTests {
     #expect(await eventually { retention.events.contains(where: Self.isEnd) })
   }
 
+  /// 1行目・通知・段階が同じ表示か（チップ・送信先などを除いて比べる）
+  private static func sameText(_ lhs: HUDPresentation, _ rhs: HUDPresentation) -> Bool {
+    lhs.title == rhs.title && lhs.messages == rhs.messages && lhs.stage == rhs.stage
+  }
+
   private static func isEnd(_ event: StubAudioRetention.Event) -> Bool {
     if case .end = event { true } else { false }
   }
@@ -151,9 +156,11 @@ struct SessionCoordinatorRefinementTests {
     let notice = HUDNotice.refinementFellBack(RefinementFallbackNotice(reason: reason))
     let refining = try #require(HUDPresentation(HUDContent(status: .refining, notice: notice)))
     let inserting = try #require(HUDPresentation(HUDContent(status: .inserting, notice: notice)))
-    #expect(presenter.shown.contains(refining))
-    #expect(presenter.shown.contains(inserting))
+    #expect(presenter.shown.contains { Self.sameText($0, refining) })
+    #expect(presenter.shown.contains { Self.sameText($0, inserting) })
     #expect(presenter.current == HUDPresentation(HUDContent(status: nil, notice: notice)))
+    // 送ると決めた整形中は送信先を出す（REC-03）
+    #expect(presenter.shown.contains { $0.title == "整形中" && $0.destination == "Claude へ送信" })
   }
 
   @Test("AC-16: 送らなかったとき（同意なし）・クラウド整形が通ったときは、退避の通知を出さない")
@@ -171,6 +178,9 @@ struct SessionCoordinatorRefinementTests {
       let shown = presenter.shown
       #expect(shown.allSatisfy { $0.messages.isEmpty })
       #expect(presenter.current == nil)
+      // 送信先は送ったときだけ出す（REC-03, AC-06）
+      let destinations = shown.compactMap(\.destination)
+      #expect(destinations == (consented ? ["Claude へ送信"] : []))
     }
   }
 
