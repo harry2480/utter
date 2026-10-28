@@ -41,8 +41,12 @@ final class TemporaryAudioStoreQueue {
   ///
   /// App Group の共有コンテナには置かない（CLAUDE.md「プライバシー」）。ディレクトリは所有者だけが読み書きでき（0700）、
   /// ファイルは 0600 で保存する（`TemporaryAudioStore`）。Time Machine などのバックアップからは除外する。
-  /// ディスク上の暗号化は FileVault に任せる（macOS には iOS のファイル保護クラスに当たる仕組みがアプリ単位でない）
-  static func applicationStore(bundle: Bundle = .main) -> TemporaryAudioStore? {
+  /// ディスク上の暗号化は FileVault に任せる（macOS には iOS のファイル保護クラスに当たる仕組みがアプリ単位でない）。
+  /// 保持期限は設定画面で選んだ時間（`AppSettings.temporaryAudioRetentionHours`。既定は24時間）
+  static func applicationStore(
+    bundle: Bundle = .main,
+    retentionHours: Int = AppSettings.defaultTemporaryAudioRetentionHours
+  ) -> TemporaryAudioStore? {
     guard
       let support = FileManager.default.urls(
         for: .applicationSupportDirectory, in: .userDomainMask
@@ -52,7 +56,9 @@ final class TemporaryAudioStoreQueue {
       support
       .appendingPathComponent(bundle.bundleIdentifier ?? "utter", isDirectory: true)
       .appendingPathComponent("TemporaryAudio", isDirectory: true)
-    return try? TemporaryAudioStore(directory: directory, protectFile: excludeFromBackup)
+    return try? TemporaryAudioStore(
+      directory: directory, retention: .seconds(retentionHours * 60 * 60),
+      protectFile: excludeFromBackup)
   }
 
   @Sendable

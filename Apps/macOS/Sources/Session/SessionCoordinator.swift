@@ -201,6 +201,8 @@ final class SessionCoordinator {
     case .startRecording: startRecording()
     case .stopRecording: stopRecording()
     case .cancelSession: cancel()
+    // 確かめるのは `SessionCancelConfirmation`（AppComposition が渡す）。ここではキャンセルしない
+    case .confirmCancel: break
     }
   }
 

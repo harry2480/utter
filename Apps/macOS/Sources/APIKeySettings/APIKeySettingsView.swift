@@ -2,39 +2,18 @@ import Security
 import SwiftUI
 import UtterAI
 
-/// API キーの設定画面（設定画面の「API キー」タブ, AC-12）。Claude（整形・Edit Mode）と OpenAI（クラウド STT, #188）の
-/// キーを別の項目で持つ。状態と操作はキーごとの `APIKeySettingsModel` が持つ。
-///
-/// - 入力欄は `SecureField`（伏せ字。コピー・切り取り・ドラッグで取り出せない）
-/// - 保存済みのキーは再表示しない。値に依存しない伏せ字で保存済みであることだけを示す
-/// - パスワードの自動入力・保存の候補に出さないよう `textContentType` を指定しない
-///   （パスワード管理に保存されると iCloud で同期されうるため）
-/// - 画面を閉じたら入力を消す
-struct APIKeySettingsView: View {
-  /// Claude API キー（整形・Edit Mode）
-  let claude: APIKeySettingsModel
-  /// OpenAI API キー（クラウド STT, #188）
-  let openAI: APIKeySettingsModel
-
-  var body: some View {
-    Form {
-      APIKeySection(model: claude, labels: .claude)
-      APIKeySection(model: openAI, labels: .openAI)
-    }
-    .formStyle(.grouped)
-    .onAppear {
-      claude.refresh()
-      openAI.refresh()
-    }
-    .onDisappear {
-      claude.clearInput()
-      openAI.clearInput()
-    }
-  }
-}
+// API キーの欄（AC-12）。Claude（整形・Edit Mode）は設定画面の「整形の実行先と費用」タブに、
+// OpenAI（クラウド STT, #188）は「認識モデルと省電力」タブに置く。状態と操作はキーごとの `APIKeySettingsModel` が持つ。
+//
+// - 入力欄は `SecureField`（伏せ字。コピー・切り取り・ドラッグで取り出せない）
+// - 保存済みのキーは再表示しない。値に依存しない伏せ字で保存済みであることだけを示す
+// - パスワードの自動入力・保存の候補に出さないよう `textContentType` を指定しない
+//   （パスワード管理に保存されると iCloud で同期されうるため）
+// - 欄が消えたら（タブを移った・画面を閉じた）入力を消す。置く側で `refresh()` と `clearInput()` を呼ぶ
+// - キーの保存・削除はこの欄のボタンですぐに行い、設定画面の下の「保存」とは別に扱う
 
 /// キーごとの見出し・入力例・削除の説明
-private struct APIKeyLabels {
+struct APIKeyLabels {
   let title: String
   let placeholder: String
   let deletionMessage: String
@@ -48,7 +27,7 @@ private struct APIKeyLabels {
 }
 
 /// 1つのキーの状態・入力・保存・削除
-private struct APIKeySection: View {
+struct APIKeySection: View {
   @Bindable var model: APIKeySettingsModel
   let labels: APIKeyLabels
   @State private var isConfirmingDeletion = false
@@ -77,9 +56,12 @@ private struct APIKeySection: View {
     } header: {
       Text(labels.title)
     } footer: {
-      Text("キーはこの Mac の Keychain にだけ保存し、iCloud で同期しません。保存したキーは表示しません。")
-        .font(.footnote)
-        .foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 4) {
+        Text("キーはこの Mac の Keychain にだけ保存し、iCloud で同期しません。保存したキーは表示しません。")
+        Text("キーはこの欄の「保存」ですぐに保存します（画面の下の「保存」とは別です）。")
+      }
+      .font(.footnote)
+      .foregroundStyle(.secondary)
     }
     .confirmationDialog(
       "\(labels.title)を削除しますか？", isPresented: $isConfirmingDeletion
