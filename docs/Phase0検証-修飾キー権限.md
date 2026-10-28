@@ -16,7 +16,7 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 
 完了条件「RegisterEventHotKey 等で可能な組み合わせと、イベントタップ・入力監視権限が必要な組み合わせを整理している」「ショートカット競合を検出する方法を確認している」のうち、実機なしで Apple の一次情報から確かめられる部分を記録する。実測・判定は人が行う。
 
-- 確認日：**2026-10-27**（下の出典をすべてこの日に取得した。再確認したときは、すべての出典を確認し直してこの日付を書き換える）
+- 確認日：**2026-10-27**（下の「出典」の表の A1〜A11・W1・S1〜S3 をすべてこの日に取得した。再確認したときは、この表の出典をすべて確認し直してこの日付を書き換える）。SDK のヘッダー（H1〜H9）は取得の方法も版の管理も違うため、下の「SDK のヘッダーで確認できた事実」に別の確認日と SDK の版を書く
 - 根拠にするのは Apple の公式ドキュメント・WWDC セッション・Apple サポートの文書と、Xcode に入っている macOS SDK のヘッダー（下の「SDK のヘッダーで確認できた事実」）だけ。第三者の記事・ライブラリ・第三者が転載したヘッダーの写しは根拠にしない
 - 「事実」は出典の記述の要約、「推測」は出典から utter に当てはめた解釈として分けて書く。出典で確かめられなかったものは「未確認」と書く
 
@@ -28,7 +28,7 @@ macOS の Accessibility API（CGEvent、EventMonitor）で以下を確認：
 | A2 | CGEventTapOptions（`listenOnly`・`defaultTap`） | https://developer.apple.com/documentation/coregraphics/cgeventtapoptions | 本文を取得 |
 | A3 | CGEventTapLocation.cgSessionEventTap | https://developer.apple.com/documentation/coregraphics/cgeventtaplocation/cgsessioneventtap | 本文を取得 |
 | A4 | CGEvent.tapEnable(tap:enable:)・CGEventType.tapDisabledByTimeout / tapDisabledByUserInput | https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:) | 本文を取得 |
-| A5 | CGEventType.flagsChanged・CGEventFlags.maskSecondaryFn | https://developer.apple.com/documentation/coregraphics/cgeventtype/flagschanged | 本文を取得 |
+| A5 | CGEventType.flagsChanged | https://developer.apple.com/documentation/coregraphics/cgeventtype/flagschanged | 本文を取得（`CGEventFlags.maskSecondaryFn` のページは出典にしていない。その定義はヘッダー [H7] で確かめた） |
 | A6 | NSEvent.addGlobalMonitorForEvents(matching:handler:) | https://developer.apple.com/documentation/appkit/nsevent/addglobalmonitorforevents(matching:handler:) | 本文を取得 |
 | A7 | NSEvent.addLocalMonitorForEvents(matching:handler:) | https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:) | 本文を取得 |
 | A8 | NSEvent.ModifierFlags.function | https://developer.apple.com/documentation/appkit/nsevent/modifierflags-swift.struct/function | 本文を取得 |
@@ -151,7 +151,7 @@ Apple の Web のリファレンスで確かめられなかった点を、Xcode 
 
 ### 2. 修飾キー単独・Fn（地球儀）キー
 
-- 事実：`CGEventFlags.maskSecondaryFn` は、キーボード・マウス・修飾キー変化のイベントで Fn キーが押されていることを表す（主にノートの内蔵キーボードにある）[A5]
+- 事実：`CGEventFlags.maskSecondaryFn`（`kCGEventFlagMaskSecondaryFn`、0x00800000）は `CGEventFlags` の「Special key identifiers」の1つとして定義されている [H7]。どの種類のイベントで付くかは、出典にした範囲では確かめていない（**未確認**）
 - 事実：`NSEvent.ModifierFlags.function` は F キー（F1 等）と移動キー（Help・Forward Delete・Home・End・Page Up / Down・矢印キー）でも付く [A8]
 - 事実：Carbon の修飾キーのマスクに `kEventKeyModifierFnMask`（Fn）がある [A11][H3]。ただし `RegisterEventHotKey` の修飾キーとして Fn を受け付けるかはヘッダーにも書かれておらず**未確認**（HotkeyProbe の `hotkey fn+f5`）
 - 事実：`RegisterEventHotKey` は必ず仮想キーコードを取り、キーなしを表す値はヘッダーに定義されていない [H1]。Carbon の修飾キーの値は左右を区別しない（右側のビットは「Not supported on Mac OS X」）[H5]。推測：Fn 単独・右 Option 単独などは `RegisterEventHotKey` では登録できず、イベントタップの `flagsChanged` で判定することになる。イベントタップ（入力監視）で取れるかを HotkeyProbe の `modifier` で確かめる
@@ -196,7 +196,7 @@ SDK のヘッダー（H1〜H9）との照合：
 - **食い違い（出典のないコメント）**：`SystemShortcuts` のコメントは「Fn / 地球儀キーの割り当てと、Control 2回押し等の音声入力ショートカットも一覧に出ない（HotkeyProbe の結果）」「macOS 26 の実機では Carbon 形式で返った（HotkeyProbe の結果）」と書く。後者と同じ内容（macOS 26 で Carbon 形式、Fn / 地球儀キーの項目が 0x20000）は `Verification/HotkeyProbe/Sources/HotkeyProbe/CarbonHotKey.swift` のコメントと [HotkeyProbe の README](../Verification/HotkeyProbe/README.md)「読み方」にも「開発機（macOS 26）では」として書かれている。前者（Fn / 地球儀キーと音声入力ショートカットが一覧に出ない）は README「読み方」に注意書きとして書かれているだけで、Probe のソースのコメントにはない。どちらも、この文書の「検証結果の記録」には日付・機種つきで記録されていない。ヘッダー [H2] からはどちらも言えない。実測の日付・OS・機種とともに「検証結果の記録」に書き写すか、コメントを「未確認」に直す必要がある（コードは変えていない）
 - 参考：`SystemShortcuts.loadEnabledBindings` はショートカットの登録時・設定画面・初回セットアップで呼ばれる。H2 は「不必要に呼ばない・性能が重要なコードで呼ばない」と書くが、キー入力ごとに呼ぶ経路はなく、食い違いはない
 - **確かめる点**：権限がないときに開くシステム設定の URL（`x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent` / `?Privacy_Accessibility`）は、公式の説明を見つけられなかった（未確認）。macOS 26 で該当の画面が開くかを実機で確かめる
-- **確かめる点**：下の「3. 権限要件」の表（検証前の想定）は、イベントタップによるキー監視と EventMonitor を「権限不要」としており、W1・A6 と食い違う。実装は権限が要る前提で書かれており、表の想定のほうが古い
+- **確かめる点**：下の「3. 権限要件」の表は、以前はイベントタップによるキー監視と EventMonitor を「権限不要」としており、W1・A6 と食い違っていた（実装は権限が要る前提で書かれていた）。一次情報と未確認を分けた暫定の表に置き換えた
 
 ### 実機で確かめること（一次情報で分からなかったもの）
 
@@ -252,15 +252,19 @@ SDK のヘッダー（H1〜H9）との照合：
 
 ### 3. 権限要件
 
-| 機能 | 権限 | 説明 |
+暫定の表（実測の前。一次情報で言えることと未確認を分けた。HotkeyProbe の結果で書き換える）：
+
+| 機能 | 権限 | 根拠・状況 |
 |------|------|------|
-| CGEvent キー監視 | ✅ 不要 | Global hotkey 検出 |
-| EventMonitor | ✅ 不要 | 標準許可 |
-| AX Element アクセス | ❌ **必須** | 入力欄の取得・操作 |
+| `RegisterEventHotKey`（修飾キー付きの組み合わせ） | **未確認** | ヘッダーに権限の記述がない [H1]。`hotkey ctrl+option+k` で確かめる |
+| イベントタップ `listenOnly`（`keyDown` / `keyUp` を含む） | 入力監視（一次情報） | W1。今の OS での挙動は `modifier` で確かめる |
+| イベントタップ `listenOnly`（`flagsChanged` だけ） | **未確認** | W1・H6 ともキーの押下・解放についてだけ述べている。`modifier right-option --flags-only` で確かめる |
+| イベントタップ `defaultTap`（Esc の捕捉） | アクセシビリティ（一次情報） | W1。`session` で確かめる |
+| `NSEvent` のグローバルモニタ（キー関連） | **未確認**（ドキュメントはアクセシビリティと書く） | A6 は入力監視の導入より前からの記述。`modifier right-command --backend nsevent` で確かめる |
+| `NSEvent` のローカルモニタ（自分のアプリへのイベント） | 不要（一次情報） | W1・A7 |
+| AX Element アクセス（入力欄の取得・操作, INS-01） | アクセシビリティ | A10 |
 
-**注意:** CGEvent での検出は権限不要だが、**入力欄へのアクセス（INS-01）には Accessibility 権限が必須**
-
-> この表は検証前の想定で、「CGEvent キー監視」「EventMonitor」を権限不要としている点は、上の「一次情報で確認できた事実」の W1・A6 と食い違う（listenOnly のイベントタップは入力監視、キー関連のグローバルモニタはアクセシビリティが要ると書かれている）。表は実測の結果で書き換える。
+> 以前の表（検証前の想定）は「CGEvent キー監視」「EventMonitor」を権限不要としていたが、W1・A6 と食い違うため、上の暫定の表に置き換えた。
 
 ### 4. メモリ・CPU 影響
 
