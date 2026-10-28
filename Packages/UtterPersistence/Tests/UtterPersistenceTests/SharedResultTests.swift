@@ -287,6 +287,46 @@ struct SharedResultTests {
     #expect(result.status == .consumed(at: after(20)))
   }
 
+  @Test(
+    "iOS-IPC-01〜03: 利用者が消した結果は、挿入待ち・結果不明・期限切れ・時刻の逆行のどれでも消費済みになり、挿入できない",
+    arguments: [1.0, 600, -1])
+  func discardsAsConsumed(_ seconds: TimeInterval) throws {
+    var ready = result()
+    var unresolved = try unknown()
+
+    try ready.markDiscarded(at: after(seconds))
+    try unresolved.markDiscarded(at: after(seconds))
+
+    for discarded in [ready, unresolved] {
+      #expect(discarded.status == .consumed(at: after(seconds)))
+      #expect(discarded.insertability(for: sessionID, at: after(seconds)) == .consumed)
+    }
+  }
+
+  @Test("iOS-IPC-03: 挿入中（猶予時間内）の結果は消さず、猶予時間を過ぎた挿入中は消せる")
+  func discardRespectsInsertionInProgress() throws {
+    var inProgress = try inserting(at: 1)
+    #expect(throws: SharedResultError.notInsertable(.inProgress)) {
+      try inProgress.markDiscarded(at: after(10))
+    }
+    #expect(inProgress.status == .inserting(startedAt: after(1)))
+
+    try inProgress.markDiscarded(at: after(100))
+    #expect(inProgress.status == .consumed(at: after(100)))
+  }
+
+  @Test("iOS-IPC-03: 消す記録は冪等で、挿入済みの結果は最初の時刻を保つ")
+  func discardIsIdempotent() throws {
+    var result = try inserting()
+    try result.markConsumed(at: after(2))
+    let revision = result.revision
+
+    try result.markDiscarded(at: after(5))
+
+    #expect(result.status == .consumed(at: after(2)))
+    #expect(result.revision == revision)
+  }
+
   @Test("iOS-IPC-03: 挿入を始めていない・消費済みの結果は、結果不明にできない")
   func cannotMarkUnknownOutsideInsertion() throws {
     var ready = result()

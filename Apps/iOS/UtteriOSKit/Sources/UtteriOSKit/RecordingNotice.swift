@@ -147,6 +147,26 @@ public enum ResultCopyNotice: Hashable, Sendable {
   }
 }
 
+/// 「この文章を消す」「録音し直す」で結果を消した操作の結果（iOS-IPC-01〜03, #201）。
+public enum ResultDiscardNotice: Hashable, Sendable {
+  case discarded
+  /// キーボードが挿入中（猶予時間内）のため消さなかった
+  case inserting
+  /// キーボードの操作などと重なり続け、消さなかった
+  case conflicted
+  /// 保存先を読み書きできず、消さなかった（端末のロック中・保存先の不具合など。種類は区別しない）
+  case failed
+
+  public var message: String {
+    switch self {
+    case .discarded: "この文章を消しました。キーボードからも入れられません。"
+    case .inserting: "キーボードが入れている途中のため、消しませんでした。少し待ってからもう一度試してください。"
+    case .conflicted: "ほかの操作と重なったため、消しませんでした。もう一度試してください。"
+    case .failed: "結果を読み書きできず、消しませんでした。端末のロック中なら、解除してからもう一度試してください。"
+    }
+  }
+}
+
 extension RecordingInterruptionCause {
   var message: String {
     switch self {
