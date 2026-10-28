@@ -4,7 +4,8 @@ import AppKit
 ///
 /// HUD と同じく非アクティブ化パネルに載せ、アプリをアクティブにせず、キーウインドウにもならない。
 /// 入力先アプリのフォーカスを奪わないため、確認を出している間に処理が終わっても、挿入先は変わらない
-/// （処理が終わったら `SessionCancelConfirmation` が答えを待たずに閉じる）。ボタンはクリックでだけ選べ、キー入力は受けない。
+/// （処理が終わったら `SessionCancelConfirmation` が答えを待たずに閉じる）。パネルはキー入力を受けないため、
+/// キーボードではショートカットをもう一度押すとキャンセルし、何もしなければ処理を続ける（`SessionCancelConfirmation`）。
 /// 発話本文は出さない。
 @MainActor
 final class CancelConfirmationPanel: NSObject, SessionCancelConfirmationPresenting {
@@ -73,7 +74,8 @@ final class CancelConfirmationPanel: NSObject, SessionCancelConfirmationPresenti
 
     let message = NSTextField(labelWithString: "処理中の入力をキャンセルしますか？")
     message.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-    let detail = NSTextField(labelWithString: "キャンセルすると、この入力は入力欄に入りません。")
+    let detail = NSTextField(
+      labelWithString: "キャンセルすると、この入力は入力欄に入りません。ショートカットをもう一度押してもキャンセルします。")
     detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
     detail.textColor = .secondaryLabelColor
     let keep = FirstMouseButton(title: "続ける", target: self, action: #selector(keepProcessing(_:)))

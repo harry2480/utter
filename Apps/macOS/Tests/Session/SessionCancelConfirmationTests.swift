@@ -93,12 +93,24 @@ struct SessionCancelConfirmationTests {
     #expect(presenter.presentCount == 0)
   }
 
-  @Test("REC-06: 確認を出している間にもう一度押されても出し直さない")
-  func doesNotPresentTwice() {
+  @Test("REC-06: 確認を出している間にもう一度押されたら、出し直さずにキャンセルする（キーボードだけで答えられる）")
+  func secondPressConfirmsCancel() {
     let confirmation = makeConfirmation()
     confirmation.request()
     confirmation.request()
     #expect(presenter.presentCount == 1)
+    #expect(presenter.dismissCount == 1)
+    #expect(session.cancelCount == 1)
+    #expect(!confirmation.isPresenting)
+  }
+
+  @Test("REC-01: 確認の後に処理が終わっていれば、もう一度押してもキャンセルしない")
+  func secondPressAfterProcessingDoesNothing() {
+    let confirmation = makeConfirmation()
+    confirmation.request()
+    session.phase = .inserting
+    confirmation.request()
+    #expect(session.cancelCount == 0)
   }
 
   @Test("REC-01: 確認の間に挿入が始まったら閉じ、後から答えてもキャンセルしない")

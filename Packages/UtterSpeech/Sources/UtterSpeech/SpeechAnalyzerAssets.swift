@@ -75,17 +75,28 @@ public struct SpeechAnalyzerAssets: Sendable {
   ///
   /// 公開 API（`AssetInventory`）には、取得したモデルをアプリからすぐに削除する方法がない。予約を解除すると、
   /// ほかのアプリが使っていなければ macOS が後で削除する（すぐには消えず、消えるまでは認識に使える）。
+  /// `reservedLocales` は `reserve(locale:)` に渡したロケールの variant を返しうるため、識別子の完全一致がなければ
+  /// 言語と地域、次に言語が同じ予約を解除する（utter が予約するのは認識に使う1つのロケールだけ）。
   /// - Returns: 予約を解除したら `true`。予約していない・この端末で使えない場合は `false`
   public func releaseReservation() async -> Bool {
     guard SpeechTranscriber.isAvailable,
       let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
     else { return false }
-    let target = supported.identifier(.bcp47)
     let reserved = await AssetInventory.reservedLocales
-    guard let match = reserved.first(where: { $0.identifier(.bcp47) == target }) else {
-      return false
+    guard let match = Self.reservation(matching: supported, in: reserved) else { return false }
+    // 確かめてから解除するまでに予約が消えていれば `false`（予約していなかった）
+    return await AssetInventory.release(reservedLocale: match)
+  }
+
+  /// `locale` に対応する予約。識別子が同じもの、言語と地域が同じもの、言語が同じものの順に探す
+  static func reservation(matching locale: Locale, in reserved: [Locale]) -> Locale? {
+    let target = locale.identifier(.bcp47)
+    if let exact = reserved.first(where: { $0.identifier(.bcp47) == target }) {
+      return exact
     }
-    _ = await AssetInventory.release(reservedLocale: match)
-    return true
+    let sameLanguage = reserved.filter {
+      $0.language.languageCode != nil && $0.language.languageCode == locale.language.languageCode
+    }
+    return sameLanguage.first(where: { $0.region == locale.region }) ?? sameLanguage.first
   }
 }

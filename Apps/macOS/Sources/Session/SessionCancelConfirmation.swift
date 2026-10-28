@@ -17,7 +17,8 @@ protocol SessionCancelConfirmationPresenting: AnyObject {
 /// `ShortcutCommand.confirmCancel` を返し、アプリがここへ渡す。
 /// - 確認を出している間も処理は止めない。認識中・整形中でなくなったら（挿入が始まった・終わった・失敗した）、答えを待たずに閉じる
 /// - キャンセルするのは、確認を出したセッションがまだ認識中・整形中のときだけ（挿入が始まったら取り消さない, REC-01）
-/// - 確認を出している間にもう一度押されても、出し直さない
+/// - 確認を出している間に同じセッションでもう一度押されたら、キャンセルを選んだとみなす（パネルはキーを受けないため、
+///   キーボードだけでも答えられるようにする）。何もしなければ処理を続ける
 @MainActor
 final class SessionCancelConfirmation {
   private let presenter: any SessionCancelConfirmationPresenting
@@ -46,9 +47,15 @@ final class SessionCancelConfirmation {
   /// 確認を出しているか
   var isPresenting: Bool { pending != nil }
 
-  /// 確認を出す。認識中・整形中でなければ何もしない
+  /// 確認を出す。確認を出している間なら、キャンセルを選んだとみなす。認識中・整形中でなければ何もしない
   func request() {
-    guard pending == nil, let current = processingSession() else { return }
+    guard let current = processingSession() else { return }
+    if let pending {
+      guard pending == current else { return }
+      presenter.dismiss()
+      answer(true, for: current)
+      return
+    }
     pending = current
     presenter.present { [weak self] confirmed in
       self?.answer(confirmed, for: current)
