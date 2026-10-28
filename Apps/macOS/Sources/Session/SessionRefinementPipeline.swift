@@ -101,10 +101,18 @@ final class SessionRefinementPipeline: SessionRefining {
     return settings.refinementEngine == .cloudAI && RefinementMode(settings.refinementMode) != .raw
   }
 
+  func refinementSummary(frontmostApp: String?) -> HUDRefinementSummary {
+    let settings = settingsStore.load()
+    let mode = HUDRefinementMode(settings.refinementMode)
+    let style = settings.contextStyleResolver.app.style(forBundleID: frontmostApp)
+    return HUDRefinementSummary(mode: mode, style: style)
+  }
+
   func refine(
     _ transcript: String,
     frontmostApp: String?,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @escaping @MainActor (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     let settings = settingsStore.load()
     let mode = RefinementMode(settings.refinementMode)
@@ -139,7 +147,8 @@ final class SessionRefinementPipeline: SessionRefining {
     }
     guard settings.refinementEngine == .cloudAI else { return local(.localEngineSelected) }
     if settings.cloudRefinementProvider == .chatGPTSignIn {
-      return try await refineWithChatGPT(request, settings: settings, sensitivity: sensitivity)
+      return try await refineWithChatGPT(
+        request, settings: settings, sensitivity: sensitivity, willSend: willSend)
     }
     guard !hasUsagePersistenceFailure else { return local(.budgetUnavailable) }
     guard let configuration = try? ClaudeProvider.Configuration(model: settings.refinementModel)
@@ -179,6 +188,7 @@ final class SessionRefinementPipeline: SessionRefining {
     // 待った後にも求めるが、入力先はメインスレッドでしか読めないため、予約の間（BudgetGuard への1回の切り替え）の
     // 変化はここでの読み直しと判定までしか反映しない
     let decision = Self.decide(sensitivity(), settings: latest)
+    willSend(.claude)
     let outcome: RefinementOutcome
     do throws(CancellationError) {
       outcome = try await router.refine(
@@ -195,7 +205,8 @@ final class SessionRefinementPipeline: SessionRefining {
   /// Sign in with ChatGPT へ送る（#50）。予算は使わず、サインインとプラン利用の許可を確かめてから送る
   private func refineWithChatGPT(
     _ request: RefinementRequest, settings: AppSettings,
-    sensitivity: @escaping @MainActor () -> SensitiveInputContext
+    sensitivity: @escaping @MainActor () -> SensitiveInputContext,
+    willSend: @MainActor (CloudAIProviderKind) -> Void
   ) async throws(CancellationError) -> SessionRefinementResult {
     func local(_ reason: SessionRefinementRoute.LocalReason) -> SessionRefinementResult {
       SessionRefinementResult(text: localRefiner.refine(request), route: .localOnly(reason))
@@ -228,6 +239,7 @@ final class SessionRefinementPipeline: SessionRefining {
     else { return local(.localEngineSelected) }
     let consent = currentConsent()
     let decision = Self.decide(sensitivity(), settings: latest)
+    willSend(.chatGPT)
     // トークン課金ではないため予算は渡さない（`ChatGPTPlanProvider.isTokenBilled == false`）
     let outcome = try await router.refine(
       request, consent: { consent }, budget: nil, sensitivity: { decision })
@@ -372,6 +384,17 @@ enum SessionRefinementRoute: Hashable, Sendable {
     case budgetUnavailable
     /// Sign in with ChatGPT でサインインしていない、またはプラン利用が許可されていない（#50）
     case chatGPTNotSignedIn
+  }
+}
+
+extension HUDRefinementMode {
+  /// 保存した整形モード（TXT-01）。HUD のチップに出す
+  init(_ setting: RefinementModeSetting) {
+    switch setting {
+    case .raw: self = .raw
+    case .natural: self = .natural
+    case .structured: self = .structured
+    }
   }
 }
 

@@ -97,7 +97,8 @@ final class AppComposition {
       realtimeDirect: RealtimeDirectWriter.system(
         target: target, preview: preview, sensitivePolicy: Self.savedSensitivePolicy),
       sensitivePolicy: Self.savedSensitivePolicy,
-      measurer: measurer)
+      measurer: measurer,
+      appDisplayName: Self.appDisplayName)
     self.hud = hud
     self.session = session
     let retentionPolicy = ModelRetentionPolicy.fromSettings(initialSettings)
@@ -126,7 +127,8 @@ final class AppComposition {
       setting: shortcutSetting,
       registrar: registrar,
       currentPhase: { [weak session] in session?.phase ?? .idle },
-      perform: { [weak session] command in session?.perform(command) })
+      perform: { [weak session] command in session?.perform(command) },
+      onKeyHintsChange: { [weak hud] hints in hud?.updateKeyHints(hints) })
     self.shortcuts = shortcuts
     // 認識の完了・自動停止・メニューの操作など、ショートカット以外で状態が変わったときも
     // Esc の捕捉をセッション中だけ有効にする（REC-01）
@@ -181,6 +183,13 @@ final class AppComposition {
     }
     panel.onCancel = { [weak controller] in controller?.cancel() }
     return controller
+  }
+
+  /// 実行中のアプリの表示名（HUD のチップと挿入完了に出す, REC-03）。起動していない・名前がなければ `nil`
+  private static func appDisplayName(_ bundleID: String?) -> String? {
+    guard let bundleID else { return nil }
+    let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+    return app?.localizedName
   }
 
   /// 機密入力の判定。保存済みの除外アプリを呼ぶたびに読む（7章, AC-12）
