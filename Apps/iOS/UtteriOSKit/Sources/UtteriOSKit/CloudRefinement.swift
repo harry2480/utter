@@ -112,12 +112,14 @@ public struct CloudRefinement {
       return local(.cloudUnavailable)
     }
 
+    func beginBudget(_ settings: AppSettings) async -> CloudRefinementBudgetResult {
+      await budgetSource.begin(
+        model: configuration.model, maxOutputTokens: configuration.maxTokens, request: request,
+        settings: settings, at: date())
+    }
     // 月次予算が未設定なら nil（上限の確認と推定費用の記録をしない, AI-04）
-    let budget: CloudRefinementBudget?
-    switch await budgetSource.begin(
-      model: configuration.model, maxOutputTokens: configuration.maxTokens, request: request,
-      settings: settings, at: date())
-    {
+    var budget: CloudRefinementBudget?
+    switch await beginBudget(settings) {
     case .ready(let ready):
       budget = ready
     case .unlimited:
@@ -127,7 +129,20 @@ public struct CloudRefinement {
       return local(.budgetUnavailable(reason))
     }
     // 予算の確認を待つ間の変更も反映するよう、送信の直前に最新の設定を読み直す
-    let latest = settingsStore.load()
+    var latest = settingsStore.load()
+    // 予算なしで許可された後に月次予算が設定されたら、最新の予算で上限を確かめ直す（確かめられなければ送信しない）
+    if budget == nil, latest.monthlyBudget != nil {
+      switch await beginBudget(latest) {
+      case .ready(let ready):
+        budget = ready
+      case .unlimited:
+        break
+      case .unavailable(let reason):
+        if Task.isCancelled { throw CancellationError() }
+        return local(.budgetUnavailable(reason))
+      }
+      latest = settingsStore.load()
+    }
     guard latest.refinementEngine == .cloudAI else {
       await budget?.finish()
       return local(.localEngineSelected)

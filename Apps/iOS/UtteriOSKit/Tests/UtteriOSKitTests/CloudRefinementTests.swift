@@ -164,6 +164,56 @@ struct CloudRefinementTests {
     #expect(await budget.finishCount == 0)
   }
 
+  /// 予算の確認を待つ間に、別の画面で月次予算を設定した状態を作る
+  private nonisolated static func setBudget(suiteName: String) async {
+    await MainActor.run {
+      guard let defaults = UserDefaults(suiteName: suiteName) else { return }
+      let store = AppSettingsStore(defaults: defaults)
+      var settings = store.load()
+      settings.monthlyBudget = MonthlyBudgetSetting(limitAmount: 10, currencyCode: "USD")
+      try? store.save(settings)
+    }
+  }
+
+  @Test("AI-04: 予算なしで許可された後、確認を待つ間に月次予算が設定されたら、その予算で確かめ直してから送る")
+  func budgetSetWhileWaitingIsChecked() async throws {
+    try setConsent(true)
+    try saveKey()
+    let suiteName = temporaryDefaults.suiteName
+    let budget = StubBudgetSource(
+      budget: try CloudFixtures.generousBudget(month: month()), unlimited: true,
+      onBegin: { await Self.setBudget(suiteName: suiteName) })
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(result.route == .cloud)
+    #expect(await provider.callCount == 1)
+    // 1回目は予算なし（.unlimited）、2回目は設定された予算で用意し、送信後に推定費用を記録する
+    #expect(await budget.beginCount == 2)
+    #expect(await budget.finishCount == 1)
+  }
+
+  @Test("AI-04: 確認を待つ間に設定された月次予算で上限を確かめられなければ、送信しない")
+  func budgetSetWhileWaitingUnavailableStaysLocal() async throws {
+    try setConsent(true)
+    try saveKey()
+    let suiteName = temporaryDefaults.suiteName
+    let budget = StubBudgetSource(
+      budget: nil, unlimited: true,
+      onBegin: { await Self.setBudget(suiteName: suiteName) })
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(
+      result
+        == SessionRefinementResult(
+          text: localText, route: .localOnly(.budgetUnavailable(.notConfigured))))
+    #expect(await provider.callCount == 0)
+    #expect(await budget.beginCount == 2)
+  }
+
   @Test("iOS-10: 同意・API キー・予算がそろえば Claude へ1回だけ送り、応答で整形して推定費用を記録する")
   func allPresentRefinesWithCloud() async throws {
     try setConsent(true)
