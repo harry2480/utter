@@ -2,7 +2,7 @@
 import PackageDescription
 
 // WhisperKit を使う STT アダプター（UtterSpeech の `SegmentTranscriber` の本番実装）。
-// Phase 0 #49（モデル選定）と #47（ライセンス確定）の判定待ちの先行実装のため、UtterSpeech とは別の Package にし、
+// Phase 0 #49（モデル選定）の判定待ちの先行実装（ライセンスは #47 の D-2 で採用可）のため、UtterSpeech とは別の Package にし、
 // これをリンクしたターゲットだけが WhisperKit を取り込む。UtterSpeech をビルド・リンクしても WhisperKit は取得されない。
 // scripts/verify.sh と CI はほかの Package と同じくビルド・テストする（WhisperKit の取得には通信が要る。テストはモデルを使わない）。
 // 不採用になったら、この Package と、UtterSpeech の WhisperKit 用の型（docs/アーキテクチャ.md「WhisperKit アダプター」の表）を消せば外れる。

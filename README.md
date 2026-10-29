@@ -55,7 +55,7 @@ scripts/build-local.sh                                    # build/local/DerivedD
 ```
 
 同じ Team ID・Bundle ID・証明書でビルドし続ければ、Accessibility やマイクの許可は再ビルドで外れません（[自前ビルド（固定の開発用署名）](docs/ビルド・配布規約.md#自前ビルド固定の開発用署名ac-13)）。
-公式バイナリ（Developer ID 署名・公証）は GitHub Releases で配布する予定です（署名方式は #47 で確定）。
+公式バイナリ（Developer ID 署名・公証つきの dmg か pkg）は GitHub Releases で配布する予定です。App Store には出しません（[#47 の決定](docs/ライセンス・依存関係.md)）。
 
 ## プロジェクト構成
 
