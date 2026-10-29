@@ -164,15 +164,75 @@ struct CloudRefinementTests {
     #expect(await budget.finishCount == 0)
   }
 
-  /// 予算の確認を待つ間に、別の画面で月次予算を設定した状態を作る
-  private nonisolated static func setBudget(suiteName: String) async {
+  /// 予算の確認を待つ間に、別の画面で月次予算を設定した状態を作る。
+  /// `lowerIfSet` なら、すでに予算があるときは上限を下げる（確かめ直している間の変更を再現する）
+  private nonisolated static func setBudget(suiteName: String, lowerIfSet: Bool = false) async {
     await MainActor.run {
       guard let defaults = UserDefaults(suiteName: suiteName) else { return }
       let store = AppSettingsStore(defaults: defaults)
       var settings = store.load()
-      settings.monthlyBudget = MonthlyBudgetSetting(limitAmount: 10, currencyCode: "USD")
+      let limit: Decimal = lowerIfSet && settings.monthlyBudget != nil ? 5 : 10
+      settings.monthlyBudget = MonthlyBudgetSetting(limitAmount: limit, currencyCode: "USD")
       try? store.save(settings)
     }
+  }
+
+  @Test("AI-04: 確かめ直している間に月次予算がさらに変わったら、古い上限で送らずに予約を取り消す")
+  func budgetChangedWhileRecheckingStaysLocal() async throws {
+    try setConsent(true)
+    try saveKey()
+    let suiteName = temporaryDefaults.suiteName
+    let budget = StubBudgetSource(
+      budget: try CloudFixtures.generousBudget(month: month()), unlimited: true,
+      onBegin: { await Self.setBudget(suiteName: suiteName, lowerIfSet: true) })
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(
+      result
+        == SessionRefinementResult(
+          text: localText, route: .localOnly(.budgetUnavailable(.settingsChangedWhileChecking))))
+    #expect(await provider.callCount == 0)
+    #expect(await budget.beginCount == 2)
+    #expect(await budget.finishCount == 1)
+  }
+
+  @Test("AI-04: 最初の確認の間に月次予算が変わったら、古い上限で送らずに予約を取り消す")
+  func budgetChangedWhileFirstCheckStaysLocal() async throws {
+    try setConsent(true)
+    try saveKey()
+    var settings = settingsStore.load()
+    settings.monthlyBudget = MonthlyBudgetSetting(limitAmount: 10, currencyCode: "USD")
+    try settingsStore.save(settings)
+    let suiteName = temporaryDefaults.suiteName
+    let budget = StubBudgetSource(
+      budget: try CloudFixtures.generousBudget(month: month()),
+      onBegin: { await Self.setBudget(suiteName: suiteName, lowerIfSet: true) })
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(result.route == .localOnly(.budgetUnavailable(.settingsChangedWhileChecking)))
+    #expect(await provider.callCount == 0)
+    #expect(await budget.beginCount == 1)
+    #expect(await budget.finishCount == 1)
+  }
+
+  @Test("AI-04: 予算がないまま単価表だけが変わっても送る。予算があれば単価表の変更でも送らない")
+  func budgetSettingsChangedComparesBudgetAndPrices() throws {
+    let base = AppSettings()
+    var pricesChanged = base
+    pricesChanged.priceTable = PriceTableSetting(currencyCode: "USD")
+    #expect(!CloudRefinement.budgetSettingsChanged(from: base, to: pricesChanged))
+
+    var budgeted = base
+    budgeted.monthlyBudget = MonthlyBudgetSetting(limitAmount: 10, currencyCode: "USD")
+    var budgetedPricesChanged = budgeted
+    budgetedPricesChanged.priceTable = PriceTableSetting(currencyCode: "USD")
+    #expect(CloudRefinement.budgetSettingsChanged(from: budgeted, to: budgetedPricesChanged))
+    #expect(CloudRefinement.budgetSettingsChanged(from: base, to: budgeted))
+    #expect(!CloudRefinement.budgetSettingsChanged(from: budgeted, to: budgeted))
   }
 
   @Test("AI-04: 予算なしで許可された後、確認を待つ間に月次予算が設定されたら、その予算で確かめ直してから送る")

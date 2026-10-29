@@ -40,6 +40,8 @@ public enum CloudBudgetUnavailableReason: Hashable, Sendable {
   case usageUnavailable
   /// 前の整形の推定費用の記録が終わっていない
   case previousRefinementInProgress
+  /// 上限を確かめている間に月次予算・単価表が変わった（古い上限で送らない）
+  case settingsChangedWhileChecking
 }
 
 /// 1回の整形の予算。`RefinementRouter.refine` に渡し、整形の後に `finish()` で推定費用を記録する。

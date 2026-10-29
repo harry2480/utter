@@ -118,6 +118,7 @@ public enum RefinementNotice: Hashable, Sendable {
       case .budgetUnavailable(.modelNotPriced): "整形に使うモデルの単価が単価表にない"
       case .budgetUnavailable(.usageUnavailable): "推定費用の累計を読み書きできなかった"
       case .budgetUnavailable(.previousRefinementInProgress): "前の整形の推定費用をまだ記録している"
+      case .budgetUnavailable(.settingsChangedWhileChecking): "予算の確認中に月次予算か単価表が変わった"
       case .sensitiveInput: "機密入力と判定した（判定できない場合を含む）"
       case .budgetExceeded: "今月の予算の上限に達する"
       case .authenticationFailed: "Claude API キーが正しくないか、使えなくなっている"

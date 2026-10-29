@@ -75,6 +75,14 @@ public struct CloudRefinement {
     return { decision }
   }
 
+  /// 上限の確認に使った月次予算・単価表と、最新の設定とで違うか。予算がないまま変わらなければ単価表の変更は問わない
+  nonisolated static func budgetSettingsChanged(
+    from checked: AppSettings, to latest: AppSettings
+  ) -> Bool {
+    guard checked.monthlyBudget == latest.monthlyBudget else { return true }
+    return checked.monthlyBudget != nil && checked.priceTable != latest.priceTable
+  }
+
   /// 発話を整形する。
   ///
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わない
@@ -130,8 +138,11 @@ public struct CloudRefinement {
     }
     // 予算の確認を待つ間の変更も反映するよう、送信の直前に最新の設定を読み直す
     var latest = settingsStore.load()
+    // 上限の確認に使った設定（月次予算・単価表）
+    var checked = settings
     // 予算なしで許可された後に月次予算が設定されたら、最新の予算で上限を確かめ直す（確かめられなければ送信しない）
     if budget == nil, latest.monthlyBudget != nil {
+      checked = latest
       switch await beginBudget(latest) {
       case .ready(let ready):
         budget = ready
@@ -142,6 +153,11 @@ public struct CloudRefinement {
         return local(.budgetUnavailable(reason))
       }
       latest = settingsStore.load()
+    }
+    // 確認に使った月次予算・単価表が送信の直前までに変わったら、古い上限で送らない（AI-04）
+    if Self.budgetSettingsChanged(from: checked, to: latest) {
+      await budget?.finish()
+      return local(.budgetUnavailable(.settingsChangedWhileChecking))
     }
     guard latest.refinementEngine == .cloudAI else {
       await budget?.finish()
