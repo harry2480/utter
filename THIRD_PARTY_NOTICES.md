@@ -1,7 +1,9 @@
 # 第三者ソフトウェアの表示（Third-Party Notices）
 
 utter（[Apache License 2.0](LICENSE)）の配布物に含まれる第三者のソフトウェアと、そのライセンス表示。
-表示の置き場所はこのファイル（リポジトリ）のみとし、アプリ内の謝辞画面は設けない（[ライセンス・依存関係](docs/ライセンス・依存関係.md) D-3）。
+表示の正本はこのファイル（リポジトリ）とし、アプリ内の謝辞画面は設けない（[ライセンス・依存関係](docs/ライセンス・依存関係.md) D-3）。
+例外として、Sparkle の `LICENSE` はアプリの `Contents/Resources/Licenses/` にも同梱している（同 2.1）。
+公式バイナリの配布物（アプリかリリースのアーカイブ）にこのファイルを同梱するかは、最初の公式バイナリを配布する前に #59 で決める。現在は自前ビルドのみで、配布物はない。
 
 - 確認日：2026-10-27
 - 対象：macOS アプリ（`Apps/macOS`、XPC STT Worker を含む）と iOS アプリ（`Apps/iOS`、キーボード拡張を含む）にリンク・同梱される依存。`Packages/*/Package.swift`・各 `Package.resolved`・`Apps/*/project.yml`（`Apps/macOS/Specs/*.yml` を含む）から確かめた
