@@ -112,8 +112,8 @@ macOS の SpeechRecognizer（Apple SpeechAnalyzer）が以下を満たすこと�
 |---|---|---|
 | `isAvailable` | `true`（2026-10-28） | |
 | `ja_JP` の対応（解決後のロケール） | あり（`ja_JP`。地域の違う近い値ではなく完全一致）（2026-10-28） | |
-| `AssetInventory.status`（取得前 → 取得後） | `supported`（対応・未インストール）→ 未実施（`install` はしていない）（2026-10-28） | |
-| オフラインでの認識 | 未実施 | |
+| `AssetInventory.status`（取得前 → 取得後） | `supported`（対応・未インストール）（2026-10-28）→ `installed`（2026-10-29。`install` はダウンロードせずに 0.09 秒で終わった） | |
+| オフラインでの認識 | 未実施（2026-10-29。Wi-Fi を切ると作業に使う Claude Code が止まるため見送った） | |
 
 #### macOS での `status` の記録（2026-10-28）
 
@@ -150,16 +150,35 @@ SpeechAnalyzer の入力形式: 16000Hz 1ch Int16 interleaved
 - 3章（対応デバイス）：この Mac（Apple M5）で `isAvailable` が `true`。ほかの Mac（古い Apple シリコンなど）と iPhone は未確認のまま
 - 1章（必要な OS）：macOS 27.0.1 で動いた。macOS 26 の実機では確かめていない
 - 4章（モデルの取得）：Probe の構成（`progressiveTranscription` の既定の `attributeOptions`）では `AssetInventory.status` が `supported` だった。予約済みロケールは 0 件、`maximumReservedLocales` は 5。アプリ（`TranscriptionSession`）は `attributeOptions` に `.audioTimeRange` を足した構成を `status(forModules:)` に渡す。`attributeOptions` で必要なアセットが変わるかは一次情報から決められないため、アプリの構成でもアセットが入っていないかは**未確認**
-- 食い違い（要確認）：`installedLocales` に ja_JP が含まれる（1 件）のに、`AssetInventory.status` は `installed` ではなく `supported` だった。また D8 は「追加のアセットのインストールが必要なら `bestAvailableAudioFormat(compatibleWith:)` は `nil` を返す」と書いているが、この状態で `16000Hz 1ch Int16 interleaved` が返った。どちらが実際の利用可否を表すかは、`install` の前後で `status` を比べて確かめる。リポジトリの実装（`SpeechAnalyzerAssets`）は `AssetInventory.status` で判断するので、アプリの構成でも `supported` なら `modelUnavailable` で終わる（推測。アプリと同じ構成での `status` はまだ取っていない）。アプリと同じ構成で `install` の前後の `status` を取るまで、アプリでの状態は確定しない
+- 食い違い（2026-10-29 に解消。下の「`install` の記録」）：`installedLocales` に ja_JP が含まれる（1 件）のに、`AssetInventory.status` は `installed` ではなく `supported` だった。また D8 は「追加のアセットのインストールが必要なら `bestAvailableAudioFormat(compatibleWith:)` は `nil` を返す」と書いているが、この状態で `16000Hz 1ch Int16 interleaved` が返った。どちらが実際の利用可否を表すかは、`install` の前後で `status` を比べて確かめる。リポジトリの実装（`SpeechAnalyzerAssets`）は `AssetInventory.status` で判断するので、アプリの構成でも `supported` なら `modelUnavailable` で終わる（推測。アプリと同じ構成での `status` はまだ取っていない）。アプリと同じ構成で `install` の前後の `status` を取るまで、アプリでの状態は確定しない
 - 5章（暫定・確定）：`status` が出力する3つのプリセットの `reportingOptions` は D6 の表と一致した（`progressiveTranscription` と `timeIndexedProgressiveTranscription` が `fastResults`・`volatileResults`、`transcription` は空）。`transcriptionWithAlternatives` と `timeIndexedTranscriptionWithAlternatives` は `status` の出力にないため未確認。`attributeOptions`（`audioTimeRange` など）も出力の対象外
 - 参考：DictationTranscriber も ja_JP に対応している
 - 権限：音声認識は `notDetermined`（未要求）、マイクは実行したターミナルアプリに対して `denied`。`mic` を使う前に「システム設定 > プライバシーとセキュリティ > マイク」で許可が要る
 
+#### macOS での `install` の記録（2026-10-29）
+
+- `install` はダウンロードせずに 0.09 秒で終わった。ロケールを予約しただけで、`AssetInventory.status` が `supported` から `installed` に変わった
+- 日本語モデルは、この Mac に最初から入っていた。取得前から `installedLocales` に `ja_JP` が含まれていたのはこのため
+- 上の「食い違い」について（観測と推測）：観測できたのは、この Mac で Probe の構成（`progressiveTranscription` の既定の `attributeOptions`）のロケールを予約したら、`AssetInventory.status` が `supported` から `installed` に変わったことだけ。予約が状態に影響した可能性があるが、一般にどの条件で `installed` を返すかは決められない。`bestAvailableAudioFormat(compatibleWith:)` が取得前から形式を返したのも、モデル自体は入っていたためかもしれない（推測）
+- アプリ（`SpeechAnalyzerAssets`）は `.audioTimeRange` を足した `SpeechTranscriber` で状態を確かめ、取得の前に `reserve(locale:)` を呼ぶ。この構成で `status` と `assetInstallationRequest(supporting:)` の前後を確かめるまで、アプリで「モデルを取得」すればすぐに使えるとは判断しない（未確認）
+
+#### macOS での `mic`・キャンセルの記録（2026-10-29）
+
+結果は [docs/計測/2026-10-29-SpeechAnalyzer-macOS-mic.md](計測/2026-10-29-SpeechAnalyzer-macOS-mic.md) に残した。要点：
+
+- 確認できた語句・文（「こんにちは。」「外国人登録の手続きは 8月 20日までで」「明日の会議は午後 3時からです。」）は誤りなく、句読点も付いた。数字の前後には半角スペースが入る（「8月 20日」「午後 3時」）。録音時間で切れた「手数料は100円です」は確認できていない
+- 暫定結果は約 1 秒ごとに数文字ずつ届き、そのあとに確定結果が届く。黙ると、録音を止める前に確定結果が届く（話し終えてから 0.28〜0.36 秒）
+- 録音を止めてから最後の確定結果までは 0.000〜0.097 秒。止めたあとに確定まで待てば末尾は欠けない（最後の音が確定結果で初めて出た例がある）
+- 開発用語に弱い（「Pull Request」→「プロリクエスト」、「Swift」→「数質」）
+- `cancelAndFinishNow()` は約 0.12 秒で戻るが、呼んだあとにも暫定結果が 1〜3 件届く
+- プローブのプロセスのメモリ（`phys_footprint` のプロセス生涯の最大）は、手順3の A〜D で 6.3 MB、キャンセルの F で 6.4 MB（OS 側のプロセスは未計測）
+
 残り（人が実機で行う）：
 
-- `install` でアセットを取得し、取得後の `AssetInventory.status`・`installedLocales` を再度 `status` で記録する（通信あり）
-- 取得後に通信を切った `file` でのオフライン認識
-- `file` / `mic` での暫定・確定結果の出方と遅延、`--cancel-after` でのキャンセル応答、`batch` → `utter-eval` での精度、認識中のメモリ（自プロセスと OS のプロセス）
+- 取得後に通信を切った `file` / `mic` でのオフライン認識
+- `batch` → `utter-eval` での精度の数値評価と、`--preset transcription` との比較
+- 認識中の OS 側のプロセスのメモリ
+- アプリ本体（XPC Worker 経由）での認識
 - iOS の実機での `isAvailable`・ja_JP の対応・アセットの状態
 
 ### リポジトリの実装との照合（照合ではコードを変えていない。末尾の暫定結果は #48 で対策した）
@@ -218,14 +237,32 @@ SpeechAnalyzer の入力形式: 16000Hz 1ch Int16 interleaved
 
 ## 検証結果の記録
 
-### テスト日: YYYY-MM-DD
+### テスト日: 2026-10-29（macOS、Mac17,2・macOS 27.0.1）
+
+詳細は [docs/計測/2026-10-29-SpeechAnalyzer-macOS-mic.md](計測/2026-10-29-SpeechAnalyzer-macOS-mic.md)。精度は少数サンプルの傾向で、数値の評価（`batch`）はしていない。
 
 | テスト項目 | 結果 | 備考 |
 |----------|------|------|
-| 日本語認識（標準） | ✅/❌ | 精度 XX% |
-| 複雑語彙 | ✅/❌ | 例: XX |
-| 部分結果返却 | ✅/❌ | レイテンシ: XXms |
-| キャンセル応答 | ✅/❌ | 時間: XXms |
+| 日本語認識（標準） | ✅ | 「こんにちは」「外国人登録」「8月20日」「午後3時」は誤りなし。数字の前後に半角スペースが入る。「100円です」は録音時間で切れて未確認 |
+| 複雑語彙（開発用語） | ❌ | 「Pull Request」→「プロリクエスト」、「Swift」→「数質」。「GitHub」は ○ |
+| 部分結果返却 | ✅ | 暫定→確定の順に届く。暫定結果は約 1 秒ごとにまとめて届く |
+| 最初の部分結果までの遅延 | ❌ | 話し始めから最初の文字まで約 1.0〜1.2 秒（上の期待値 < 500ms を満たさない）。6章の「Realtime 初回文字表示 p95 ≤ 1.5 秒」の範囲内だが、3 件だけで p95 は出せない |
+| 最終結果の確定時間 | ✅ | 録音を止めてから最後の確定結果まで 0.000〜0.097 秒（期待値 < 2 秒） |
+| キャンセル応答 | ❌（期待値は未達） | 戻りまで 0.117〜0.122 秒（期待値 < 100ms）。呼び出し後に暫定結果が 1〜3 件届く（期待値「余計な結果なし」）。アプリ側で捨てれば体験に影響しないと見込むが、アプリの経路（XPC Worker 経由）では確かめていない |
+| オフライン | 未実施 | |
+| メモリ（自プロセス） | ✅ | プロセス生涯の最大で 6.3 MB（手順3）・6.4 MB（キャンセルの F）（目標 500MB 以下）。OS 側のプロセスは未計測 |
+
+### 11章の判定案（2026-10-29 時点。結論は人が決める）
+
+11章の不成立時の方針は「日本語精度または部分認識が不足する場合、WhisperKit を標準 STT とする」。
+
+- **部分認識**：成立。暫定結果のあとに確定結果が届き、止めたあとの確定も速い。暫定結果の更新が約 1 秒ごとなので、HUD の表示は 1 秒刻みで進む
+- **日本語精度**：一般的な文は成立の見込み。開発用語は不足しているが、辞書・用語の置き換え（TXT 側）で補える範囲かは未評価。数値の評価（`batch`）をしていないため、精度について結論は出せない
+- **案**：今の結果からは「SpeechAnalyzer を標準 STT とする」方向。ただし次の3つがそろうまで結論は保留する
+  1. `batch` → `utter-eval` での精度の数値（日本語・日英混在・開発用語）。できれば WhisperKit（#49）と同じ音声で比べる
+  2. オフラインでの認識
+  3. 認識中の OS 側のプロセスのメモリ
+- 実装との照合：キャンセルは、受け手が `RecognitionEvent` のストリームを破棄して `cancel()` を呼ぶ作り（`TranscriptionRun`）。ストリームが終わっているので、キャンセル後に届いた暫定結果は受け手に届かないと読める（コードを読んだだけで、この状況のテストは確かめていない）。停止後は確定まで待ってから `completed` を流す作りで、今回の「止めたあとに確定まで待てば末尾は欠けない」と一致する
 
 ### 制約事項
 
