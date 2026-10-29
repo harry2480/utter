@@ -56,7 +56,9 @@ struct RefinementSettingsView: View {
     } footer: {
       VStack(alignment: .leading) {
         Text("整形用モデル名の既定は \(AppSettings.defaultRefinementModel)。")
-        Text("Claude へは、送信の同意・API キー・月次予算・単価表がそろったときだけ送信します。それ以外は端末内で整形します。")
+        Text(
+          "Claude へは、送信の同意と API キーがそろったときだけ送信します。月次予算を設定したときは、単価表もそろって上限に収まるときだけ送信します。それ以外は端末内で整形します。"
+        )
       }
     }
   }

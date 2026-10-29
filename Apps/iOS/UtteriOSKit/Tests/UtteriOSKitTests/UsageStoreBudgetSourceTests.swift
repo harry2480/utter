@@ -93,15 +93,48 @@ struct UsageStoreBudgetSourceTests {
     return outcome
   }
 
-  @Test("AI-04: 月次予算・単価表が未設定、通貨の不一致、単価表にないモデルは理由を分けて送信しない")
+  /// 月次予算が未設定（`.unlimited`）を返したか
+  private func isUnlimited(
+    _ source: UsageStoreBudgetSource, settings: AppSettings
+  ) async -> Bool {
+    guard case .unlimited = await begin(source, settings: settings) else { return false }
+    return true
+  }
+
+  @Test("AI-04: 月次予算が未設定なら、単価表がなくても上限なしで送信を許可する")
+  func noBudgetIsUnlimited() async throws {
+    let store = MonthlyUsageStore(database: try .inMemory())
+    var noBudget = try configuredSettings()
+    noBudget.monthlyBudget = nil
+
+    #expect(await isUnlimited(source(store), settings: AppSettings()))
+    #expect(await isUnlimited(source(store), settings: noBudget))
+    // 予約のファイルを残さず、累計にも加算しない
+    #expect(!FileManager.default.fileExists(atPath: pendingURL.path))
+    #expect(try store.spent(in: UsageMonth(year: 2027, month: 1), currencyCode: "USD") == 0)
+  }
+
+  @Test("AI-04: 月次予算が未設定なら、前の整形の記録中や保存先を開けないときも上限なしで許可する")
+  func noBudgetIgnoresUsageState() async throws {
+    struct OpenFailure: Error {}
+    let failing = UsageStoreBudgetSource(
+      makeStore: { throw OpenFailure() }, pendingReservationURL: pendingURL, calendar: calendar)
+    #expect(await isUnlimited(failing, settings: AppSettings()))
+
+    let source = source(MonthlyUsageStore(database: try .inMemory()))
+    let first = try await ready(source, settings: try configuredSettings())
+    #expect(await isUnlimited(source, settings: AppSettings()))
+    await first.finish()
+  }
+
+  @Test("AI-04: 月次予算があるのに単価表が未設定、通貨の不一致、単価表にないモデルは理由を分けて送信しない")
   func unavailableReasons() async throws {
     let store = MonthlyUsageStore(database: try .inMemory())
     let configured = try configuredSettings()
 
-    #expect(await reason(source(store), settings: AppSettings()) == .notConfigured)
-    var noBudget = configured
-    noBudget.monthlyBudget = nil
-    #expect(await reason(source(store), settings: noBudget) == .notConfigured)
+    var noPrices = configured
+    noPrices.priceTable = PriceTableSetting()
+    #expect(await reason(source(store), settings: noPrices) == .notConfigured)
     var noDate = configured
     noDate.priceTable = PriceTableSetting(
       currencyCode: "USD", updatedOn: nil, prices: configured.priceTable.prices)

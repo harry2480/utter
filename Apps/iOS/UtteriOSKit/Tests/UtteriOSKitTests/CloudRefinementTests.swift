@@ -131,7 +131,7 @@ struct CloudRefinementTests {
     #expect(await provider.callCount == 0)
   }
 
-  @Test("iOS-10, AI-04: 同意と API キーがあっても、予算上限を確かめられなければ送信しない")
+  @Test("iOS-10, AI-04: 同意と API キーがあっても、設定した予算の上限を確かめられなければ送信しない")
   func noBudgetStaysLocal() async throws {
     try setConsent(true)
     try saveKey()
@@ -146,6 +146,22 @@ struct CloudRefinementTests {
           text: localText, route: .localOnly(.budgetUnavailable(.notConfigured))))
     #expect(await provider.callCount == 0)
     #expect(await budget.beginCount == 1)
+  }
+
+  @Test("iOS-10, AI-04: 月次予算が未設定なら、同意と API キーがあれば上限なしで Claude へ1回だけ送る")
+  func unlimitedBudgetRefinesWithCloud() async throws {
+    try setConsent(true)
+    try saveKey()
+    let budget = StubBudgetSource(budget: nil, unlimited: true)
+
+    let result = try await cloud(budgetSource: budget).refine(
+      request, localRefiner: LocalBasicRefiner())
+
+    #expect(result == SessionRefinementResult(text: "明日の会議は10時からです。", route: .cloud))
+    #expect(await provider.callCount == 1)
+    #expect(await budget.beginCount == 1)
+    // 予算を用意していないため、推定費用の記録は呼ばない
+    #expect(await budget.finishCount == 0)
   }
 
   @Test("iOS-10: 同意・API キー・予算がそろえば Claude へ1回だけ送り、応答で整形して推定費用を記録する")

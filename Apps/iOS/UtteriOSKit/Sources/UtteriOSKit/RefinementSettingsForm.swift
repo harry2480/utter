@@ -4,7 +4,7 @@ import UtterPersistence
 /// iOS の設定画面で選ぶ整形の処理系（AI-03, iOS-10）。保存は `AppSettings.refinementEngine` で行う。
 ///
 /// クラウド AI の送信先は Claude API だけ（`CloudRefinement` が送るのは Claude だけのため）。
-/// 送信には、ここでの選択に加えて同意・API キー・月次予算と単価表が要る（AC-06, AC-12, AI-04）。
+/// 送信には、ここでの選択に加えて同意・API キーが要る（AC-06, AC-12）。月次予算を設定したときは単価表も要る（AI-04）。
 public enum RefinementProviderChoice: String, CaseIterable, Identifiable, Hashable, Sendable {
   /// ローカルのルールベース整形（オフライン, AI-03。既定）
   case localBasic
@@ -287,7 +287,7 @@ public enum RefinementSettingsIssue: Hashable, Sendable {
 
 /// 保存はできるが利用者に知らせる事柄
 public enum RefinementSettingsNotice: Hashable, Sendable {
-  /// Claude を選んでいるが、月次予算が未設定（AI-04）。予算がない間は送信しない
+  /// Claude を選んでいるが、月次予算が未設定（AI-04）。上限なしで送信し、推定費用は記録しない
   case budgetNotSet
   /// 月次予算はあるが、単価表の更新日が未設定（AI-05）。費用を推定できない
   case priceUpdatedOnNotSet
@@ -297,7 +297,7 @@ public enum RefinementSettingsNotice: Hashable, Sendable {
   public var message: String {
     switch self {
     case .budgetNotSet:
-      "月次予算が未設定のため、Claude へは送信せず端末内で整形します。"
+      "月次予算が未設定のため、上限なしで Claude へ送信します。推定費用は記録しません。"
     case .priceUpdatedOnNotSet:
       "単価表の更新日が未設定のため、費用を推定できません。推定できない間は Claude へ送信しません。"
     case .refinementModelNotInPriceTable:

@@ -58,8 +58,15 @@ actor StubBudgetSource: CloudRefinementBudgetSource {
   private(set) var beginCount = 0
   private(set) var finishCount = 0
 
-  init(budget: RefinementBudget?, onBegin: @escaping @Sendable () async -> Void = {}) {
+  /// 月次予算が未設定の状態（`.unlimited`）を返すか
+  private let unlimited: Bool
+
+  init(
+    budget: RefinementBudget?, unlimited: Bool = false,
+    onBegin: @escaping @Sendable () async -> Void = {}
+  ) {
     self.budget = budget
+    self.unlimited = unlimited
     self.onBegin = onBegin
   }
 
@@ -69,6 +76,7 @@ actor StubBudgetSource: CloudRefinementBudgetSource {
   ) async -> CloudRefinementBudgetResult {
     beginCount += 1
     await onBegin()
+    if unlimited { return .unlimited }
     guard let budget else { return .unavailable(.notConfigured) }
     return .ready(CloudRefinementBudget(budget: budget) { [self] in await self.finished() })
   }

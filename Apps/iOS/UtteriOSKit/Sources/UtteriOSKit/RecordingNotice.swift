@@ -113,7 +113,7 @@ public enum RefinementNotice: Hashable, Sendable {
       case .configurationUnavailable: "クラウド整形の設定（モデル名など）を使えなかった"
       case .apiKeyNotSet: "Claude API キーが設定されていない"
       case .apiKeyUnavailable: "Claude API キーを読み出せなかった（端末のロック中など）"
-      case .budgetUnavailable(.notConfigured): "月次予算と単価表が設定されていない"
+      case .budgetUnavailable(.notConfigured): "単価表（通貨・更新日）が設定されていない"
       case .budgetUnavailable(.currencyMismatch): "月次予算と単価表の通貨が一致しない"
       case .budgetUnavailable(.modelNotPriced): "整形に使うモデルの単価が単価表にない"
       case .budgetUnavailable(.usageUnavailable): "推定費用の累計を読み書きできなかった"
