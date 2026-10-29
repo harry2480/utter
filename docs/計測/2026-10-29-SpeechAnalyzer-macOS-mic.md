@@ -66,7 +66,7 @@ Verification/SpeechAnalyzerProbe/.build/release/SpeechAnalyzerProbe mic --second
   - 日本語の一般的な文：誤りなし。句読点（「。」「、」）が付く
   - 数字：「8月 20日」「午後 3時」のように、数字の前後に半角スペースが入る
   - 開発用語：「GitHub」は正しく出た（暫定では「KitHu」と揺れた）。「Pull Request」は「プロリクエスト」、「Swift」は「数質」になった。暫定結果でも「ツイ」「水質」「数質」と揺れた
-- **メモリ**：プローブのプロセスは最大 6.4 MB。推論は OS の別のプロセスで動くとみられ、その分は含まれない（OS 側のメモリは未計測）
+- **メモリ**：プローブのプロセスは、A〜D のどれも計測中の最大が 6.2〜6.3 MB、プロセス生涯の最大が 6.3 MB（上の表）。推論は OS の別のプロセスで動くとみられ、その分は含まれない（OS 側のメモリは未計測）
 
 ## 手順4：オフライン
 
@@ -75,6 +75,10 @@ Verification/SpeechAnalyzerProbe/.build/release/SpeechAnalyzerProbe mic --second
 ## 手順5：キャンセル（`--cancel-after`）
 
 ```sh
+# E：話し始める前に止める
+Verification/SpeechAnalyzerProbe/.build/release/SpeechAnalyzerProbe mic --seconds 10 --cancel-after 1 \
+  --log Verification/SpeechAnalyzerProbe/output/mic-cancel-before-speech.jsonl
+# F：話している途中で止める（表示が出たらすぐ話し始め、止まるまで話し続ける）
 Verification/SpeechAnalyzerProbe/.build/release/SpeechAnalyzerProbe mic --seconds 10 --cancel-after 6 \
   --log Verification/SpeechAnalyzerProbe/output/mic-cancel.jsonl
 ```
@@ -85,9 +89,10 @@ Verification/SpeechAnalyzerProbe/.build/release/SpeechAnalyzerProbe mic --second
 | F（`--cancel-after 6`） | 話している途中 | 6.084 s | 0.117 s | 0.117 s | 3 件（volatile「…確」「…確認」「…確認。」） | 0 件 |
 
 - 話している途中でも話す前でも、`cancelAndFinishNow()` は約 0.12 秒で戻る
-- キャンセルを呼んだあとにも暫定結果が届く。アプリ側では、キャンセルした時点で以降の結果を捨てる必要がある
+- メモリ（`phys_footprint` の計測中の最大 / プロセス生涯の最大）：E は 6.3 / 6.3 MB、F は 6.3 / 6.4 MB
+- キャンセルを呼んだあとにも暫定結果が届く。アプリ側では、キャンセルした時点で以降の結果を捨てる必要がある（アプリの経路〈XPC Worker 経由〉では確かめていない）
 - F の話した内容は「これはキャンセルの確認です」で、暫定結果は「俺はキャンセルの確認。」（「これは」→「俺は」）
-- E は F と同じファイル名で実行して上書きされたため、ログは F だけ残っている。E の値は標準出力の summary から写した
+- E は今回、F と同じファイル名（`mic-cancel.jsonl`）で実行して上書きされたため、ログは F だけ残っている。E の値は標準出力の summary から写した。上の再現コマンドでは、E のログを別のファイルに分けている
 
 ## まだ計測していないもの
 
