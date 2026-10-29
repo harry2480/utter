@@ -4,7 +4,7 @@ import WhisperKit
 
 /// WhisperKit で推論する `SegmentTranscriber`（4章, PERM-03）。`WhisperKitRecognizer` に渡して使う。
 ///
-/// Phase 0 #49（モデル選定）と #47（ライセンス確定）の判定待ちの先行実装。
+/// Phase 0 #49（モデル選定）の判定待ちの先行実装（ライセンスは #47 の D-2 で採用可）。
 ///
 /// ロード（`prepare()`）は通信しないように、次の順で行う（WhisperKitProbe の手順と同じ）。
 /// 1. `WhisperKitModelCheck` でモデルのフォルダをマニフェストと照合する。`.ready` でなければロードしない

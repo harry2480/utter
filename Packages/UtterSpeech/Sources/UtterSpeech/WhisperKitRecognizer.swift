@@ -3,7 +3,7 @@ import UtterCore
 
 /// WhisperKit で音声を認識する `SpeechRecognizer`（4章）。
 ///
-/// Phase 0 #49（モデル選定）と #47（ライセンス確定）の判定待ちの先行実装。設定が無効（既定）なら、
+/// Phase 0 #49（モデル選定）の判定待ちの先行実装（ライセンスは #47 の D-2 で採用可）。設定が無効（既定）なら、
 /// 音声を読まずに `failed(.modelUnavailable)` で終える。
 ///
 /// WhisperKit を UtterSpeech の依存に入れないため、推論は `SegmentTranscriber` 越しに行う。

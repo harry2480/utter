@@ -25,7 +25,7 @@ Phase 0 検証 [#49](https://github.com/harry2480/utter/issues/49)「WhisperKit 
 - 推論する音声ファイル（wav / m4a / caf / aiff / mp3 / flac）。**人が用意し、リポジトリに置かない**
 - 通信は `fetch` の実行時だけ（Hugging Face からモデルとトークナイザーを取得）。`bench` / `eval` は通信しません
   - WhisperKit はローカルのトークナイザーが無い・読めないとき、`download: false` でも Hugging Face から取得し直します。そのため `bench` / `eval` はロード前に、トークナイザーを判定できること・`tokenizer.json` と `tokenizer_config.json` がそろっていて WhisperKit と同じ経路で手元から読み込めることを確かめ、満たさなければ計測せずに止めます。止まったら該当フォルダを消して `fetch` をやり直してください
-  - それでも通信しないことは、計測中にネットワークを切るか通信を監視して確かめてください（#47 の決定案 D-6 と関連）
+  - それでも通信しないことは、計測中にネットワークを切るか通信を監視して確かめてください（#47 の D-6 で、utter 側で取得・検証してから WhisperKit に渡すと決定）
 - マイク・アクセシビリティなどの権限は不要です
 
 ## ビルド
@@ -165,5 +165,5 @@ Core ML がシステム側に作るコンパイル済みモデルのキャッシ
 | トークナイザー（`fetch` が取得する `openai/whisper-*` の `tokenizer.json` など） | https://huggingface.co/openai | 上の Hugging Face 版と同じ | 同上 |
 | distil-whisper（distil-whisper_distil-large-v3 を使う場合） | https://huggingface.co/distil-whisper/distil-large-v3 | MIT | モデルカードのメタデータ `license: mit` |
 
-- OpenAI の GitHub では MIT、Hugging Face のモデルカードでは Apache-2.0 と表記が異なります。どちらも Apache-2.0 の本プロジェクトと両立しますが、配布時の表記（NOTICE を含む）は #47 で確定してください
+- OpenAI の GitHub では MIT、Hugging Face のモデルカードでは Apache-2.0 と表記が異なります。どちらも Apache-2.0 の本プロジェクトと両立しますが、配布時の表記は #47 の D-3 で `THIRD_PARTY_NOTICES.md` に置くと決まっています（採用時に追記）
 - モデルは Hugging Face の `main` を取得するため、取得した時点の版を記録する場合は、取得日と `https://huggingface.co/api/models/argmaxinc/whisperkit-coreml` の `sha` を控えてください

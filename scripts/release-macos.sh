@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # 公式バイナリの作成: アーカイブ → Developer ID 署名 → 公証（notarytool）→ staple → zip / dmg → SHA-256。
-# .github/workflows/release.yml から呼ぶ。手元の Mac（maintainer）でも同じ環境変数を渡せば実行できる。
-# Phase 0 #47（署名方式の確定）の判定待ちの先行実装（docs/ビルド・配布規約.md「リリース」）。
+# maintainer の手元の Mac で実行する（#47 の D-7。署名の秘密情報を GitHub に置かない）。手順は docs/ビルド・配布規約.md「リリース」。
 #
 # 必須の環境変数（値はログに出さない）:
 #   UTTER_VERSION            版（例: 0.1.0。タグ v0.1.0 の v を除いたもの）→ CFBundleShortVersionString
@@ -12,8 +11,8 @@
 #   ASC_API_KEY_ID           API キーの Key ID
 #   ASC_API_ISSUER_ID        API キーの Issuer ID
 # 任意:
-#   UTTER_KEYCHAIN_PATH      Developer ID 証明書を入れたキーチェーン（CI の一時キーチェーン。未指定なら既定の検索リスト）
-# 自動更新（Sparkle 2。Phase 0 #47 の判定待ちの先行実装）。4つすべて指定するか、すべて省くか（省けば自動更新なしでビルドする）:
+#   UTTER_KEYCHAIN_PATH      Developer ID 証明書を入れたキーチェーン（未指定なら既定の検索リスト。ログインキーチェーンに入れたなら省略する）
+# 自動更新（Sparkle 2。既定で無効の先行実装。公式バイナリで有効にするかは #59 で決める）。4つすべて指定するか、すべて省くか（省けば自動更新なしでビルドする）:
 #   UTTER_SPARKLE_FEED_URL             appcast の URL（https）。アプリの Info.plist に入る
 #   UTTER_SPARKLE_PUBLIC_ED_KEY        EdDSA 公開鍵（generate_keys が表示する Base64）。アプリの Info.plist に入る
 #   UTTER_SPARKLE_DOWNLOAD_URL_PREFIX  zip を置く URL の接頭辞（https、末尾は /）。appcast の enclosure に使う

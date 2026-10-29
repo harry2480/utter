@@ -6,7 +6,7 @@ import UtterCore
 
 /// 自動更新（Sparkle 2）のアダプター。
 ///
-/// Phase 0 #47（依存のライセンス確定）の判定待ちの先行実装で、既定で無効。
+/// 先行実装（ライセンスは #47 の D-2 で採用可。公式バイナリで有効にするかは #59 で決める）で、既定で無効。
 /// Info.plist の appcast URL と EdDSA 公開鍵から `SoftwareUpdateConfiguration` を作れたときだけ
 /// Sparkle を起動する。作れなければ Sparkle のオブジェクトを作らず、更新の確認で通信しない。
 /// 確認の間隔・システムプロファイルを送らないこと・自動インストールを選べないことは Apps/macOS/Info.plist で決める。
