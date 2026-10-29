@@ -9,7 +9,7 @@ import UtterPersistence
 /// 1. 保存済みの最新の設定で、整形の処理系にクラウド AI を選んでいる（AI-03。既定は Local Basic）
 /// 2. Claude への整形の送信に同意している（AC-06）
 /// 3. API キーが保存されていて読み出せる（AC-12）
-/// 4. 予算上限を確かめられる（月次予算・単価表・使用量の累計, AI-04）
+/// 4. 月次予算を設定していれば、予算上限を確かめられる（単価表・使用量の累計, AI-04）。未設定なら上限なしで送る
 ///
 /// 送信の直前には `RefinementRouter` が機密入力の判定（`sensitivity`）を確かめ、送信できなければローカル整形に退避する（7章, AC-12）。
 ///
@@ -75,6 +75,14 @@ public struct CloudRefinement {
     return { decision }
   }
 
+  /// 上限の確認に使った月次予算・単価表と、最新の設定とで違うか。予算がないまま変わらなければ単価表の変更は問わない
+  nonisolated static func budgetSettingsChanged(
+    from checked: AppSettings, to latest: AppSettings
+  ) -> Bool {
+    guard checked.monthlyBudget == latest.monthlyBudget else { return true }
+    return checked.monthlyBudget != nil && checked.priceTable != latest.priceTable
+  }
+
   /// 発話を整形する。
   ///
   /// - Throws: 呼び出し元の Task がキャンセルされた場合。キャンセルされたセッションの結果は使わない
@@ -112,21 +120,47 @@ public struct CloudRefinement {
       return local(.cloudUnavailable)
     }
 
-    let budget: CloudRefinementBudget
-    switch await budgetSource.begin(
-      model: configuration.model, maxOutputTokens: configuration.maxTokens, request: request,
-      settings: settings, at: date())
-    {
+    func beginBudget(_ settings: AppSettings) async -> CloudRefinementBudgetResult {
+      await budgetSource.begin(
+        model: configuration.model, maxOutputTokens: configuration.maxTokens, request: request,
+        settings: settings, at: date())
+    }
+    // 月次予算が未設定なら nil（上限の確認と推定費用の記録をしない, AI-04）
+    var budget: CloudRefinementBudget?
+    switch await beginBudget(settings) {
     case .ready(let ready):
       budget = ready
+    case .unlimited:
+      budget = nil
     case .unavailable(let reason):
       if Task.isCancelled { throw CancellationError() }
       return local(.budgetUnavailable(reason))
     }
     // 予算の確認を待つ間の変更も反映するよう、送信の直前に最新の設定を読み直す
-    let latest = settingsStore.load()
+    var latest = settingsStore.load()
+    // 上限の確認に使った設定（月次予算・単価表）
+    var checked = settings
+    // 予算なしで許可された後に月次予算が設定されたら、最新の予算で上限を確かめ直す（確かめられなければ送信しない）
+    if budget == nil, latest.monthlyBudget != nil {
+      checked = latest
+      switch await beginBudget(latest) {
+      case .ready(let ready):
+        budget = ready
+      case .unlimited:
+        break
+      case .unavailable(let reason):
+        if Task.isCancelled { throw CancellationError() }
+        return local(.budgetUnavailable(reason))
+      }
+      latest = settingsStore.load()
+    }
+    // 確認に使った月次予算・単価表が送信の直前までに変わったら、古い上限で送らない（AI-04）
+    if Self.budgetSettingsChanged(from: checked, to: latest) {
+      await budget?.finish()
+      return local(.budgetUnavailable(.settingsChangedWhileChecking))
+    }
     guard latest.refinementEngine == .cloudAI else {
-      await budget.finish()
+      await budget?.finish()
       return local(.localEngineSelected)
     }
     // `AppSettingsStore` は `Sendable` でないため、読み直した同意状態を渡す
@@ -134,13 +168,13 @@ public struct CloudRefinement {
     let outcome: RefinementOutcome
     do throws(CancellationError) {
       outcome = try await router.refine(
-        request, consent: { consentState }, budget: budget.budget, sensitivity: sensitivity)
+        request, consent: { consentState }, budget: budget?.budget, sensitivity: sensitivity)
     } catch {
       // 送信後にキャンセルされても課金されている可能性があるため、推定費用は記録する
-      await budget.finish()
+      await budget?.finish()
       throw error
     }
-    await budget.finish()
+    await budget?.finish()
 
     switch outcome.source {
     case .cloud:
@@ -203,7 +237,7 @@ public enum SessionRefinementRoute: Hashable, Sendable {
     case apiKeyNotSet
     /// API キーを読み出せない（端末のロック中・保存先の不具合など）
     case apiKeyUnavailable
-    /// 予算上限を確かめられない
+    /// 月次予算を設定しているが、予算上限を確かめられない
     case budgetUnavailable(CloudBudgetUnavailableReason)
   }
 }

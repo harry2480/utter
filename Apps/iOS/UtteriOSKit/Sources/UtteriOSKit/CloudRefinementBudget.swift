@@ -4,8 +4,9 @@ import UtterPersistence
 
 /// クラウド整形の前の予算上限の確認と、送信後の推定費用の記録（AI-04, AI-05）。
 public protocol CloudRefinementBudgetSource: Sendable {
-  /// 1回の整形の予算を用意する。予算上限を守れない（未設定・推定できない・使用量を読めない）なら理由を返し、
-  /// 呼び出し側は送信しない。`.ready` を返したら、整形の後に `CloudRefinementBudget.finish()` を1回だけ呼ぶ
+  /// 1回の整形の予算を用意する。月次予算が未設定なら `.unlimited` を返し、呼び出し側は上限なしで送信する（AI-04）。
+  /// 月次予算はあるが上限を守れない（推定できない・使用量を読めない）なら理由を返し、呼び出し側は送信しない。
+  /// `.ready` を返したら、整形の後に `CloudRefinementBudget.finish()` を1回だけ呼ぶ
   ///
   /// - Parameters:
   ///   - model: 送信先のモデル名
@@ -22,12 +23,14 @@ public protocol CloudRefinementBudgetSource: Sendable {
 /// 予算を用意した結果。
 public enum CloudRefinementBudgetResult: Sendable {
   case ready(CloudRefinementBudget)
+  /// 月次予算が未設定。上限の確認と推定費用の記録をせずに送信する（AI-04）
+  case unlimited
   case unavailable(CloudBudgetUnavailableReason)
 }
 
 /// 予算上限を確かめられず、送信しない理由（AI-04）。
 public enum CloudBudgetUnavailableReason: Hashable, Sendable {
-  /// 月次予算か単価表（通貨・更新日）が設定されていない
+  /// 月次予算はあるが、単価表（通貨・更新日）が設定されていない
   case notConfigured
   /// 月次予算と単価表の通貨が一致しない
   case currencyMismatch
@@ -37,6 +40,8 @@ public enum CloudBudgetUnavailableReason: Hashable, Sendable {
   case usageUnavailable
   /// 前の整形の推定費用の記録が終わっていない
   case previousRefinementInProgress
+  /// 上限を確かめている間に月次予算・単価表が変わった（古い上限で送らない）
+  case settingsChangedWhileChecking
 }
 
 /// 1回の整形の予算。`RefinementRouter.refine` に渡し、整形の後に `finish()` で推定費用を記録する。
@@ -61,7 +66,8 @@ public struct CloudRefinementBudget: Sendable {
 ///   `MonthlyUsageStore` に加算する
 /// - 送信中にアプリが終了しても費用を少なく数えないよう、送信前に見込み費用を「未確定の予約」としてファイルに残し、
 ///   記録を終えたら消す。次の整形の前に予約が残っていれば、見込み費用で累計に加算してから判定する
-/// - 月次予算・単価表（通貨・更新日・モデルの単価）が未設定、通貨が一致しない、累計を読み書きできないときは送信しない
+/// - 月次予算が未設定なら、上限の確認も推定費用の記録もせずに送信を許可する（AI-04。予算は利用者が任意で設定する）
+/// - 月次予算があるのに単価表（通貨・更新日・モデルの単価）が未設定、通貨が一致しない、累計を読み書きできないときは送信しない
 /// - 前の整形の記録が終わる前に次の整形を始めたら、累計が古いため送信しない
 /// - 累計の保存に一度でも失敗したら、累計が実際より少ない可能性があるため、以降は送信しない（安全側）。
 ///   予約のファイルが読めない場合は額がわからないため、ファイルを残し、起動し直しても送信しない
@@ -96,10 +102,11 @@ public actor UsageStoreBudgetSource: CloudRefinementBudgetSource {
     model: String, maxOutputTokens: Int, request: RefinementRequest, settings: AppSettings,
     at date: Date
   ) async -> CloudRefinementBudgetResult {
+    // 予算がなければ累計を使わないため、前の整形の記録や保存の失敗を待たない
+    guard let budgetSetting = settings.monthlyBudget else { return .unlimited }
     guard inFlight == nil else { return .unavailable(.previousRefinementInProgress) }
     guard !hasPersistenceFailure else { return .unavailable(.usageUnavailable) }
-    guard let budgetSetting = settings.monthlyBudget,
-      let priceTable = Self.priceTable(from: settings.priceTable),
+    guard let priceTable = Self.priceTable(from: settings.priceTable),
       let currency = try? CostCurrency(code: budgetSetting.currencyCode),
       let (yearMonth, usageMonth) = months(of: date)
     else {
