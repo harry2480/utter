@@ -64,6 +64,30 @@ struct CloudRefinementTests {
     #expect(keyStore.calls == [.save])
   }
 
+  /// 送信しない経路と、出す通知
+  nonisolated static let unsentRouteNotices: [(SessionRefinementRoute, RefinementNotice?)] = [
+    (.localOnly(.consentNotGranted), .consentNotGranted),
+    (.cloudFallback(.consentNotGranted), .consentNotGranted),
+    (.localOnly(.localEngineSelected), nil),
+    (.localOnly(.rawMode), nil),
+    (.localOnly(.cloudNotConfigured), nil),
+    (.cloud, nil),
+  ]
+
+  @Test(
+    "AI-06, AC-06: 送信しない経路のうち、クラウド AI を選んで同意していないときだけ同意を案内する",
+    arguments: unsentRouteNotices)
+  func noticeForUnsentRoutes(route: SessionRefinementRoute, expected: RefinementNotice?) {
+    #expect(RefinementNotice(route: route) == expected)
+  }
+
+  @Test("AI-06: 同意していない通知は設定の場所を案内し、送信したとは言わない")
+  func consentNoticeMessage() {
+    let message = RefinementNotice.consentNotGranted.message
+    #expect(message.contains("クラウド送信の同意"))
+    #expect(message.contains("端末内で整形しました"))
+  }
+
   @Test("AI-03, iOS-10: 処理系に Local Basic を選んでいれば、同意・API キー・予算があっても送信しない")
   func localEngineStaysLocal() async throws {
     try settingsStore.save(AppSettings(refinementEngine: .localBasic))

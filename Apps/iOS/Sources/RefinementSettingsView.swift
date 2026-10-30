@@ -71,14 +71,22 @@ struct RefinementSettingsView: View {
           .keyboardType(.decimalPad)
         IssueText(issues: model.issues(in: [.budgetLimit]))
       }
-      TextField("通貨（例: USD）", text: $model.form.currencyCode)
-        .autocorrectionDisabled()
-        .textInputAutocapitalization(.characters)
-      IssueText(issues: model.issues(in: [.currencyCode]))
+      if showsCurrency {
+        TextField("通貨（例: USD）", text: $model.form.currencyCode)
+          .autocorrectionDisabled()
+          .textInputAutocapitalization(.characters)
+        IssueText(issues: model.issues(in: [.currencyCode]))
+      }
       ForEach(model.form.notices, id: \.self) { notice in
         Text(notice.message).font(.caption).foregroundStyle(.orange)
       }
     }
+  }
+
+  /// 通貨は月次予算か単価表を使うときだけ要るため、そのときだけ出す。通貨の問題があるときは直せるよう隠さない
+  private var showsCurrency: Bool {
+    model.form.budgetEnabled || !model.form.priceRows.isEmpty
+      || !model.issues(in: [.currencyCode]).isEmpty
   }
 
   private var priceTableSection: some View {
