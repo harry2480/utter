@@ -56,9 +56,13 @@ public enum RecordingFailure: Hashable, Sendable {
 
 /// クラウド整形を使えず、ローカル整形の結果を保存したことの通知（4.1節, AI-06）。
 ///
-/// Local Basic を選んでいる・同意していない・結線していない・Raw モードのときは送信しないのが正しい動作のため通知しない。
+/// Local Basic を選んでいる・結線していない・Raw モードのときは送信しないのが正しい動作のため通知しない。
+/// 処理系にクラウド AI を選んでいるのに同意していないときは、理由が分からないまま端末内で整形しないよう知らせる。
+/// 通知は表示するだけで、送信の経路は変えない（AC-06）。
 /// 本文・API キー・エラーの詳細は持たない。
 public enum RefinementNotice: Hashable, Sendable {
+  /// 処理系にクラウド AI を選んでいるが、Claude への整形の送信に同意していない
+  case consentNotGranted
   /// クラウド整形の設定（モデル名など）を使えない
   case configurationUnavailable
   /// 同意しているが API キーが保存されていない
@@ -86,13 +90,15 @@ public enum RefinementNotice: Hashable, Sendable {
   init?(route: SessionRefinementRoute) {
     switch route {
     case .cloud, .localOnly(.cloudNotConfigured), .localOnly(.rawMode),
-      .localOnly(.localEngineSelected), .localOnly(.consentNotGranted):
+      .localOnly(.localEngineSelected):
       return nil
+    // 同意がないのは処理系にクラウド AI を選んでいるときだけ（Local Basic を選んでいれば同意を確かめない）
+    case .localOnly(.consentNotGranted), .cloudFallback(.consentNotGranted):
+      self = .consentNotGranted
     case .localOnly(.cloudUnavailable): self = .configurationUnavailable
     case .localOnly(.apiKeyNotSet): self = .apiKeyNotSet
     case .localOnly(.apiKeyUnavailable): self = .apiKeyUnavailable
     case .localOnly(.budgetUnavailable(let reason)): self = .budgetUnavailable(reason)
-    case .cloudFallback(.consentNotGranted): return nil
     case .cloudFallback(.sensitiveInputSuppressed): self = .sensitiveInput
     case .cloudFallback(.validationFailed): self = .unusableResponse
     case .cloudFallback(.providerFailed(let error)):
@@ -108,8 +114,13 @@ public enum RefinementNotice: Hashable, Sendable {
   }
 
   public var message: String {
+    // 同意していないのは失敗ではないため、変える場所を案内する
+    if self == .consentNotGranted {
+      return "Claude への送信に同意していないため、端末内で整形しました。設定の「クラウド送信の同意」で変えられます。"
+    }
     let detail =
       switch self {
+      case .consentNotGranted: "Claude への送信に同意していない"
       case .configurationUnavailable: "クラウド整形の設定（モデル名など）を使えなかった"
       case .apiKeyNotSet: "Claude API キーが設定されていない"
       case .apiKeyUnavailable: "Claude API キーを読み出せなかった（端末のロック中など）"

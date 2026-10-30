@@ -76,8 +76,23 @@ struct RecordingSessionCloudRefinementTests {
       true, for: CloudFixtures.claudeConsent)
   }
 
-  @Test("iOS-10, AC-06: 同意していなければ従来どおり Local Basic の結果を保存し、通知も出さない")
-  func noConsentSavesLocal() async throws {
+  @Test("iOS-10, AC-06: 同意していなければ送信せずに Local Basic の結果を保存し、未同意を知らせる")
+  func noConsentSavesLocalWithNotice() async throws {
+    try keyStore.save(APIKey("sk-ant-test"))
+    let provider = StubAIProvider(behavior: .respond(cloudText))
+    let model = model(provider: provider, budget: try budget())
+
+    await record(model)
+
+    #expect(await waitUntil { model.phase == .idle })
+    #expect(try await storedTexts() == [localText])
+    #expect(await provider.callCount == 0)
+    #expect(model.refinementNotice == .consentNotGranted)
+  }
+
+  @Test("AI-03: 処理系に Local Basic を選んでいれば、同意していなくても通知を出さない")
+  func localEngineSavesLocalWithoutNotice() async throws {
+    try settingsStore.save(AppSettings(refinementEngine: .localBasic))
     try keyStore.save(APIKey("sk-ant-test"))
     let provider = StubAIProvider(behavior: .respond(cloudText))
     let model = model(provider: provider, budget: try budget())
