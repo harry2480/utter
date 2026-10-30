@@ -15,6 +15,7 @@ macOS ネイティブの音声入力アプリ（OSS）と、共通基盤を使�
 
 ```sh
 scripts/verify.sh        # swift format lint → Swift Package build/test → アプリの署名なし xcodebuild（macOS build/test・iOS Simulator build）→ shellcheck
+scripts/verify.sh macos  # macOS 側だけ（lint・Package build/test・macOS アプリ）。ios で iOS Simulator 側だけ（CI はこの2つを並列に実行）
 scripts/format.sh        # swift format で自動整形
 python3 scripts/make-app-icon.py  # アプリアイコン（iOS・macOS）を描き出す（Pillow が要る）
 scripts/coverage.sh      # カバレッジ計測（coverage/*.lcov、CI で Codecov へ送信）

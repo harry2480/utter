@@ -15,10 +15,15 @@ concurrency:
 
 jobs:
   verify:
-    name: 検証
+    name: 検証（${{ matrix.part }}）
     # macOS 26 / Xcode 26 以降が前提（SpeechAnalyzer・Swift 6）
     runs-on: macos-26
     timeout-minutes: 30
+    # macOS 側（Package の build/test・macOS アプリ・lint）と iOS 側（iOS Simulator 向けのビルド）を並列に動かす
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [macos, ios]
     steps:
       - uses: actions/checkout@v7
 
@@ -30,11 +35,11 @@ jobs:
       - name: shellcheck・xcodegen・actionlint をインストール
         run: brew install shellcheck xcodegen actionlint
 
-      - run: scripts/verify.sh
+      - run: scripts/verify.sh ${{ matrix.part }}
 
       # macOS アプリのテストが落ちたとき、失敗した期待値を xcresult で確かめられるようにする（#193）
       - name: テスト結果を保存
-        if: failure()
+        if: failure() && matrix.part == 'macos'
         uses: actions/upload-artifact@v4
         with:
           name: UtterMac-xcresult
