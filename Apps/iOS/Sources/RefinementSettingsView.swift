@@ -13,11 +13,15 @@ struct RefinementSettingsView: View {
   var body: some View {
     Form {
       providerSection
-      Section("今月の推定費用") {
-        EstimatedCostView(state: model.cost)
+      if model.showsBudgetDetails {
+        Section("今月の推定費用") {
+          EstimatedCostView(state: model.cost)
+        }
       }
       budgetSection
-      priceTableSection
+      if model.showsBudgetDetails {
+        priceTableSection
+      }
       Section {
         if model.saveFailed {
           Text("設定を保存できませんでした。もう一度操作してください。").foregroundStyle(.red)
@@ -71,7 +75,7 @@ struct RefinementSettingsView: View {
           .keyboardType(.decimalPad)
         IssueText(issues: model.issues(in: [.budgetLimit]))
       }
-      if showsCurrency {
+      if model.showsBudgetDetails {
         TextField("通貨（例: USD）", text: $model.form.currencyCode)
           .autocorrectionDisabled()
           .textInputAutocapitalization(.characters)
@@ -81,12 +85,6 @@ struct RefinementSettingsView: View {
         Text(notice.message).font(.caption).foregroundStyle(.orange)
       }
     }
-  }
-
-  /// 通貨は月次予算か単価表を使うときだけ要るため、そのときだけ出す。通貨の問題があるときは直せるよう隠さない
-  private var showsCurrency: Bool {
-    model.form.budgetEnabled || !model.form.priceRows.isEmpty
-      || !model.issues(in: [.currencyCode]).isEmpty
   }
 
   private var priceTableSection: some View {

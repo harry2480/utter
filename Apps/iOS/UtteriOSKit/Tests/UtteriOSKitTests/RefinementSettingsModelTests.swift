@@ -211,6 +211,38 @@ struct RefinementSettingsModelTests {
     #expect(store.load().monthlyBudget == nil)
   }
 
+  @Test("AI-04: 通貨・単価表・推定費用は月次予算を使うときだけ出し、オフにしても入力済みの値は残す")
+  func budgetDetailsFollowBudgetToggle() {
+    let settingsModel = settingsModel()
+    #expect(!settingsModel.showsBudgetDetails)
+
+    fillCloudSettings(settingsModel)
+    #expect(settingsModel.showsBudgetDetails)
+    #expect(settingsModel.save())
+
+    settingsModel.form.budgetEnabled = false
+    #expect(!settingsModel.showsBudgetDetails)
+    #expect(settingsModel.save())
+
+    #expect(!settingsModel.showsBudgetDetails)
+    #expect(settingsModel.form.currencyCode == "USD")
+    #expect(settingsModel.form.priceRows.count == 1)
+    #expect(store.load().priceTable.price(for: model) != nil)
+  }
+
+  @Test("予算がオフでも、通貨・単価表に問題があって保存できないときは直せるよう出す")
+  func budgetDetailsShownWhenTheyBlockSaving() {
+    let settingsModel = settingsModel()
+    fillCloudSettings(settingsModel)
+    settingsModel.form.budgetEnabled = false
+    settingsModel.form.priceUpdatedOn = nil
+
+    #expect(!settingsModel.save())
+
+    #expect(settingsModel.issues == [.priceUpdatedOnMissing])
+    #expect(settingsModel.showsBudgetDetails)
+  }
+
   @Test("元に戻すと、編集中の値と問題を捨てて保存済みの値に戻す")
   func revertRestoresSavedValues() {
     let settingsModel = settingsModel()
