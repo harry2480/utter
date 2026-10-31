@@ -18,6 +18,7 @@ final class KeyboardViewController: UIInputViewController {
   private var openLine = "本体アプリを開く: 未実行"
   private var insertCount = 0
   private lazy var voicePanel = VoiceKeyboardPanel(controller: self)
+  private let debugStack = UIStackView()
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -45,7 +46,7 @@ final class KeyboardViewController: UIInputViewController {
   private func buildLayout() {
     guard let root = inputView else { return }
     root.translatesAutoresizingMaskIntoConstraints = false
-    let height = root.heightAnchor.constraint(equalToConstant: 380)
+    let height = root.heightAnchor.constraint(equalToConstant: 300)
     height.priority = .defaultHigh
     height.isActive = true
 
@@ -79,14 +80,34 @@ final class KeyboardViewController: UIInputViewController {
     openButtonHost.didMove(toParent: self)
 
     let secondRow = makeRow([
-      globe,
       makeButton(title: "開く(ctx)", action: #selector(openViaExtensionContextTapped)),
       openButtonHost.view,
-      makeButton(title: "⌫", action: #selector(deleteTapped)),
-      makeButton(title: "改行", action: #selector(returnTapped)),
     ])
 
-    let stack = UIStackView(arrangedSubviews: [voicePanel.view, scrollView, firstRow, secondRow])
+    // 検証用の表示と操作（#56・#53）。「検証」を押したときだけ出す
+    debugStack.addArrangedSubview(scrollView)
+    debugStack.addArrangedSubview(firstRow)
+    debugStack.addArrangedSubview(secondRow)
+    debugStack.axis = .vertical
+    debugStack.spacing = 6
+    debugStack.isHidden = true
+
+    // 下の段: 地球儀（必要なときだけ）・空白・削除・改行・検証
+    let space = makeButton(title: "空白", action: #selector(spaceTapped))
+    let bottomRow = UIStackView(arrangedSubviews: [
+      globe, space, makeButton(title: "⌫", action: #selector(deleteTapped)),
+      makeButton(title: "改行", action: #selector(returnTapped)),
+      makeButton(title: "検証", action: #selector(debugTapped)),
+    ])
+    bottomRow.axis = .horizontal
+    bottomRow.spacing = 6
+    bottomRow.distribution = .fill
+    space.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    for button in bottomRow.arrangedSubviews where button !== space {
+      button.setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    let stack = UIStackView(arrangedSubviews: [voicePanel.view, debugStack, bottomRow])
     stack.axis = .vertical
     stack.spacing = 6
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -97,9 +118,9 @@ final class KeyboardViewController: UIInputViewController {
       stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -6),
       stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 6),
       stack.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -6),
-      voicePanel.view.heightAnchor.constraint(equalToConstant: 56),
       firstRow.heightAnchor.constraint(equalToConstant: 40),
       secondRow.heightAnchor.constraint(equalToConstant: 40),
+      bottomRow.heightAnchor.constraint(equalToConstant: 44),
       statusLabel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
       statusLabel.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
       statusLabel.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
@@ -228,6 +249,16 @@ final class KeyboardViewController: UIInputViewController {
 
   @objc private func deleteTapped() {
     textDocumentProxy.deleteBackward()
+  }
+
+  @objc private func spaceTapped() {
+    textDocumentProxy.insertText(" ")
+  }
+
+  @objc private func debugTapped() {
+    debugStack.isHidden.toggle()
+    voicePanel.view.isHidden = !debugStack.isHidden
+    refreshStatus()
   }
 
   @objc private func returnTapped() {

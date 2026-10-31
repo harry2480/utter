@@ -15,13 +15,18 @@ final class VoiceKeyboardPanel {
     case preview(SessionID, text: String)
   }
 
+  /// 縦に並べた音声入力の面（見出し・マイクボタン・案内・プレビュー）
   let view = UIStackView()
   private let micButton = UIButton(configuration: .filled())
-  private let insertButton = UIButton(configuration: .gray())
+  private let insertButton = UIButton(configuration: .filled())
   private let autoInsertSwitch = UISwitch()
-  private let label = UILabel()
+  private let hintLabel = UILabel()
+  private let previewLabel = UILabel()
+  private let previewRow = UIStackView()
   private weak var controller: UIInputViewController?
   private var state: State = .idle
+  /// 待機していない・失敗したなどの知らせ。次の操作で消す
+  private var message: String?
   private var waitTask: Task<Void, Never>?
   private var observers: [any NSObjectProtocol] = []
 
@@ -35,27 +40,56 @@ final class VoiceKeyboardPanel {
     autoInsertSwitch.isOn =
       UserDefaults.standard.object(forKey: Self.autoInsertKey) as? Bool ?? true
     autoInsertSwitch.addTarget(self, action: #selector(autoInsertChanged), for: .valueChanged)
+    autoInsertSwitch.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
     micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
     insertButton.configuration?.title = "挿入"
+    insertButton.configuration?.cornerStyle = .capsule
     insertButton.addTarget(self, action: #selector(insertTapped), for: .touchUpInside)
-    label.numberOfLines = 2
-    label.font = .systemFont(ofSize: 12)
 
+    // 見出し: 左に名前、右に自動挿入の切り替え
+    let title = UILabel()
+    title.text = "utter"
+    title.font = .systemFont(ofSize: 15, weight: .semibold)
     let autoLabel = UILabel()
     autoLabel.text = "自動挿入"
-    autoLabel.font = .systemFont(ofSize: 11)
-    let autoStack = UIStackView(arrangedSubviews: [autoLabel, autoInsertSwitch])
-    autoStack.axis = .vertical
-    autoStack.alignment = .center
-    view.addArrangedSubview(micButton)
-    view.addArrangedSubview(label)
-    view.addArrangedSubview(insertButton)
-    view.addArrangedSubview(autoStack)
-    view.axis = .horizontal
-    view.spacing = 6
-    view.alignment = .center
-    micButton.widthAnchor.constraint(equalToConstant: 64).isActive = true
-    label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    autoLabel.font = .systemFont(ofSize: 12)
+    autoLabel.textColor = .secondaryLabel
+    let header = UIStackView(arrangedSubviews: [title, UIView(), autoLabel, autoInsertSwitch])
+    header.axis = .horizontal
+    header.alignment = .center
+    header.spacing = 2
+
+    hintLabel.font = .systemFont(ofSize: 13)
+    hintLabel.textColor = .secondaryLabel
+    hintLabel.textAlignment = .center
+    hintLabel.numberOfLines = 2
+
+    previewLabel.font = .systemFont(ofSize: 15)
+    previewLabel.numberOfLines = 2
+    previewRow.addArrangedSubview(previewLabel)
+    previewRow.addArrangedSubview(insertButton)
+    previewRow.axis = .horizontal
+    previewRow.spacing = 8
+    previewRow.alignment = .center
+    insertButton.setContentHuggingPriority(.required, for: .horizontal)
+
+    // 中央に大きなマイクボタン、その下に案内（Typeless・Aqua Voice と同じ並び）
+    let micHolder = UIView()
+    micButton.translatesAutoresizingMaskIntoConstraints = false
+    micHolder.addSubview(micButton)
+    NSLayoutConstraint.activate([
+      micButton.centerXAnchor.constraint(equalTo: micHolder.centerXAnchor),
+      micButton.topAnchor.constraint(equalTo: micHolder.topAnchor),
+      micButton.bottomAnchor.constraint(equalTo: micHolder.bottomAnchor),
+      micButton.widthAnchor.constraint(equalToConstant: 160),
+      micButton.heightAnchor.constraint(equalToConstant: 64),
+    ])
+
+    for subview in [header, UIView(), micHolder, hintLabel, previewRow, UIView()] {
+      view.addArrangedSubview(subview)
+    }
+    view.axis = .vertical
+    view.spacing = 10
 
     observers.append(
       NotificationCenter.default.addObserver(
@@ -89,6 +123,7 @@ final class VoiceKeyboardPanel {
   }
 
   private func start() {
+    message = nil
     let sessionID = SessionID()
     VoiceStore.appendEvent(source: "keyboard", name: "tapStart", sessionID: sessionID)
     guard let host = VoiceStore.read(VoiceHostState.self, from: VoiceStore.hostStateFileName),
@@ -208,32 +243,37 @@ final class VoiceKeyboardPanel {
   // MARK: 表示
 
   private func show(_ message: String) {
-    label.text = message
+    self.message = message
     render()
   }
 
   private func render(hostRecording: Bool = false) {
-    var configuration = micButton.configuration ?? .filled()
+    var configuration = UIButton.Configuration.filled()
+    configuration.cornerStyle = .capsule
+    configuration.baseBackgroundColor = .label
+    configuration.baseForegroundColor = .systemBackground
+    configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+      pointSize: 22, weight: .semibold)
+    previewRow.isHidden = true
     switch state {
     case .idle:
-      configuration.title = "🎤"
-      configuration.baseBackgroundColor = .systemBlue
-      insertButton.isHidden = true
+      configuration.image = UIImage(systemName: "mic.fill")
+      hintLabel.text = message ?? "話すにはタップ"
     case .recording:
-      configuration.title = "■"
+      configuration.image = UIImage(systemName: "waveform")
       configuration.baseBackgroundColor = .systemRed
-      label.text = hostRecording ? "録音中…もう一度タップで終了" : "録音を始めています…"
-      insertButton.isHidden = true
+      configuration.baseForegroundColor = .white
+      hintLabel.text = hostRecording ? "もう一度タップして終了" : "録音を始めています…"
     case .waiting:
-      configuration.title = "…"
-      configuration.baseBackgroundColor = .systemGray
-      label.text = "Thinking…"
-      insertButton.isHidden = true
+      configuration.title = "Thinking…"
+      configuration.baseBackgroundColor = .secondarySystemFill
+      configuration.baseForegroundColor = .label
+      hintLabel.text = " "
     case .preview(_, let text):
-      configuration.title = "🎤"
-      configuration.baseBackgroundColor = .systemBlue
-      label.text = text
-      insertButton.isHidden = false
+      configuration.image = UIImage(systemName: "mic.fill")
+      hintLabel.text = "内容を確かめて「挿入」"
+      previewLabel.text = text
+      previewRow.isHidden = false
     }
     micButton.configuration = configuration
   }

@@ -31,7 +31,8 @@ final class VoiceSessionController {
     }
   }
 
-  var mode: StandbyMode = .silentPlayback
+  /// 既定はマイクを開いたまま。無音の再生だけで待つ方式は、裏でマイクを開けなかった（avfaudio 2003329396, 2026-10-31）
+  var mode: StandbyMode = .holdMicrophone
   /// 合図がなければ待機を終える分数。0 なら終えない
   var idleTimeoutMinutes = 5
   private(set) var phase: VoiceHostState.Phase = .off
