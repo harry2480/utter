@@ -31,7 +31,7 @@ monitor=$!
 trap 'kill $monitor 2>/dev/null' EXIT INT TERM
 $wk bench --model openai_whisper-large-v3-v20240930_turbo_632MB --audio eval/audio/synthetic/long.wav \
   --runs 270 --interval-ms 1000 --idle-after-s 60 --out "$TMPDIR/wk-endurance"
-kill $monitor 2>/dev/null; trap - EXIT INT TERM
+kill $monitor 2>/dev/null; wait $monitor 2>/dev/null; trap - EXIT INT TERM
 grep -o 'therm=[a-z]*' "$TMPDIR/system.log" | sort | uniq -c
 ```
 
