@@ -2,7 +2,7 @@
 // 拡張はマイク・STT モデル・クラウド認証情報を持たない（iAC-08）。外部への送信もしない。
 // 本体アプリを開く操作は公開 API だけを試す。responder chain をたどって UIApplication の openURL を呼ぶ等の
 // 抜け道は使わない（iOS-03）。開けなければ「開けない」と表示し、手動切替を案内する。
-// ホストアプリの入力欄の本文（documentContextBeforeInput 等）は読まない。
+// ホストアプリの入力欄の本文（documentContextBeforeInput 等）は、音声入力の挿入の確認（VoiceTextInserter）にだけ使い、保存・記録しない。
 
 import SwiftUI
 import UIKit
@@ -17,6 +17,7 @@ final class KeyboardViewController: UIInputViewController {
   private var insertLine = "挿入: 未実行"
   private var openLine = "本体アプリを開く: 未実行"
   private var insertCount = 0
+  private lazy var voicePanel = VoiceKeyboardPanel(controller: self)
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -44,7 +45,7 @@ final class KeyboardViewController: UIInputViewController {
   private func buildLayout() {
     guard let root = inputView else { return }
     root.translatesAutoresizingMaskIntoConstraints = false
-    let height = root.heightAnchor.constraint(equalToConstant: 320)
+    let height = root.heightAnchor.constraint(equalToConstant: 380)
     height.priority = .defaultHigh
     height.isActive = true
 
@@ -85,7 +86,7 @@ final class KeyboardViewController: UIInputViewController {
       makeButton(title: "改行", action: #selector(returnTapped)),
     ])
 
-    let stack = UIStackView(arrangedSubviews: [scrollView, firstRow, secondRow])
+    let stack = UIStackView(arrangedSubviews: [voicePanel.view, scrollView, firstRow, secondRow])
     stack.axis = .vertical
     stack.spacing = 6
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -96,6 +97,7 @@ final class KeyboardViewController: UIInputViewController {
       stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -6),
       stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 6),
       stack.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -6),
+      voicePanel.view.heightAnchor.constraint(equalToConstant: 56),
       firstRow.heightAnchor.constraint(equalToConstant: 40),
       secondRow.heightAnchor.constraint(equalToConstant: 40),
       statusLabel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),

@@ -5,11 +5,13 @@ import UIKit
 
 struct ContentView: View {
   @Bindable var model: AppProbeModel
+  @Bindable var voice: VoiceSessionController
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     NavigationStack {
       Form {
+        VoiceSection(voice: voice)
         configurationSection
         writeSection
         lockTestSection
