@@ -1,0 +1,272 @@
+[
+ {
+  "id": "ja-001",
+  "category": "japanese",
+  "reference": "明日の会議は午後から始まります"
+ },
+ {
+  "id": "ja-002",
+  "category": "japanese",
+  "reference": "駅前の新しいカフェに行ってみました"
+ },
+ {
+  "id": "ja-003",
+  "category": "japanese",
+  "reference": "今日は雨が降りそうなので傘を持っていきます"
+ },
+ {
+  "id": "ja-004",
+  "category": "japanese",
+  "reference": "来月の旅行の計画を立てています"
+ },
+ {
+  "id": "ja-005",
+  "category": "japanese",
+  "reference": "資料は金曜日までに送ってください"
+ },
+ {
+  "id": "ja-006",
+  "category": "japanese",
+  "reference": "最近は朝早く起きるようにしています"
+ },
+ {
+  "id": "ja-007",
+  "category": "japanese",
+  "reference": "この本はとても読みやすかったです"
+ },
+ {
+  "id": "ja-008",
+  "category": "japanese",
+  "reference": "週末は家族と公園で過ごしました"
+ },
+ {
+  "id": "ja-009",
+  "category": "japanese",
+  "reference": "申し訳ありませんが少し遅れます"
+ },
+ {
+  "id": "ja-010",
+  "category": "japanese",
+  "reference": "新しい仕事にもだいぶ慣れてきました"
+ },
+ {
+  "id": "mix-001",
+  "category": "mixedJapaneseEnglish",
+  "reference": "来週の meeting は Zoom でお願いします",
+  "terms": [
+   "meeting",
+   "Zoom"
+  ]
+ },
+ {
+  "id": "mix-002",
+  "category": "mixedJapaneseEnglish",
+  "reference": "その件は Slack で共有しておきます",
+  "terms": [
+   "Slack"
+  ]
+ },
+ {
+  "id": "mix-003",
+  "category": "mixedJapaneseEnglish",
+  "reference": "Google Drive に資料をアップしました",
+  "terms": [
+   "Google Drive"
+  ]
+ },
+ {
+  "id": "mix-004",
+  "category": "mixedJapaneseEnglish",
+  "reference": "今日の deadline は守れそうです",
+  "terms": [
+   "deadline"
+  ]
+ },
+ {
+  "id": "mix-005",
+  "category": "mixedJapaneseEnglish",
+  "reference": "この feature の feedback をください",
+  "terms": [
+   "feature",
+   "feedback"
+  ]
+ },
+ {
+  "id": "mix-006",
+  "category": "mixedJapaneseEnglish",
+  "reference": "iPhone の設定を確認してください",
+  "terms": [
+   "iPhone"
+  ]
+ },
+ {
+  "id": "mix-007",
+  "category": "mixedJapaneseEnglish",
+  "reference": "YouTube で tutorial を見ました",
+  "terms": [
+   "YouTube",
+   "tutorial"
+  ]
+ },
+ {
+  "id": "mix-008",
+  "category": "mixedJapaneseEnglish",
+  "reference": "Amazon で注文した荷物が届きました",
+  "terms": [
+   "Amazon"
+  ]
+ },
+ {
+  "id": "mix-009",
+  "category": "mixedJapaneseEnglish",
+  "reference": "次の sprint の planning をしましょう",
+  "terms": [
+   "sprint",
+   "planning"
+  ]
+ },
+ {
+  "id": "mix-010",
+  "category": "mixedJapaneseEnglish",
+  "reference": "Notion にメモを残しておきます",
+  "terms": [
+   "Notion"
+  ]
+ },
+ {
+  "id": "dev-001",
+  "category": "developerTerms",
+  "reference": "SwiftUI の View を Xcode でプレビューする",
+  "terms": [
+   "SwiftUI",
+   "View",
+   "Xcode"
+  ]
+ },
+ {
+  "id": "dev-002",
+  "category": "developerTerms",
+  "reference": "GitHub で pull request を作成します",
+  "terms": [
+   "GitHub",
+   "pull request"
+  ]
+ },
+ {
+  "id": "dev-003",
+  "category": "developerTerms",
+  "reference": "API のレスポンスを JSON で返します",
+  "terms": [
+   "API",
+   "JSON"
+  ]
+ },
+ {
+  "id": "dev-004",
+  "category": "developerTerms",
+  "reference": "Docker のコンテナを再起動してください",
+  "terms": [
+   "Docker"
+  ]
+ },
+ {
+  "id": "dev-005",
+  "category": "developerTerms",
+  "reference": "TypeScript の型エラーを直しました",
+  "terms": [
+   "TypeScript"
+  ]
+ },
+ {
+  "id": "dev-006",
+  "category": "developerTerms",
+  "reference": "main ブランチに merge しておきます",
+  "terms": [
+   "main",
+   "merge"
+  ]
+ },
+ {
+  "id": "dev-007",
+  "category": "developerTerms",
+  "reference": "CI のテストが失敗しています",
+  "terms": [
+   "CI"
+  ]
+ },
+ {
+  "id": "dev-008",
+  "category": "developerTerms",
+  "reference": "async await で非同期処理を書きます",
+  "terms": [
+   "async",
+   "await"
+  ]
+ },
+ {
+  "id": "dev-009",
+  "category": "developerTerms",
+  "reference": "React のコンポーネントを分割します",
+  "terms": [
+   "React"
+  ]
+ },
+ {
+  "id": "dev-010",
+  "category": "developerTerms",
+  "reference": "Kubernetes のデプロイ設定を確認します",
+  "terms": [
+   "Kubernetes"
+  ]
+ },
+ {
+  "id": "num-001",
+  "category": "numbers",
+  "reference": "会議は三時半から始まります"
+ },
+ {
+  "id": "num-002",
+  "category": "numbers",
+  "reference": "参加者は全部で二十五人です"
+ },
+ {
+  "id": "num-003",
+  "category": "numbers",
+  "reference": "価格は千五百円です"
+ },
+ {
+  "id": "num-004",
+  "category": "numbers",
+  "reference": "二〇二六年十月三十一日に提出します"
+ },
+ {
+  "id": "num-005",
+  "category": "numbers",
+  "reference": "電話番号は〇九〇の一二三四の五六七八です"
+ },
+ {
+  "id": "num-006",
+  "category": "numbers",
+  "reference": "バッテリーは残り八十パーセントです"
+ },
+ {
+  "id": "num-007",
+  "category": "numbers",
+  "reference": "約2.5キロ歩きました"
+ },
+ {
+  "id": "num-008",
+  "category": "numbers",
+  "reference": "締め切りは十一月五日です"
+ },
+ {
+  "id": "num-009",
+  "category": "numbers",
+  "reference": "第三章の十二ページを見てください"
+ },
+ {
+  "id": "num-010",
+  "category": "numbers",
+  "reference": "気温は十八度まで上がるそうです"
+ }
+]
