@@ -44,7 +44,7 @@ final class VoiceSessionController {
   @ObservationIgnored private var inputTapInstalled = false
   @ObservationIgnored private let sink = ChunkSink()
   @ObservationIgnored private var activeSessionID: SessionID?
-  @ObservationIgnored private var recognition: Task<String?, Never>?
+  @ObservationIgnored private var recognition: Task<RecognitionOutcome, Never>?
   @ObservationIgnored private var heartbeat: Task<Void, Never>?
   @ObservationIgnored private var lastSequence: Int64 = 0
   @ObservationIgnored private var lastActivity = Date()
@@ -83,6 +83,19 @@ final class VoiceSessionController {
     if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
       _ = await withCheckedContinuation { continuation in
         SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+      }
+    }
+    // モデルの確保はアプリごと。このアプリで確保していなければ、ここで確保・取得する
+    let assets = SpeechAnalyzerAssets()
+    let availability = await assets.availability()
+    note("音声認識のモデル: \(availability)")
+    if availability != .installed {
+      do {
+        try await assets.install()
+        note("音声認識のモデル: \(await assets.availability())")
+      } catch {
+        note("モデルを取得できない: \(error)")
+        return
       }
     }
     do {
@@ -180,13 +193,13 @@ final class VoiceSessionController {
       var finalText = ""
       for await event in events {
         switch event.kind {
-        case .completed(let text): return text
-        case .failed: return nil
+        case .completed(let text): return .text(text)
+        case .failed(let error): return .failed(String(describing: error))
         case .confirmed(let text): finalText += text
         case .partial: break
         }
       }
-      return finalText.isEmpty ? nil : finalText
+      return .text(finalText)
     }
     setPhase(.recording, sessionID: sessionID)
     VoiceStore.appendEvent(source: "host", name: "captureStarted", sessionID: sessionID)
@@ -206,13 +219,25 @@ final class VoiceSessionController {
       // マイクの表示を消すため、入力を閉じて無音の再生だけに戻す
       try? startEngine(withInput: false)
     }
-    let text = await recognition.value
+    let outcome = await recognition.value
     self.recognition = nil
     activeSessionID = nil
-    VoiceStore.appendEvent(source: "host", name: "recognized", sessionID: sessionID)
-    guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      setPhase(.failed, sessionID: sessionID, detail: "声を認識できなかった")
+    let audio = sink.takeStatistics()
+    let audioDetail = String(
+      format: "音声 %.1f秒・最大音量 %.3f", audio.seconds, audio.peak)
+    VoiceStore.appendEvent(
+      source: "host", name: "recognized", sessionID: sessionID, detail: audioDetail)
+    let text: String
+    switch outcome {
+    case .failed(let reason):
+      setPhase(.failed, sessionID: sessionID, detail: "認識に失敗: \(reason)（\(audioDetail)）")
       return
+    case .text(let recognized):
+      guard !recognized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        setPhase(.failed, sessionID: sessionID, detail: "認識結果が空（\(audioDetail)）")
+        return
+      }
+      text = recognized
     }
     let refined = refiner.refine(RefinementRequest(text: text, mode: .natural))
     VoiceStore.appendEvent(source: "host", name: "refined", sessionID: sessionID)
@@ -375,6 +400,11 @@ final class VoiceSessionController {
   }
 }
 
+enum RecognitionOutcome: Sendable {
+  case text(String)
+  case failed(String)
+}
+
 enum ProbeAudioError: Error {
   case microphoneUnavailable
 }
@@ -387,6 +417,7 @@ final class ChunkSink: Sendable {
 
   func open(sessionID: SessionID) -> AsyncStream<AudioChunk> {
     let (stream, newContinuation) = AsyncStream<AudioChunk>.makeStream()
+    statistics.withLock { $0 = (0, 16_000, 0) }
     continuation.withLock {
       $0?.finish()
       $0 = newContinuation
@@ -394,8 +425,22 @@ final class ChunkSink: Sendable {
     return stream
   }
 
+  /// 届いた音声の量と最大音量（原因の切り分け用。音声そのものは残さない）
+  private let statistics = Mutex<(samples: Int, sampleRate: Int, peak: Float)>((0, 16_000, 0))
+
   func yield(_ chunk: AudioChunk) {
+    let peak = chunk.samples.reduce(Float(0)) { max($0, abs($1)) }
+    statistics.withLock {
+      $0 = ($0.samples + chunk.samples.count, chunk.sampleRate, max($0.peak, peak))
+    }
     continuation.withLock { _ = $0?.yield(chunk) }
+  }
+
+  func takeStatistics() -> (seconds: Double, peak: Float) {
+    statistics.withLock {
+      defer { $0 = (0, 16_000, 0) }
+      return (Double($0.samples) / Double(max($0.sampleRate, 1)), $0.peak)
+    }
   }
 
   func finish() {
