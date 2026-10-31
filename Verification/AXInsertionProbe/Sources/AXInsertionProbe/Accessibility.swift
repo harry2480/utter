@@ -68,7 +68,10 @@ enum AX {
     if let element = element(copy(systemWide, AXAttribute.focusedUIElement)) {
       return element
     }
-    guard let app = element(copy(systemWide, AXAttribute.focusedApplication)) else { return nil }
+    let app =
+      element(copy(systemWide, AXAttribute.focusedApplication))
+      ?? frontmostApplicationPID().map(AXUIElementCreateApplication)
+    guard let app else { return nil }
     AXUIElementSetMessagingTimeout(app, messagingTimeout)
     return element(copy(app, AXAttribute.focusedUIElement))
   }
@@ -79,6 +82,15 @@ enum AX {
     let systemWide = AXUIElementCreateSystemWide()
     AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
     return element(copy(systemWide, AXAttribute.focusedApplication)).flatMap(pid)
+      ?? frontmostApplicationPID()
+  }
+
+  /// macOS 27.0.1 では、システム全体の要素への問い合わせ（AXFocusedUIElement・AXFocusedApplication）が
+  /// kAXErrorCannotComplete を返し、アプリの要素への問い合わせは通ることがある。そのときは NSWorkspace の最前面アプリを使う。
+  /// RunLoop を回さない CLI では値が古いままになりうるため、少しだけ回して更新させる
+  static func frontmostApplicationPID() -> pid_t? {
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    return NSWorkspace.shared.frontmostApplication?.processIdentifier
   }
 
   static func pid(_ element: AXUIElement) -> pid_t? {
