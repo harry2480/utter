@@ -45,7 +45,7 @@ final class KeyboardViewController: UIInputViewController {
 
   private func buildLayout() {
     guard let root = inputView else { return }
-    root.translatesAutoresizingMaskIntoConstraints = false
+    // 幅は OS に任せる（false にすると幅が決まらず、中身の最小の幅に縮む）。高さだけを指定する
     let height = root.heightAnchor.constraint(equalToConstant: 300)
     height.priority = .defaultHigh
     height.isActive = true
@@ -114,8 +114,8 @@ final class KeyboardViewController: UIInputViewController {
     root.addSubview(stack)
 
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 6),
-      stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -6),
+      stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+      stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
       stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 6),
       stack.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -6),
       firstRow.heightAnchor.constraint(equalToConstant: 40),

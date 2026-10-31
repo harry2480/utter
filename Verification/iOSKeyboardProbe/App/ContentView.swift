@@ -7,10 +7,17 @@ struct ContentView: View {
   @Bindable var model: AppProbeModel
   @Bindable var voice: VoiceSessionController
   @Environment(\.scenePhase) private var scenePhase
+  /// シミュレータでキーボードの見た目を確かめるため、起動引数 -ProbeFocusTextField YES で入力欄にフォーカスする
+  @FocusState private var textFieldFocused: Bool
+  @State private var keyboardCheckText = ""
+  private let checksKeyboard = UserDefaults.standard.bool(forKey: "ProbeFocusTextField")
 
   var body: some View {
     NavigationStack {
       Form {
+        if checksKeyboard {
+          TextField("キーボードの確認", text: $keyboardCheckText).focused($textFieldFocused)
+        }
         VoiceSection(voice: voice)
         configurationSection
         writeSection
@@ -23,6 +30,9 @@ struct ContentView: View {
       .toolbar {
         Button("記録をコピー") { model.copyReport() }
       }
+    }
+    .onAppear {
+      if checksKeyboard { textFieldFocused = true }
     }
     .onChange(of: scenePhase, initial: true) { _, phase in
       model.refreshProtectedDataAvailability()
