@@ -29,7 +29,8 @@ cp eval/synthetic-tts-set.json "$TMPDIR/ios-in/set.json"; echo '{"repeat":1,"wai
 xcrun devicectl device copy to --device $D --source "$TMPDIR/ios-in" --destination Documents/AutoInput \
   --domain-type appDataContainer --domain-identifier $BID
 xcrun devicectl device process launch --device $D --terminate-existing $BID
-# 終わると Documents/ProbeOutput/auto-done.txt ができる。書き出したフォルダを取り出して集計する
+# 成功すると Documents/ProbeOutput/auto-done.txt、失敗すると auto-failed.txt（理由入り）ができる。AutoInput は音声ごと消える
+# 書き出したフォルダを取り出して集計する
 xcrun devicectl device info files --device $D --domain-type appDataContainer --domain-identifier $BID --subdirectory Documents/ProbeOutput
 xcrun devicectl device copy from --device $D --domain-type appDataContainer --domain-identifier $BID \
   --source Documents/ProbeOutput/<日時>/results.json --destination eval/device/<日付>-<機種>/results.json
