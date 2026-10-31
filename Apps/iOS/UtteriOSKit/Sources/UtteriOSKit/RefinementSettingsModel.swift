@@ -128,6 +128,13 @@ public final class RefinementSettingsModel {
     issues.filter { candidates.contains($0) }
   }
 
+  /// 通貨・単価表・今月の推定費用を出すか。これらは月次予算を使うときだけ要る（予算なしでは上限なしで送り、推定費用を記録しない, AI-04）。
+  /// 予算をオフにしても入力済みの値は消さない。保存で通貨・単価表に問題が見つかったときは、直せるよう隠さない
+  public var showsBudgetDetails: Bool {
+    form.budgetEnabled
+      || issues.contains { $0 == .currencyCode || $0 == .priceUpdatedOnMissing || $0.rowID != nil }
+  }
+
   /// 保存済みの設定で、今月の推定費用を読み直す（AI-05）
   public func refreshCost() async {
     costGeneration += 1
