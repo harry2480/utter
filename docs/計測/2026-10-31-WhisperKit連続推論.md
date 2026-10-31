@@ -17,11 +17,25 @@ Phase 0 検証 [#49](https://github.com/harry2480/utter/issues/49) の「連続�
 
 ```sh
 wk=Verification/WhisperKitProbe/.build/release/whisperkit-probe
-# Mac 全体の熱の警告とメモリの余裕を30秒ごとに記録する
-(for i in $(seq 1 70); do echo "$(date +%T) $(pmset -g therm | grep -c 'No thermal warning') $(memory_pressure -Q | tail -1)"; sleep 30; done > "$TMPDIR/system.log" &)
+# Mac 全体の熱の警告とメモリの余裕を30秒ごとに記録する。pmset が失敗したか、
+# 「No thermal warning level has been recorded」が出ないときは none と書かずに unknown / warning と書き、生の出力も残す
+(while true; do
+  out=$(pmset -g therm 2>&1); st=$?
+  if [ $st -ne 0 ]; then therm=unknown
+  elif grep -q 'No thermal warning level has been recorded' <<<"$out"; then therm=none
+  else therm=warning; fi
+  echo "$(date +%T) therm=$therm status=$st $(memory_pressure -Q | tail -1) | $(tr '\n' ' ' <<<"$out")"
+  sleep 30
+done > "$TMPDIR/system.log") &
+monitor=$!
+trap 'kill $monitor 2>/dev/null' EXIT INT TERM
 $wk bench --model openai_whisper-large-v3-v20240930_turbo_632MB --audio eval/audio/synthetic/long.wav \
   --runs 270 --interval-ms 1000 --idle-after-s 60 --out "$TMPDIR/wk-endurance"
+kill $monitor 2>/dev/null; trap - EXIT INT TERM
+grep -o 'therm=[a-z]*' "$TMPDIR/system.log" | sort | uniq -c
 ```
+
+- 今回の記録は、`pmset -g therm` の出力のうち「No thermal warning level has been recorded」を含む行を数える形で取った（終了状態は保存していない）。64回とも、この行を含んでいた。上の手順は、失敗と「警告なし」を区別できるように直したもの
 
 ## 結果
 
