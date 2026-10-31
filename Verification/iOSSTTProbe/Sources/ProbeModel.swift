@@ -80,6 +80,53 @@ final class ProbeModel {
     monitor.start()
     observeInterruptions()
     await refreshAvailability()
+    await runAutoInputIfPresent()
+  }
+
+  // MARK: 自動実行（Mac から入れた音声をまとめて認識する）
+
+  /// Mac から `devicectl device copy to` で Documents/AutoInput/ に置いた評価セットと音声を、起動時に認識して書き出す。
+  ///
+  /// - `set.json`: 評価セット（`importSamples` と同じ形）。`autorun.json`: `{"repeat": 回数, "wait": 真偽}`（省略可）
+  /// - 音声は `<サンプルの id>.wav`。評価セットにある id の音声だけを名前順に認識し、終わったら書き出して `ProbeOutput/auto-done.txt` を置く
+  /// - 二重に実行しないよう、始める前に `autorun.json` と `set.json` を AutoInput から取り除く
+  private func runAutoInputIfPresent() async {
+    let input = URL.documentsDirectory.appending(path: "AutoInput", directoryHint: .isDirectory)
+    let setURL = input.appending(path: "set.json")
+    guard FileManager.default.fileExists(atPath: setURL.path) else { return }
+    struct AutoRun: Decodable {
+      var repeatCount: Int?
+      var wait: Bool?
+      enum CodingKeys: String, CodingKey {
+        case repeatCount = "repeat"
+        case wait
+      }
+    }
+    let autorunURL = input.appending(path: "autorun.json")
+    let autorun = (try? Data(contentsOf: autorunURL)).flatMap {
+      try? JSONDecoder().decode(AutoRun.self, from: $0)
+    }
+    let ids = Set(
+      ((try? Data(contentsOf: setURL)).flatMap {
+        try? JSONDecoder().decode([EvaluationRecord].self, from: $0)
+      } ?? []).map(\.id))
+    importSamples(from: setURL)
+    try? FileManager.default.removeItem(at: setURL)
+    try? FileManager.default.removeItem(at: autorunURL)
+    fileRepeatCount = max(1, autorun?.repeatCount ?? 1)
+    waitAfterEachFile = autorun?.wait ?? true
+    // 導入済みなら何もしない（installationRequest が nil を返す）
+    await downloadAssets()
+    let files =
+      ((try? FileManager.default.contentsOfDirectory(
+        at: input, includingPropertiesForKeys: nil)) ?? [])
+      .filter {
+        $0.pathExtension == "wav" && ids.contains($0.deletingPathExtension().lastPathComponent)
+      }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    await recognizeFiles(files)
+    export()
+    try? Data((message ?? "").utf8).write(to: Self.outputRoot.appending(path: "auto-done.txt"))
   }
 
   // MARK: 対応状況・アセット

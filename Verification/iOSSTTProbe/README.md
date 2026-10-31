@@ -72,6 +72,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
    書き出す前に、アプリは `utter-eval` が読み込みを拒否する不備（区分・意味改変の種類が不正、正規化すると正解が空、用語が英数字の境界を含めて正解に現れない、整形結果がないのに意味改変がある）のあるサンプルを除外する。判定は UtterEvaluation の `EvaluationSample.validate` / `TermAccuracy` / `TextNormalizer` を写したもの（UtterEvaluation は macOS のみの Package でリンクできないため）。除外したサンプルは画面の評価サンプル一覧に理由が出る
 
+## Mac から自動で実行する
+
+`Documents/AutoInput/` に評価セット `set.json` と音声 `<サンプルの id>.wav`（任意で `autorun.json`: `{"repeat": 回数, "wait": 真偽}`）を置いて起動すると、評価セットにある id の音声を名前順に認識し、書き出して `ProbeOutput/auto-done.txt` を置く。アセットが未導入ならダウンロードする。`set.json` と `autorun.json` は始める前に取り除くので、次の起動では自動で動かない。置き方と取り出し方（`xcrun devicectl device copy to / from`）は [docs/計測/2026-10-31-iPhone-SpeechAnalyzer合成音声.md](../../docs/計測/2026-10-31-iPhone-SpeechAnalyzer合成音声.md) の再現手順を参照。
+
 ## 出力の記録先
 
 - `utter-eval` の表（発話本文を含まない）と `metrics.json` の値を、手順書の記録欄と `docs/検証/YYYYMMDD_iOSSTT.md`（AGENTS.md の技術検証の置き場所）に人が転記する。推測値を書かない
