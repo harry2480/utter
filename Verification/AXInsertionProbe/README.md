@@ -104,6 +104,7 @@ $BIN run --route pasteboard --text multiline --allow-multiline --interactive --l
 - 要実機確認: 復元後に、ほかのアプリ由来の `dyn.*` 種別などが読み出し直しで変わり、実際には戻っているのに `restored-mismatch` になることがある。`restored-mismatch` が出たら、元の内容を貼り付けて目視で確かめ `note` に書く
 - 要実機確認: Electron 系アプリ（Slack など）では、フォーカス中の要素を取り直すたびに別の `AXUIElement` が返り、同じ入力欄でも `--hold` が `target-changed` になる可能性がある。その場合は `--hold` の結果を INS-01 の判定に使わず、`note` に書く
 - スクリーンショットや画面収録はコミットしない
+- macOS 27.0.1 では、システム全体の要素へのフォーカスの問い合わせが `kAXErrorCannotComplete` を返すことがある。そのときは NSWorkspace の最前面アプリから取る。また、起動時にフォーカス中のアプリを「このツールを動かしているターミナル」とみなすため、ツールを起動してから対象のアプリへ切り替える
 
 ## 片付け
 
