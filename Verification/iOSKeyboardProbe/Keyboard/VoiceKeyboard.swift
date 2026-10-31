@@ -12,6 +12,8 @@ final class VoiceKeyboardPanel {
     case idle
     case recording(SessionID)
     case waiting(SessionID, since: Date)
+    /// 結果を挿入している（知らせと読み直しの両方から重ねて挿入しないように）
+    case inserting(SessionID)
     case preview(SessionID, text: String)
   }
 
@@ -121,7 +123,7 @@ final class VoiceKeyboardPanel {
       start()
     case .recording(let sessionID):
       stop(sessionID)
-    case .waiting:
+    case .waiting, .inserting:
       break
     }
   }
@@ -212,6 +214,7 @@ final class VoiceKeyboardPanel {
     case .waiting(let sessionID, let since):
       if host.sessionID == sessionID, host.phase == .done {
         waitTask?.cancel()
+        state = .inserting(sessionID)
         Task { await resultReady(sessionID) }
       } else if host.sessionID == sessionID, host.phase == .failed {
         fail(host)
@@ -221,7 +224,7 @@ final class VoiceKeyboardPanel {
         state = .idle
         show("結果が届きません。本体アプリで確認してください")
       }
-    case .idle, .preview:
+    case .idle, .preview, .inserting:
       break
     }
   }
@@ -234,7 +237,7 @@ final class VoiceKeyboardPanel {
   }
 
   private func resultReady(_ sessionID: SessionID) async {
-    guard case .waiting = state else { return }
+    guard case .inserting(let current) = state, current == sessionID else { return }
     VoiceStore.appendEvent(source: "keyboard", name: "resultSeen", sessionID: sessionID)
     if autoInsertSwitch.isOn {
       await insert(sessionID)
@@ -292,7 +295,7 @@ final class VoiceKeyboardPanel {
       configuration.baseBackgroundColor = .systemRed
       configuration.baseForegroundColor = .white
       hintLabel.text = hostRecording ? "もう一度タップして終了" : "録音を始めています…"
-    case .waiting:
+    case .waiting, .inserting:
       configuration.title = "Thinking…"
       configuration.baseBackgroundColor = .secondarySystemFill
       configuration.baseForegroundColor = .label
