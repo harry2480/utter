@@ -23,6 +23,9 @@ final class VoiceKeyboardPanel {
   private let hintLabel = UILabel()
   private let previewLabel = UILabel()
   private let previewRow = UIStackView()
+  /// 録音中にマイクボタンの中で揺れる波形（本体アプリが書く音量を読む）
+  private let waveform = WaveformView()
+  private var levelTask: Task<Void, Never>?
   private weak var controller: UIInputViewController?
   private var state: State = .idle
   /// 待機していない・失敗したなどの知らせ。次の操作で消す
@@ -84,6 +87,16 @@ final class VoiceKeyboardPanel {
       micButton.widthAnchor.constraint(equalToConstant: 160),
       micButton.heightAnchor.constraint(equalToConstant: 64),
     ])
+    waveform.translatesAutoresizingMaskIntoConstraints = false
+    waveform.isUserInteractionEnabled = false
+    waveform.isHidden = true
+    micButton.addSubview(waveform)
+    NSLayoutConstraint.activate([
+      waveform.centerXAnchor.constraint(equalTo: micButton.centerXAnchor),
+      waveform.centerYAnchor.constraint(equalTo: micButton.centerYAnchor),
+      waveform.widthAnchor.constraint(equalToConstant: 72),
+      waveform.heightAnchor.constraint(equalToConstant: 36),
+    ])
 
     for subview in [header, UIView(), micHolder, hintLabel, previewRow, UIView()] {
       view.addArrangedSubview(subview)
@@ -135,9 +148,23 @@ final class VoiceKeyboardPanel {
     guard send(.start, sessionID: sessionID) else { return }
     state = .recording(sessionID)
     render()
+    waveform.reset()
+    levelTask?.cancel()
+    levelTask = Task { [weak self] in
+      while !Task.isCancelled {
+        if let level = VoiceStore.read(VoiceLevel.self, from: VoiceStore.levelFileName),
+          level.sessionID == sessionID
+        {
+          self?.waveform.update(level.levels)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+      }
+    }
   }
 
   private func stop(_ sessionID: SessionID) {
+    levelTask?.cancel()
+    levelTask = nil
     VoiceStore.appendEvent(source: "keyboard", name: "tapStop", sessionID: sessionID)
     guard send(.stop, sessionID: sessionID) else {
       state = .idle
@@ -201,6 +228,7 @@ final class VoiceKeyboardPanel {
 
   private func fail(_ host: VoiceHostState) {
     waitTask?.cancel()
+    levelTask?.cancel()
     state = .idle
     show("失敗: \(host.detail ?? host.phase.rawValue)")
   }
@@ -260,7 +288,7 @@ final class VoiceKeyboardPanel {
       configuration.image = UIImage(systemName: "mic.fill")
       hintLabel.text = message ?? "話すにはタップ"
     case .recording:
-      configuration.image = UIImage(systemName: "waveform")
+      configuration.image = nil
       configuration.baseBackgroundColor = .systemRed
       configuration.baseForegroundColor = .white
       hintLabel.text = hostRecording ? "もう一度タップして終了" : "録音を始めています…"
@@ -276,6 +304,69 @@ final class VoiceKeyboardPanel {
       previewRow.isHidden = false
     }
     micButton.configuration = configuration
+    if case .recording = state {
+      waveform.isHidden = false
+    } else {
+      waveform.isHidden = true
+    }
+  }
+}
+
+/// 音量に合わせて高さが変わる縦棒の波形。値が来るたびにアニメーションで追う
+final class WaveformView: UIView {
+  private let bars: [UIView] = (0..<7).map { _ in UIView() }
+  private var heights: [NSLayoutConstraint] = []
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    let stack = UIStackView(
+      arrangedSubviews: bars.map { bar in
+        let holder = UIView()
+        bar.backgroundColor = .white
+        bar.layer.cornerRadius = 2
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(bar)
+        let height = bar.heightAnchor.constraint(equalToConstant: 4)
+        heights.append(height)
+        NSLayoutConstraint.activate([
+          bar.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+          bar.centerYAnchor.constraint(equalTo: holder.centerYAnchor),
+          bar.widthAnchor.constraint(equalToConstant: 4),
+          height,
+        ])
+        return holder
+      })
+    stack.axis = .horizontal
+    stack.distribution = .fillEqually
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+      stack.topAnchor.constraint(equalTo: topAnchor),
+      stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) is not used")
+  }
+
+  func reset() {
+    update([])
+  }
+
+  /// 古い順の音量（0〜1）。足りない分は最小の高さにする。中央が高く見えるよう、新しい値を中央寄りに並べる
+  func update(_ levels: [Float]) {
+    let padded =
+      Array(repeating: Float(0), count: max(0, bars.count - levels.count))
+      + levels.suffix(bars.count)
+    let order = [0, 2, 4, 6, 5, 3, 1]
+    let maxHeight = bounds.height > 0 ? bounds.height : 36
+    for (barIndex, levelIndex) in order.enumerated() {
+      heights[barIndex].constant = 4 + CGFloat(padded[levelIndex]) * (maxHeight - 4)
+    }
+    UIView.animate(withDuration: 0.1) { self.layoutIfNeeded() }
   }
 }
 

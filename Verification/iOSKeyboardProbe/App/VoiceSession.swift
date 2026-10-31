@@ -46,6 +46,8 @@ final class VoiceSessionController {
   @ObservationIgnored private var activeSessionID: SessionID?
   @ObservationIgnored private var recognition: Task<RecognitionOutcome, Never>?
   @ObservationIgnored private var heartbeat: Task<Void, Never>?
+  /// 録音中だけ、音量を 0.1 秒ごとに App Group へ書く（キーボードの波形の表示用）
+  @ObservationIgnored private var levelWriter: Task<Void, Never>?
   @ObservationIgnored private var lastSequence: Int64 = 0
   @ObservationIgnored private var lastActivity = Date()
   @ObservationIgnored private var observers: [any NSObjectProtocol] = []
@@ -127,6 +129,8 @@ final class VoiceSessionController {
   func stopStandby(reason: String) {
     heartbeat?.cancel()
     heartbeat = nil
+    levelWriter?.cancel()
+    levelWriter = nil
     sink.finish()
     recognition?.cancel()
     recognition = nil
@@ -203,10 +207,21 @@ final class VoiceSessionController {
     }
     setPhase(.recording, sessionID: sessionID)
     VoiceStore.appendEvent(source: "host", name: "captureStarted", sessionID: sessionID)
+    levelWriter?.cancel()
+    levelWriter = Task { [sink] in
+      while !Task.isCancelled {
+        try? VoiceStore.write(
+          VoiceLevel(sessionID: sessionID, levels: sink.recentLevels(), at: Date()),
+          to: VoiceStore.levelFileName)
+        try? await Task.sleep(for: .milliseconds(100))
+      }
+    }
   }
 
   private func finishCapture(_ sessionID: SessionID) async {
     guard activeSessionID == sessionID, let recognition else { return }
+    levelWriter?.cancel()
+    levelWriter = nil
     sink.finish()
     setPhase(.processing, sessionID: sessionID)
     // 認識・整形が裏で中断しないよう、有限時間の実行を求める（オーディオセッションも保ったまま）
@@ -271,6 +286,8 @@ final class VoiceSessionController {
     guard phase != .off else { return }
     if began {
       if let activeSessionID {
+        levelWriter?.cancel()
+        levelWriter = nil
         sink.finish()
         setPhase(.failed, sessionID: activeSessionID, detail: "割り込みで録音が止まった")
         recognition?.cancel()
@@ -418,6 +435,7 @@ final class ChunkSink: Sendable {
   func open(sessionID: SessionID) -> AsyncStream<AudioChunk> {
     let (stream, newContinuation) = AsyncStream<AudioChunk>.makeStream()
     statistics.withLock { $0 = (0, 16_000, 0) }
+    levels.withLock { $0 = [] }
     continuation.withLock {
       $0?.finish()
       $0 = newContinuation
@@ -428,8 +446,24 @@ final class ChunkSink: Sendable {
   /// 届いた音声の量と最大音量（原因の切り分け用。音声そのものは残さない）
   private let statistics = Mutex<(samples: Int, sampleRate: Int, peak: Float)>((0, 16_000, 0))
 
+  /// 直近の音量（0〜1）。波形の表示に使う
+  private let levels = Mutex<[Float]>([])
+
+  func recentLevels() -> [Float] {
+    levels.withLock { $0 }
+  }
+
   func yield(_ chunk: AudioChunk) {
     let peak = chunk.samples.reduce(Float(0)) { max($0, abs($1)) }
+    let meanSquare =
+      chunk.samples.reduce(Float(0)) { $0 + $1 * $1 } / Float(max(chunk.samples.count, 1))
+    // -50dB〜-10dB を 0〜1 に写す
+    let decibels = 10 * log10(max(meanSquare, 1e-10))
+    let level = min(1, max(0, (decibels + 50) / 40))
+    levels.withLock {
+      $0.append(level)
+      if $0.count > 7 { $0.removeFirst($0.count - 7) }
+    }
     statistics.withLock {
       $0 = ($0.samples + chunk.samples.count, chunk.sampleRate, max($0.peak, peak))
     }

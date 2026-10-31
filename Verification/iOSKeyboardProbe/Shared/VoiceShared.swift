@@ -53,6 +53,14 @@ struct VoiceHostState: Codable, Sendable, Equatable {
   }
 }
 
+/// 録音中の音量（波形の表示用）。直近の数個の値だけで、音声そのものは置かない。
+struct VoiceLevel: Codable, Sendable {
+  let sessionID: SessionID
+  /// 0〜1 に正規化した音量。古い順
+  let levels: [Float]
+  let at: Date
+}
+
 /// 計測の記録（1行1件）。時刻と区間名だけで、発話本文は入れない。
 struct VoiceEvent: Codable, Sendable {
   let at: Date
@@ -71,6 +79,7 @@ enum VoiceStore {
   static let commandFileName = "voice-command.json"
   static let hostStateFileName = "voice-host.json"
   static let eventsFileName = "voice-events.jsonl"
+  static let levelFileName = "voice-level.json"
 
   static func directoryURL() throws -> URL {
     guard let container = ProbeStore.containerURL() else {
