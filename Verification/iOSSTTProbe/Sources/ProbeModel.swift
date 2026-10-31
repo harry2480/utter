@@ -80,6 +80,93 @@ final class ProbeModel {
     monitor.start()
     observeInterruptions()
     await refreshAvailability()
+    await runAutoInputIfPresent()
+  }
+
+  // MARK: 自動実行（Mac から入れた音声をまとめて認識する）
+
+  static var autoInputRoot: URL {
+    URL.documentsDirectory.appending(path: "AutoInput", directoryHint: .isDirectory)
+  }
+
+  /// Mac から `devicectl device copy to` で Documents/AutoInput/ に置いた評価セットと音声を、起動時に認識して書き出す。
+  ///
+  /// - `set.json`: 評価セット（`importSamples` と同じ形）。`autorun.json`: `{"repeat": 回数, "wait": 真偽}`（省略可）
+  /// - 音声は `<サンプルの id>.wav`。評価セットにある id の音声だけを名前順に認識する
+  /// - すべての実行がエラーなく終わったときだけ `ProbeOutput/auto-done.txt` を、そうでなければ `auto-failed.txt` に理由を置く
+  /// - 評価セットを読めない・対象の音声がないときは、入力を消さずに残して `auto-failed.txt` を置く（直して再実行できるように）
+  /// - 認識を始めたら、成否にかかわらず最後に AutoInput を音声ごと消す（音声を端末に残さない）
+  private func runAutoInputIfPresent() async {
+    let input = Self.autoInputRoot
+    let setURL = input.appending(path: "set.json")
+    guard FileManager.default.fileExists(atPath: setURL.path) else { return }
+    try? FileManager.default.createDirectory(at: Self.outputRoot, withIntermediateDirectories: true)
+    for name in ["auto-done.txt", "auto-failed.txt"] {
+      try? FileManager.default.removeItem(at: Self.outputRoot.appending(path: name))
+    }
+    func fail(_ reason: String) {
+      message = reason
+      try? Data(reason.utf8).write(to: Self.outputRoot.appending(path: "auto-failed.txt"))
+    }
+
+    struct AutoRun: Decodable {
+      var repeatCount: Int?
+      var wait: Bool?
+      enum CodingKeys: String, CodingKey {
+        case repeatCount = "repeat"
+        case wait
+      }
+    }
+    let autorunURL = input.appending(path: "autorun.json")
+    let autorun = (try? Data(contentsOf: autorunURL)).flatMap {
+      try? JSONDecoder().decode(AutoRun.self, from: $0)
+    }
+    let set: [EvaluationRecord]
+    do {
+      set = try JSONDecoder().decode([EvaluationRecord].self, from: Data(contentsOf: setURL))
+    } catch {
+      fail("評価セットを読めませんでした: \(Self.errorSummary(error))")
+      return
+    }
+    let ids = Set(set.map(\.id))
+    let files =
+      ((try? FileManager.default.contentsOfDirectory(
+        at: input, includingPropertiesForKeys: nil)) ?? [])
+      .filter {
+        $0.pathExtension == "wav" && ids.contains($0.deletingPathExtension().lastPathComponent)
+      }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    guard !files.isEmpty else {
+      fail("評価セットの id と同じ名前の音声（<id>.wav）がありません")
+      return
+    }
+
+    // ここから先は入力を消費する。二重に実行しないよう設定を先に取り除き、最後に音声ごと消す
+    defer { try? FileManager.default.removeItem(at: input) }
+    try? FileManager.default.removeItem(at: setURL)
+    try? FileManager.default.removeItem(at: autorunURL)
+    mergeSamples(set)
+    fileRepeatCount = max(1, autorun?.repeatCount ?? 1)
+    waitAfterEachFile = autorun?.wait ?? true
+
+    // 導入済みなら何もしない（installationRequest が nil を返す）
+    await downloadAssets()
+    guard await SpeechEngineInfo.assetStatus(for: configuration) == "installed" else {
+      fail("アセットを導入できませんでした: \(message ?? "-")")
+      return
+    }
+
+    let firstRunIndex = runs.count
+    await recognizeFiles(files)
+    let newRuns = runs[firstRunIndex...]
+    let expected = files.count * fileRepeatCount
+    let failed = newRuns.filter { $0.error != nil || $0.interrupted }.count
+    export()
+    if newRuns.count == expected, failed == 0, !exportedFiles.isEmpty {
+      try? Data((message ?? "").utf8).write(to: Self.outputRoot.appending(path: "auto-done.txt"))
+    } else {
+      fail("実行 \(newRuns.count) / \(expected) 回、失敗 \(failed) 回（\(message ?? "-")）")
+    }
   }
 
   // MARK: 対応状況・アセット
@@ -463,6 +550,20 @@ final class ProbeModel {
 
   // MARK: 評価セットの取り込み
 
+  /// 読み込み済みの評価サンプルを、取り込みと同じ規則（同じ id は置き換え）で加える
+  private func mergeSamples(_ imported: [EvaluationRecord]) {
+    var merged = samples
+    for record in imported {
+      if let index = merged.firstIndex(where: { $0.id == record.id }) {
+        merged[index] = record
+      } else {
+        merged.append(record)
+      }
+    }
+    samples = merged
+    message = "評価サンプルを \(imported.count) 件取り込みました"
+  }
+
   func importSamples(from url: URL) {
     let accessing = url.startAccessingSecurityScopedResource()
     defer {
@@ -470,17 +571,7 @@ final class ProbeModel {
     }
     do {
       let data = try Data(contentsOf: url)
-      let imported = try JSONDecoder().decode([EvaluationRecord].self, from: data)
-      var merged = samples
-      for record in imported {
-        if let index = merged.firstIndex(where: { $0.id == record.id }) {
-          merged[index] = record
-        } else {
-          merged.append(record)
-        }
-      }
-      samples = merged
-      message = "評価サンプルを \(imported.count) 件取り込みました"
+      mergeSamples(try JSONDecoder().decode([EvaluationRecord].self, from: data))
     } catch {
       message = "評価セットを読めませんでした: \(Self.errorSummary(error))"
     }
@@ -562,6 +653,8 @@ final class ProbeModel {
 
   /// 書き出したファイルと、メモリ上の認識結果・計測値をすべて消す
   func deleteAllOutputs() {
+    // 自動実行で置かれたまま残った音声も消す（認識を始める前に止まった場合など）
+    try? FileManager.default.removeItem(at: Self.autoInputRoot)
     do {
       try FileManager.default.removeItem(at: Self.outputRoot)
     } catch CocoaError.fileNoSuchFile {

@@ -72,6 +72,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
    書き出す前に、アプリは `utter-eval` が読み込みを拒否する不備（区分・意味改変の種類が不正、正規化すると正解が空、用語が英数字の境界を含めて正解に現れない、整形結果がないのに意味改変がある）のあるサンプルを除外する。判定は UtterEvaluation の `EvaluationSample.validate` / `TermAccuracy` / `TextNormalizer` を写したもの（UtterEvaluation は macOS のみの Package でリンクできないため）。除外したサンプルは画面の評価サンプル一覧に理由が出る
 
+## Mac から自動で実行する
+
+`Documents/AutoInput/` に評価セット `set.json` と音声 `<サンプルの id>.wav`（任意で `autorun.json`: `{"repeat": 回数, "wait": 真偽}`）を置いて起動すると、評価セットにある id の音声を名前順に認識して書き出す。アセットが未導入ならダウンロードする。すべての実行がエラーなく終わったときだけ `ProbeOutput/auto-done.txt` を、そうでなければ `ProbeOutput/auto-failed.txt` に理由を置く。評価セットを読めない・対象の音声がないときは、入力を残したまま `auto-failed.txt` を置く（直して再実行できる）。認識を始めたら、成否にかかわらず最後に `AutoInput/` を音声ごと消すので、次の起動では自動で動かず、音声も端末に残らない。置き方と取り出し方（`xcrun devicectl device copy to / from`）は [docs/計測/2026-10-31-iPhone-SpeechAnalyzer合成音声.md](../../docs/計測/2026-10-31-iPhone-SpeechAnalyzer合成音声.md) の再現手順を参照。
+
 ## 出力の記録先
 
 - `utter-eval` の表（発話本文を含まない）と `metrics.json` の値を、手順書の記録欄と `docs/検証/YYYYMMDD_iOSSTT.md`（AGENTS.md の技術検証の置き場所）に人が転記する。推測値を書かない
@@ -89,7 +93,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 ## 片付け
 
-- アプリの「書き出しと認識結果をすべて削除」で、書き出したファイル（`Documents/ProbeOutput/`）とメモリ上の認識結果・計測値を消す（資源のサンプリングは止めず、削除後から記録し直す。サンプルに発話本文は含まれない）。または「ファイル」アプリで `STT Probe` フォルダを削除する
+- アプリの「書き出しと認識結果をすべて削除」で、書き出したファイル（`Documents/ProbeOutput/`）、自動実行の入力（`Documents/AutoInput/`）とメモリ上の認識結果・計測値を消す（資源のサンプリングは止めず、削除後から記録し直す。サンプルに発話本文は含まれない）。または「ファイル」アプリで `STT Probe` フォルダを削除する
 - アプリを削除すれば、書き出したファイルも含めてすべて消える
 - Mac へ取り出した `results.json` は、集計・転記が終わったら削除する
 - ダウンロードした音声アセットは OS の管理下にある。「ロケールの予約を解除」で予約を外すと、不要になったアセットを OS が後で削除する
