@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 import Foundation
 import UtterCore
 import UtterText
+import os
 
 /// Accessibility API による入力対象の取得と読み書き（INS-01, INS-02, INS-05）と、Realtime Direct の範囲の置き換え（AC-15）。
 /// Edit Mode の選択範囲の読み取り・選び直し（AC-14）も行う。
@@ -31,6 +32,10 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDire
     let element: AXUIElement
     let pid: pid_t
   }
+
+  private static let logger = Logger(subsystem: "utter.mac", category: "insertion")
+  /// 最後にログへ残した、代わりの経路に進んだときのエラーコード
+  private var loggedFallbackCodes: [Int32]?
 
   private var registry = TargetIdentityRegistry<Element>(
     isSame: { $0.pid == $1.pid && CFEqual($0.element, $1.element) },
@@ -132,16 +137,42 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDire
     guard AXIsProcessTrusted() else { return nil }
     let systemWide = AXUIElementCreateSystemWide()
     AXUIElementSetMessagingTimeout(systemWide, Self.messagingTimeout)
-    var element = axElement(copy(systemWide, Attribute.focusedUIElement))
-    if element == nil, let app = axElement(copy(systemWide, Attribute.focusedApplication)) {
-      AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
-      element = axElement(copy(app, Attribute.focusedUIElement))
+    let lookup = FocusedElementLookup<AXUIElement>(
+      systemFocusedElement: { Self.query(systemWide, Attribute.focusedUIElement) },
+      systemFocusedApplication: { Self.query(systemWide, Attribute.focusedApplication) },
+      frontmostApplication: {
+        NSWorkspace.shared.frontmostApplication.map {
+          AXUIElementCreateApplication($0.processIdentifier)
+        }
+      },
+      focusedElement: { app in
+        AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
+        return Self.query(app, Attribute.focusedUIElement)
+      })
+    guard let result = lookup.resolve() else { return nil }
+    if result.route == .frontmostApplication, loggedFallbackCodes != result.failureCodes {
+      // 経路が変わったときだけ残す（エラーコードだけ。要素や値の中身は出さない）
+      loggedFallbackCodes = result.failureCodes
+      Self.logger.notice(
+        "システム全体から入力欄を取れないため、最前面のアプリから取りました: \(result.failureCodes, privacy: .public)")
     }
-    guard let element else { return nil }
+    let element = result.element
     var pid: pid_t = 0
     guard AXUIElementGetPid(element, &pid) == .success else { return nil }
     AXUIElementSetMessagingTimeout(element, Self.messagingTimeout)
     return Element(element: element, pid: pid)
+  }
+
+  private static func query(
+    _ element: AXUIElement, _ attribute: String
+  ) -> FocusedElementLookup<AXUIElement>.Query {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    guard error == .success else { return .failed(code: error.rawValue) }
+    guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+      return .failed(code: AXError.noValue.rawValue)
+    }
+    return .found(unsafeDowncast(value, to: AXUIElement.self))
   }
 
   /// セキュア入力欄か。subrole がない要素は該当しない。問い合わせ自体が失敗したら判定できない（7章）。
@@ -169,11 +200,6 @@ final class AccessibilityInsertionTarget: InsertionTargetInspector, RealtimeDire
 
   private func string(_ element: AXUIElement, _ attribute: String) -> String? {
     copy(element, attribute) as? String
-  }
-
-  private func axElement(_ value: CFTypeRef?) -> AXUIElement? {
-    guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-    return unsafeDowncast(value, to: AXUIElement.self)
   }
 
   private func selection(_ element: AXUIElement) -> FieldSnapshot.Selection? {
