@@ -368,13 +368,22 @@ enum HotkeyProbe {
 
   private static func logValidation(_ combination: KeyCombination, log: ProbeLog) {
     let registered = SystemShortcuts.load().filter(\.enabled).map(\.binding)
+    // 一覧の項目と同じく、F1〜F12・矢印キーの指定は Fn を外してから照合する
+    // （アプリの ShortcutRecorder もこれらのキーの Fn を外して記録する）
+    var candidate = combination
+    if let key = combination.key, SystemShortcuts.fnLayerKeys.contains(key.rawValue),
+      combination.modifiers.contains(.function)
+    {
+      candidate = KeyCombination(key: key, modifiers: combination.modifiers.subtracting(.function))
+      log.write("validate", "F キー・矢印キーの Fn を外して照合する: modifiers=\(describe(candidate.modifiers))")
+    }
     let validator = ShortcutValidator(
       capabilities: ShortcutCapabilities(supportsModifierOnly: true, supportsEscapeCapture: true))
     let issues = validator.issues(
-      for: combination, bindingID: "utter.record", registered: registered)
+      for: candidate, bindingID: "utter.record", registered: registered)
     log.write(
       "validate",
-      "UtterCore ShortcutValidator（修飾キー単独を許可として判定）: key=\(combination.key?.rawValue ?? "-") modifiers=\(describe(combination.modifiers)) 有効なシステムのショートカット \(registered.count) 件と比較 → 問題 \(issues.count) 件"
+      "UtterCore ShortcutValidator（修飾キー単独を許可として判定）: key=\(candidate.key?.rawValue ?? "-") modifiers=\(describe(candidate.modifiers)) 有効なシステムのショートカット \(registered.count) 件と比較 → 問題 \(issues.count) 件"
     )
     for issue in issues.prefix(10) {
       log.write("validate", "  \(issue)")
