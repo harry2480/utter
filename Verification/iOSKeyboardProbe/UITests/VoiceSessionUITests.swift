@@ -64,6 +64,13 @@ final class VoiceSessionUITests: XCTestCase {
     clearNote()
   }
 
+  /// 20回を2セット続けて流す（まれな失敗を捕まえるため）。startStandby が本体アプリを起動し直すので、2セット目も待機から始まる
+  func testFortyCycles() throws {
+    try testTwentyCycles()
+    testStarted = Date()
+    try testTwentyCycles()
+  }
+
   /// ミュートで待つ方式（待機中にマイクの表示が出ない）で20回
   func testTwentyCyclesMuted() throws {
     useMutedStandby()

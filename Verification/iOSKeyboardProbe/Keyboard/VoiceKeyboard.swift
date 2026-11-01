@@ -297,12 +297,13 @@ final class VoiceKeyboardPanel {
 
   private func insert(_ sessionID: SessionID) async {
     guard let store = VoiceStore.resultStore(), let controller else { return }
-    let coordinator = SharedResultInsertionCoordinator(
-      store: store, inserter: VoiceTextInserter(controller: controller))
+    // 挿入のたびに作る。診断はこの挿入の処理だけのもので、重なった別の挿入と混ざらない
+    let inserter = VoiceTextInserter(controller: controller)
+    let coordinator = SharedResultInsertionCoordinator(store: store, inserter: inserter)
     let outcome = try? await coordinator.insert(sessionID: sessionID)
     VoiceStore.appendEvent(
       source: "keyboard", name: "inserted", sessionID: sessionID,
-      detail: outcome.map { String(describing: $0) } ?? "error")
+      detail: (outcome.map { String(describing: $0) } ?? "error") + " " + inserter.diagnostic)
     state = .idle
     switch outcome {
     case .inserted: show("挿入しました")
@@ -417,6 +418,9 @@ final class WaveformView: UIView {
 /// `UITextDocumentProxy` へ挿入する（utter 本体の TextDocumentProxyInserter を簡略にしたもの）
 @MainActor
 final class VoiceTextInserter: SharedResultTextInserter {
+  /// この挿入の様子（計測の記録用。文字数と状態だけ）。挿入まで進まなかったら初期値のまま
+  private(set) var diagnostic = "挿入の処理に進まなかった"
+
   private weak var controller: UIInputViewController?
 
   init(controller: UIInputViewController) {
@@ -424,10 +428,19 @@ final class VoiceTextInserter: SharedResultTextInserter {
   }
 
   func insert(_ text: String) async -> SharedResultInsertionConfirmation {
-    guard let proxy = controller?.textDocumentProxy else { return .unknown }
+    guard let proxy = controller?.textDocumentProxy else {
+      diagnostic = "controllerなし"
+      return .unknown
+    }
     let before = proxy.documentContextBeforeInput
     proxy.insertText(text)
+    let after = proxy.documentContextBeforeInput
+    // insertionUnknown の切り分け用。文字数と状態だけで、本文・文脈は記録しない
+    diagnostic =
+      "前\(before?.count ?? -1)字・後\(after?.count ?? -1)字・本文\(text.count)字・"
+      + "窓\(controller?.view.window != nil)・hasText \(proxy.hasText)・"
+      + "インスタンス\((controller as? KeyboardViewController)?.instanceNumber ?? -1)"
     return SharedResultInsertionConfirmation(
-      insertedText: text, contextBefore: before, contextAfter: proxy.documentContextBeforeInput)
+      insertedText: text, contextBefore: before, contextAfter: after)
   }
 }
