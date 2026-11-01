@@ -17,12 +17,13 @@
 | `scripts/summarize-signposts.sh` | 記録済みの `.trace` を集計し直す |
 | `scripts/sample-process.sh` | 指定プロセスの Physical footprint と CPU 使用率を一定間隔で CSV に記録 |
 | `scripts/battery-log.sh` | 8時間待機の開始・終了時のバッテリー状態を記録し、対照との差を出す |
+| `scripts/power-log.sh` | `powermetrics` で CPU・GPU・ANE の消費電力と熱の状態を記録し、区間の平均と対照との差を出す（管理者権限が要る） |
 
 ## 必要なもの
 
 - macOS 26 以降、Xcode（`xctrace` を使う。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` を指定）
 - バッテリー計測はノート型 Mac（AC 電源を外して計測）
-- 特別な権限は不要。`xctrace` / `vmmap` は自分のユーザーで動くプロセスに対して使う
+- `power-log.sh record` 以外は特別な権限は不要。`xctrace` / `vmmap` は自分のユーザーで動くプロセスに対して使う。`power-log.sh record` は `powermetrics` を使うため `sudo` で実行する。`power-log.sh` は Apple Silicon の Mac 専用
 - 6章の区間の計測には、区間を発行する utter 本体（macOS アプリ。Release 構成でビルドし、プロセス名は `utter`）を使う。ビルドの条件・区間の開始と終了の位置・出さない区間は [docs/Phase0検証-性能目標.md](../../docs/Phase0検証-性能目標.md) の「macOS アプリでの計測」
 
 ## ビルドとテスト
@@ -141,6 +142,26 @@ scripts/battery-log.sh report --target utter-idle-01 --control control-01
 - 「待機」の条件（Mac をスリープさせるか、`caffeinate -i` で起こしておくか、画面の状態、ネットワーク）は人が決め、対象と対照で揃えて `--note` に残す。スリープ・復帰の回数も集計に出るので、条件が揃っているかの確認に使う
 - 1回ずつの差はバッテリー残量の推定誤差に埋もれやすい。対象・対照を複数回ずつ繰り返す
 - 開始時の `pmset -g`（スリープ設定）を `out/<label>-pmset.txt` に残す
+
+## 4. 消費電力（CPU・GPU・ANE）
+
+`powermetrics` の `cpu_power`・`gpu_power`・`ane_power`・`thermal` を記録し、区間の平均を出す。WhisperKit の連続推論（#49）や、録音・認識中の負荷を見るのに使う。
+
+```sh
+cd Verification/PerfProbe
+# 対照（負荷をかけない。対象と同じ条件で、ほかのアプリを閉じておく）
+sudo scripts/power-log.sh record --label idle-01 --duration 300
+# 対象（負荷をかけている間に記録する）
+sudo scripts/power-log.sh record --label load-01 --duration 300
+scripts/power-log.sh report --target load-01 --control idle-01
+```
+
+- 出力：`out/<label>-powermetrics.txt`（生の出力）、`out/<label>-power.csv`（`--interval-ms` ごとの値。既定は1秒）、`out/power-summary.csv`（区間の平均と、区間中に出た熱の状態）。同じラベルで測り直すと、`power-summary.csv` の行は置き換わる
+- 値は SoC の CPU・GPU・ANE の推定値で、画面・SSD・周辺機器は含まない。プロセスごとの値ではないため、ほかのアプリを閉じ、対照との差で見る
+- 生の出力が残っていれば、`scripts/power-log.sh parse --label <label>` で CSV と平均を作り直せる。消費電力の行を読み取れなかったときは、`powermetrics` の出力の形式が変わっていないか生の出力を確かめる
+- `sudo` で作ったファイルは、実行した利用者の持ち物に戻す（`SUDO_UID` を使う）
+- `--duration` を付けて使う。付けないときは Ctrl-C で止め、そこまでの分を集計するが、`powermetrics` が書き出していない最後の数サンプルが失われることがある（実機で未確認）
+- 平均はサンプルの単純平均。CPU・GPU・ANE のどれかの値がないサンプルがあると注意を出す
 
 ## 6章の目標との対応
 
