@@ -78,6 +78,47 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 エラーの分類（EPERM = ロック中の保護クラスまたはサンドボックスの拒否、など）は表示用の推定。拡張では `isProtectedDataAvailable` を取れないため、原因の切り分けは手順書の条件（ロック中か、フルアクセスの有無）と合わせて判断する。
 
+## 待機セッション方式の UI テスト（#233）
+
+つないだ iPhone の上で、キーボードの🎤から録音・認識・挿入までを自動で試す（`UITests/VoiceSessionUITests.swift`）。声は Mac のスピーカーから日本語の合成音声を流し続けて、iPhone のマイクに拾わせる。
+
+```sh
+Verification/iOSKeyboardProbe/run-ui-tests.sh testSingleCycle            # 1回だけ（準備ができているかの確認）
+Verification/iOSKeyboardProbe/run-ui-tests.sh testTwentyCycles testPreviewThenInsert
+```
+
+- **前提**
+  - iPhone を Mac のスピーカーの近くに置き、ロックを解除しておく
+  - キーボード「utter Probe」を追加し、フルアクセスをオンにしておく
+  - 入力先はメモアプリの新しいメモで、テストの最後に削除する（消せなかったときは「手で消す」と出る）
+- **無料の Personal Team の上限**：1台に入れられる自作アプリは3つまで。UI テストの実行役のアプリ（`UtterKeyboardProbeUITests-Runner`）が1つ使う
+- **キーボードの中と App Group は UI テストから見えない**
+  - キーボードは、ボタンの位置と案内の文言を App Group の `voice-keyboard.json` に書く
+  - 本体アプリを `-ProbeUITest YES` で起動すると、それと本体アプリの状態・計測の記録を、読み取り用の小さな文字として出す（`UITestReadout`）
+  - テストはそれを読み、ボタンは座標でタップする
+  - 座標は、メモの入力欄の下の領域の下端から、OS の地球儀の段（75pt。iPhone 17 Pro・iOS 27 で測った値）だけ上にそろえている
+- **キーボードの切り替え**：「次のキーボード」を短く押すと直前のキーボードに戻るだけなので、長押しの一覧から「utter Probe」を選ぶ
+- **結果**：「UTTER-RESULT」で始まる行に出る。発話の本文は出さず、文字数だけを出す
+
+| テスト | 確かめること |
+|---|---|
+| `testTwentyCycles` / `testTwentyCyclesMuted` | 20回続けて使い、挿入の回数・二重の挿入・区間の時間を集計する |
+| `testStandbyEndurance` / `testStandbyEnduranceMuted` | 待機を始めて5分後・30分後に入力できるか（約31分） |
+| `testHostTerminatedWhileRecording` | 録音中に本体アプリを強制終了したとき、何も挿入せずに案内するか |
+| `testLeaveKeyboardWhileRecording` | 録音中にホーム画面へ出たとき、録音を捨て、戻ってすぐ入力できるか |
+| `testCaptureLimit` | 停止の合図が来ないまま録音の上限を超えたとき、録音を捨てて知らせるか |
+| `testPreviewThenInsert` | 自動挿入をオフにしたとき、プレビュー → 「挿入」で入るか |
+| `testOpenHostFromKeyboard` | キーボードの「開く(ctx)」「開く(UI)」で本体アプリが前面に出るか |
+| `testMicIndicatorByMode` | 待機の方式ごとに、待機中・録音中のスクリーンショットを残す（オレンジの点を見る） |
+| `testRecoverAfterLock` | 人がロックと解除を行い、その後にキーボードが反応するか（#244） |
+| `testDumpRecentEvents` | 直近10分の計測の記録を出す（手で試した後の確認用） |
+
+待機の方式は起動引数 `-ProbeStandbyMode` で選ぶ。
+
+- `holdMicrophone`：マイクを開いたまま待つ（既定）
+- `mutedMicrophone`：マイクを開いて、合図まで `AVAudioApplication.setInputMuted` でミュートする。待機中にオレンジの点が出ない
+- `silentPlayback`：無音を再生して待つ。裏でマイクを開けなかった
+
 ## 表示が崩れたとき
 
 拡張は `inputView` の `translatesAutoresizingMaskIntoConstraints` を `false` にして高さ 320pt の制約を付けている。実機でキーボードの幅が画面幅にならない・高さが 0 になる等の崩れが出たら、`KeyboardViewController.buildLayout()` の `root.translatesAutoresizingMaskIntoConstraints = false` の行を削除し（幅はシステムに任せる）、高さ制約だけを残して再インストールする。どちらで表示できたかを PR か手順書に残す。

@@ -21,20 +21,32 @@ final class VoiceSessionController {
     case holdMicrophone
     /// 待機中は無音を再生してアプリを保ち、合図でマイクの入力を開く（裏で入力を始められるかが未知）
     case silentPlayback
+    /// マイクを開いたまま、合図までは入力をミュートする（AVAudioApplication.setInputMuted）。
+    /// ミュート中にマイクの表示（オレンジの点）が消えるかを見る
+    case mutedMicrophone
 
     var id: String { rawValue }
     var label: String {
       switch self {
       case .holdMicrophone: "マイクを開いたまま待機"
       case .silentPlayback: "無音を再生して待機"
+      case .mutedMicrophone: "マイクを開いてミュートで待機"
       }
     }
   }
 
   /// 既定はマイクを開いたまま。無音の再生だけで待つ方式は、裏でマイクを開けなかった（avfaudio 2003329396, 2026-10-31）
-  var mode: StandbyMode = .holdMicrophone
+  /// UI テストでは起動引数 -ProbeStandbyMode <rawValue> で選ぶ
+  var mode: StandbyMode =
+    UserDefaults.standard.string(forKey: "ProbeStandbyMode").flatMap(StandbyMode.init(rawValue:))
+    ?? .holdMicrophone
+
+  /// マイクの入力を開いたまま待つ方式か
+  private var keepsInputOpen: Bool { mode != .silentPlayback }
   /// 合図がなければ待機を終える分数。0 なら終えない
-  var idleTimeoutMinutes = 5
+  /// UI テストでは起動引数 -ProbeIdleTimeoutMinutes 0 で終えないようにする
+  var idleTimeoutMinutes =
+    UserDefaults.standard.string(forKey: "ProbeIdleTimeoutMinutes").flatMap(Int.init) ?? 5
   private(set) var phase: VoiceHostState.Phase = .off
   private(set) var lines: [String] = []
   private(set) var lastTimings: String = "まだありません"
@@ -49,6 +61,11 @@ final class VoiceSessionController {
   /// 録音中だけ、音量を 0.1 秒ごとに App Group へ書く（キーボードの波形の表示用）
   @ObservationIgnored private var levelWriter: Task<Void, Never>?
   @ObservationIgnored private var lastSequence: Int64 = 0
+  /// 今の録音を始めた時刻（上限の判定に使う）
+  @ObservationIgnored private var captureStartedAt: Date?
+  /// 1回の録音の上限。UI テストでは起動引数 -ProbeMaxCaptureSeconds で短くする
+  static let maxCaptureSeconds: TimeInterval =
+    UserDefaults.standard.string(forKey: "ProbeMaxCaptureSeconds").flatMap(Double.init) ?? 120
   @ObservationIgnored private var lastActivity = Date()
   @ObservationIgnored private var observers: [any NSObjectProtocol] = []
   @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -106,7 +123,8 @@ final class VoiceSessionController {
         .playAndRecord, mode: .default,
         options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
       try session.setActive(true)
-      try startEngine(withInput: mode == .holdMicrophone)
+      try startEngine(withInput: keepsInputOpen)
+      setInputMuted(true)
     } catch {
       note("待機を始められない: \(Self.summary(error))")
       stopEngine()
@@ -136,6 +154,7 @@ final class VoiceSessionController {
     recognition = nil
     activeSessionID = nil
     stopEngine()
+    setInputMuted(false)
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     setPhase(.off, sessionID: nil, detail: reason)
     VoiceStore.appendEvent(source: "host", name: "standbyStopped", detail: reason)
@@ -146,6 +165,12 @@ final class VoiceSessionController {
     guard phase != .off else { return }
     // 合図の取りこぼしに備えて、Darwin 通知がなくても読み直す
     handleCommandSignal()
+    // キーボードが落ちたなどで停止の合図が来ないときの最後の保険。上限を超えた録音は捨てる
+    if phase == .recording, let captureStartedAt,
+      Date().timeIntervalSince(captureStartedAt) > Self.maxCaptureSeconds
+    {
+      abandonCapture(nil, reason: "録音が\(Int(Self.maxCaptureSeconds))秒を超えた")
+    }
     if idleTimeoutMinutes > 0, phase == .standby || phase == .done || phase == .failed,
       Date().timeIntervalSince(lastActivity) > Double(idleTimeoutMinutes * 60)
     {
@@ -170,10 +195,36 @@ final class VoiceSessionController {
     switch command.action {
     case .start: beginCapture(command.sessionID)
     case .stop: Task { await finishCapture(command.sessionID) }
+    case .cancel: abandonCapture(command.sessionID, reason: "キーボードが閉じられた")
     }
   }
 
+  /// 録音中のセッションを止めて捨てる（認識の結果も保存しない）。`sessionID` が nil なら、今のセッションを捨てる
+  private func abandonCapture(_ sessionID: SessionID?, reason: String) {
+    guard phase == .recording, let active = activeSessionID,
+      sessionID == nil || sessionID == active
+    else { return }
+    levelWriter?.cancel()
+    levelWriter = nil
+    sink.finish()
+    recognition?.cancel()
+    recognition = nil
+    activeSessionID = nil
+    captureStartedAt = nil
+    _ = sink.takeStatistics()
+    setInputMuted(true)
+    VoiceStore.appendEvent(
+      source: "host", name: "captureAbandoned", sessionID: active, detail: reason)
+    note("録音を捨てた（\(reason)）")
+    // キーボードが開いていれば失敗として知らせる（録音中の表示のまま止まらないように）。失敗の状態からも次の録音を始められる
+    setPhase(.failed, sessionID: active, detail: reason)
+  }
+
   private func beginCapture(_ sessionID: SessionID) {
+    // 取り消しの合図を取りこぼして古い録音が残っていたら、捨ててから始める
+    if phase == .recording, activeSessionID != sessionID {
+      abandonCapture(nil, reason: "別のセッションが始まった")
+    }
     guard phase == .standby || phase == .done || phase == .failed else {
       note("録音を始められない状態（\(phase.rawValue)）")
       return
@@ -190,6 +241,7 @@ final class VoiceSessionController {
         return
       }
     }
+    setInputMuted(false)
     activeSessionID = sessionID
     let stream = sink.open(sessionID: sessionID)
     let events = recognizer.recognize(stream, session: sessionID)
@@ -206,6 +258,7 @@ final class VoiceSessionController {
       return .text(finalText)
     }
     setPhase(.recording, sessionID: sessionID)
+    captureStartedAt = Date()
     VoiceStore.appendEvent(source: "host", name: "captureStarted", sessionID: sessionID)
     levelWriter?.cancel()
     levelWriter = Task { [sink] in
@@ -220,10 +273,12 @@ final class VoiceSessionController {
 
   private func finishCapture(_ sessionID: SessionID) async {
     guard activeSessionID == sessionID, let recognition else { return }
+    captureStartedAt = nil
     levelWriter?.cancel()
     levelWriter = nil
     sink.finish()
     setPhase(.processing, sessionID: sessionID)
+    setInputMuted(true)
     // 認識・整形が裏で中断しないよう、有限時間の実行を求める（オーディオセッションも保ったまま）
     backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "voice-finish") {
       [weak self] in
@@ -273,6 +328,17 @@ final class VoiceSessionController {
     exportEvents()
   }
 
+  /// ミュートで待つ方式のときだけ、マイクの入力をミュートする・戻す
+  private func setInputMuted(_ muted: Bool) {
+    guard mode == .mutedMicrophone else { return }
+    do {
+      try AVAudioApplication.shared.setInputMuted(muted)
+      VoiceStore.appendEvent(source: "host", name: muted ? "inputMuted" : "inputUnmuted")
+    } catch {
+      note("ミュートを\(muted ? "かけられない" : "外せない"): \(Self.summary(error))")
+    }
+  }
+
   private func endBackgroundTask() {
     guard backgroundTask != .invalid else { return }
     UIApplication.shared.endBackgroundTask(backgroundTask)
@@ -298,7 +364,8 @@ final class VoiceSessionController {
     } else {
       do {
         try AVAudioSession.sharedInstance().setActive(true)
-        try startEngine(withInput: mode == .holdMicrophone)
+        try startEngine(withInput: keepsInputOpen)
+        setInputMuted(true)
         setPhase(.standby, sessionID: nil)
         note("割り込みの後に待機へ戻った")
       } catch {
@@ -377,6 +444,10 @@ final class VoiceSessionController {
   {
     self.phase = phase
     writeState(detail: detail, sessionID: sessionID)
+    if phase == .failed {
+      // 失敗の理由（「認識結果が空」など。発話の本文は入らない）を計測の記録にも残す
+      VoiceStore.appendEvent(source: "host", name: "failed", sessionID: sessionID, detail: detail)
+    }
     VoiceSignal.hostState.post()
     if let detail { note("\(phase.rawValue): \(detail)") }
   }

@@ -35,3 +35,34 @@ struct VoiceSection: View {
     }
   }
 }
+
+/// UI テスト（UITests/）用。キーボードの中と App Group は UI テストから見えないため、キーボードが書いた位置・
+/// 本体アプリの状態・計測の記録を、読み取り用の小さな文字として出す。起動引数 -ProbeUITest YES のときだけ出す。
+/// 中身は時刻・区間名・ボタンの位置・案内の文言だけで、発話の本文は入らない。
+struct UITestReadout: View {
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+      VStack(alignment: .leading, spacing: 0) {
+        readout(VoiceKeyboardPresence.fileName, identifier: "test.presence")
+        readout(VoiceStore.hostStateFileName, identifier: "test.host")
+        readout(VoiceStore.eventsFileName, identifier: "test.events", lastLines: 300)
+      }
+    }
+  }
+
+  private func readout(_ fileName: String, identifier: String, lastLines: Int? = nil) -> some View {
+    var text = "-"
+    if let url = try? VoiceStore.directoryURL().appending(path: fileName),
+      let content = try? String(contentsOf: url, encoding: .utf8)
+    {
+      text =
+        lastLines.map { content.split(separator: "\n").suffix($0).joined(separator: "\n") }
+        ?? content
+    }
+    return Text("x")
+      .font(.system(size: 2))
+      .frame(height: 3)
+      .accessibilityLabel(text)
+      .accessibilityIdentifier(identifier)
+  }
+}

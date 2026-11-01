@@ -34,6 +34,15 @@ final class VoiceKeyboardPanel {
   private var message: String?
   private var waitTask: Task<Void, Never>?
   private var observers: [any NSObjectProtocol] = []
+  /// 表示が変わったら呼ぶ（UI テスト用にキーボードの様子を書き出す）
+  var onRender: (() -> Void)?
+
+  /// UI テストが座標でタップするボタン（XCUITest からキーボードの中は見えない）
+  var testTargets: [String: UIView] {
+    ["voice.mic": micButton, "voice.insert": insertButton, "voice.autoInsert": autoInsertSwitch]
+  }
+  var hintText: String { hintLabel.text ?? "" }
+  var autoInsert: Bool { autoInsertSwitch.isOn }
 
   private static let autoInsertKey = "voiceAutoInsert"
   /// 停止から結果を待つ上限
@@ -47,6 +56,12 @@ final class VoiceKeyboardPanel {
     autoInsertSwitch.addTarget(self, action: #selector(autoInsertChanged), for: .valueChanged)
     autoInsertSwitch.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
     micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
+    // UI テスト（UITests/）から要素を見つけるための識別子
+    micButton.accessibilityIdentifier = "voice.mic"
+    insertButton.accessibilityIdentifier = "voice.insert"
+    autoInsertSwitch.accessibilityIdentifier = "voice.autoInsert"
+    hintLabel.accessibilityIdentifier = "voice.hint"
+    previewLabel.accessibilityIdentifier = "voice.preview"
     insertButton.configuration?.title = "挿入"
     insertButton.configuration?.cornerStyle = .capsule
     insertButton.addTarget(self, action: #selector(insertTapped), for: .touchUpInside)
@@ -118,6 +133,7 @@ final class VoiceKeyboardPanel {
   // MARK: 操作
 
   @objc private func micTapped() {
+    VoiceStore.appendEvent(source: "keyboard", name: "micTapped", detail: stateName)
     switch state {
     case .idle, .preview:
       start()
@@ -128,6 +144,29 @@ final class VoiceKeyboardPanel {
     }
   }
 
+  /// 記録用の状態の名前（プレビューの本文は入れない）
+  private var stateName: String {
+    switch state {
+    case .idle: "idle"
+    case .recording: "recording"
+    case .waiting: "waiting"
+    case .inserting: "inserting"
+    case .preview: "preview"
+    }
+  }
+
+  /// キーボードが閉じられるとき（ロック・アプリやキーボードの切り替えなど）に呼ぶ。
+  /// 録音中なら本体アプリに取り消しを送る（閉じた後に録音が裏で続かないように）
+  func keyboardWillDisappear() {
+    guard case .recording(let sessionID) = state else { return }
+    levelTask?.cancel()
+    levelTask = nil
+    VoiceStore.appendEvent(source: "keyboard", name: "cancelOnDisappear", sessionID: sessionID)
+    _ = send(.cancel, sessionID: sessionID)
+    state = .idle
+    render()
+  }
+
   @objc private func insertTapped() {
     guard case .preview(let sessionID, _) = state else { return }
     Task { await insert(sessionID) }
@@ -135,6 +174,7 @@ final class VoiceKeyboardPanel {
 
   @objc private func autoInsertChanged() {
     UserDefaults.standard.set(autoInsertSwitch.isOn, forKey: Self.autoInsertKey)
+    onRender?()
   }
 
   private func start() {
@@ -312,6 +352,7 @@ final class VoiceKeyboardPanel {
     } else {
       waveform.isHidden = true
     }
+    onRender?()
   }
 }
 

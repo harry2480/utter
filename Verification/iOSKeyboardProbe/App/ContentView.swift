@@ -11,10 +11,14 @@ struct ContentView: View {
   @FocusState private var textFieldFocused: Bool
   @State private var keyboardCheckText = ""
   private let checksKeyboard = UserDefaults.standard.bool(forKey: "ProbeFocusTextField")
+  private let showsUITestReadout = UserDefaults.standard.bool(forKey: "ProbeUITest")
 
   var body: some View {
     NavigationStack {
       Form {
+        if showsUITestReadout {
+          UITestReadout()
+        }
         if checksKeyboard {
           TextField("キーボードの確認", text: $keyboardCheckText).focused($textFieldFocused)
         }

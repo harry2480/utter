@@ -65,6 +65,19 @@ targets:
     dependencies:
       - package: UtterCore
       - package: UtterPersistence
+  # #233 の待機セッション方式を、つないだ iPhone の上で自動で試す UI テスト（UITests/README は VoiceSessionUITests.swift の冒頭）
+  UtterKeyboardProbeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PROBE_BUNDLE_ID_PREFIX).keyboardprobe.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        TEST_TARGET_NAME: UtterKeyboardProbe
+    dependencies:
+      - target: UtterKeyboardProbe
 schemes:
   UtterKeyboardProbe:
     build:
@@ -73,3 +86,7 @@ schemes:
         UtterKeyboardProbeKeyboard: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - UtterKeyboardProbeUITests

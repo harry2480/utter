@@ -12,6 +12,8 @@ struct VoiceCommand: Codable, Sendable, Equatable {
   enum Action: String, Codable, Sendable {
     case start
     case stop
+    /// 録音を止めて捨てる（キーボードが録音中に閉じられたとき。ロック・アプリやキーボードの切り替えなど）
+    case cancel
   }
 
   /// 単調に増える番号（ミリ秒の時刻）。本体アプリは処理済みより大きいものだけを扱う
@@ -188,4 +190,31 @@ enum VoiceSignal: String, CaseIterable, Sendable {
         }, signal.rawValue as CFString, nil, .deliverImmediately)
     }
   }
+}
+
+/// キーボードの表示の様子（UI テスト用）。キーボードの中は XCUITest から見えないため、ボタンの位置と案内の文言を書く。
+/// 発話の本文（プレビュー）は入れない。
+struct VoiceKeyboardPresence: Codable, Sendable {
+  struct Frame: Codable, Sendable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+  }
+
+  let at: Date
+  let visible: Bool
+  /// キーボードの根のビューの大きさ（ボタンの位置はこの左上が原点）
+  let rootSize: Frame
+  /// 画面の座標に直した根のビューの位置（取れれば）
+  let rootInScreen: Frame?
+  /// 識別子ごとのボタンの位置（根のビューの座標）。隠れているものは入れない
+  let frames: [String: Frame]
+  /// 案内の文言（「挿入しました」など。発話の本文は入らない）
+  let hint: String
+  let autoInsert: Bool
+  /// 「開く」の結果の行（#53）
+  let openLine: String
+
+  static let fileName = "voice-keyboard.json"
 }
