@@ -6,10 +6,11 @@ import UIKit
 @main
 struct ProbeApp: App {
   @State private var model = AppProbeModel()
+  @State private var voice = VoiceSessionController()
 
   var body: some Scene {
     WindowGroup {
-      ContentView(model: model)
+      ContentView(model: model, voice: voice)
         .onOpenURL { model.handleOpenURL($0) }
     }
   }

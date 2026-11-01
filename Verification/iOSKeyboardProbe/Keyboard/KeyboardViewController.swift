@@ -2,7 +2,7 @@
 // 拡張はマイク・STT モデル・クラウド認証情報を持たない（iAC-08）。外部への送信もしない。
 // 本体アプリを開く操作は公開 API だけを試す。responder chain をたどって UIApplication の openURL を呼ぶ等の
 // 抜け道は使わない（iOS-03）。開けなければ「開けない」と表示し、手動切替を案内する。
-// ホストアプリの入力欄の本文（documentContextBeforeInput 等）は読まない。
+// ホストアプリの入力欄の本文（documentContextBeforeInput 等）は、音声入力の挿入の確認（VoiceTextInserter）にだけ使い、保存・記録しない。
 
 import SwiftUI
 import UIKit
@@ -17,11 +17,72 @@ final class KeyboardViewController: UIInputViewController {
   private var insertLine = "挿入: 未実行"
   private var openLine = "本体アプリを開く: 未実行"
   private var insertCount = 0
+  private lazy var voicePanel = VoiceKeyboardPanel(controller: self)
+  private weak var debugToggle: UIView?
+  private weak var openContextButton: UIView?
+  private weak var openSwiftUIView: UIView?
+  private let debugStack = UIStackView()
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    VoiceStore.appendEvent(source: "keyboard", name: "viewDidLoad")
     buildLayout()
     refreshStatus()
+    voicePanel.onRender = { [weak self] in self?.writePresence(visible: true) }
+  }
+
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    VoiceStore.appendEvent(source: "keyboard", name: "viewDidAppear")
+    writePresence(visible: true)
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    writePresence(visible: true)
+  }
+
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    VoiceStore.appendEvent(source: "keyboard", name: "viewWillDisappear")
+    voicePanel.keyboardWillDisappear()
+    writePresence(visible: false)
+  }
+
+  /// UI テスト用に、ボタンの位置と案内を App Group に書く（XCUITest からキーボードの中は見えないため）
+  private func writePresence(visible: Bool) {
+    guard let root = inputView else { return }
+    var targets = voicePanel.testTargets
+    targets["debug.toggle"] = debugToggle
+    targets["debug.openContext"] = openContextButton
+    targets["debug.openSwiftUI"] = openSwiftUIView
+    var frames: [String: VoiceKeyboardPresence.Frame] = [:]
+    for (identifier, view) in targets {
+      guard view.window != nil, !Self.isHidden(view, below: root) else { continue }
+      frames[identifier] = Self.frame(view.convert(view.bounds, to: root))
+    }
+    let screenRect = root.window.map { window in
+      window.convert(root.convert(root.bounds, to: window), to: window.screen.coordinateSpace)
+    }
+    let presence = VoiceKeyboardPresence(
+      at: Date(), visible: visible, rootSize: Self.frame(root.bounds),
+      rootInScreen: screenRect.map(Self.frame), frames: frames, hint: voicePanel.hintText,
+      autoInsert: voicePanel.autoInsert, openLine: openLine)
+    try? VoiceStore.write(presence, to: VoiceKeyboardPresence.fileName)
+  }
+
+  private static func isHidden(_ view: UIView, below root: UIView) -> Bool {
+    var current: UIView? = view
+    while let candidate = current, candidate !== root {
+      if candidate.isHidden || candidate.alpha == 0 { return true }
+      current = candidate.superview
+    }
+    return false
+  }
+
+  private static func frame(_ rect: CGRect) -> VoiceKeyboardPresence.Frame {
+    VoiceKeyboardPresence.Frame(
+      x: rect.origin.x, y: rect.origin.y, width: rect.width, height: rect.height)
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -43,12 +104,13 @@ final class KeyboardViewController: UIInputViewController {
 
   private func buildLayout() {
     guard let root = inputView else { return }
-    root.translatesAutoresizingMaskIntoConstraints = false
-    let height = root.heightAnchor.constraint(equalToConstant: 320)
+    // 幅は OS に任せる（false にすると幅が決まらず、中身の最小の幅に縮む）。高さだけを指定する
+    let height = root.heightAnchor.constraint(equalToConstant: 300)
     height.priority = .defaultHigh
     height.isActive = true
 
     statusLabel.numberOfLines = 0
+    statusLabel.accessibilityIdentifier = "debug.status"
     statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
     statusLabel.translatesAutoresizingMaskIntoConstraints = false
     scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -77,27 +139,55 @@ final class KeyboardViewController: UIInputViewController {
     openButtonHost.view.backgroundColor = .clear
     openButtonHost.didMove(toParent: self)
 
-    let secondRow = makeRow([
-      globe,
-      makeButton(title: "開く(ctx)", action: #selector(openViaExtensionContextTapped)),
-      openButtonHost.view,
-      makeButton(title: "⌫", action: #selector(deleteTapped)),
-      makeButton(title: "改行", action: #selector(returnTapped)),
-    ])
+    let openContext = makeButton(
+      title: "開く(ctx)", action: #selector(openViaExtensionContextTapped),
+      identifier: "debug.openContext")
+    openContextButton = openContext
+    openSwiftUIView = openButtonHost.view
+    let secondRow = makeRow([openContext, openButtonHost.view])
 
-    let stack = UIStackView(arrangedSubviews: [scrollView, firstRow, secondRow])
+    // 検証用の表示と操作（#56・#53）。「検証」を押したときだけ出す
+    debugStack.addArrangedSubview(scrollView)
+    debugStack.addArrangedSubview(firstRow)
+    debugStack.addArrangedSubview(secondRow)
+    debugStack.axis = .vertical
+    debugStack.spacing = 6
+    // 検証の表示の開閉は覚えておく（アプリを切り替えるとキーボードが作り直されるため）
+    debugStack.isHidden = !UserDefaults.standard.bool(forKey: "debugShown")
+    voicePanel.view.isHidden = !debugStack.isHidden
+
+    // 下の段: 地球儀（必要なときだけ）・空白・削除・改行・検証
+    let space = makeButton(title: "空白", action: #selector(spaceTapped))
+    let debugButton = makeButton(
+      title: "検証", action: #selector(debugTapped), identifier: "debug.toggle")
+    debugToggle = debugButton
+    let bottomRow = UIStackView(arrangedSubviews: [
+      globe, space, makeButton(title: "⌫", action: #selector(deleteTapped)),
+      makeButton(title: "改行", action: #selector(returnTapped)),
+      debugButton,
+    ])
+    bottomRow.axis = .horizontal
+    bottomRow.spacing = 6
+    bottomRow.distribution = .fill
+    space.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    for button in bottomRow.arrangedSubviews where button !== space {
+      button.setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    let stack = UIStackView(arrangedSubviews: [voicePanel.view, debugStack, bottomRow])
     stack.axis = .vertical
     stack.spacing = 6
     stack.translatesAutoresizingMaskIntoConstraints = false
     root.addSubview(stack)
 
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 6),
-      stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -6),
+      stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+      stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
       stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 6),
       stack.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -6),
       firstRow.heightAnchor.constraint(equalToConstant: 40),
       secondRow.heightAnchor.constraint(equalToConstant: 40),
+      bottomRow.heightAnchor.constraint(equalToConstant: 44),
       statusLabel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
       statusLabel.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
       statusLabel.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
@@ -106,13 +196,14 @@ final class KeyboardViewController: UIInputViewController {
     ])
   }
 
-  private func makeButton(title: String, action: Selector?) -> UIButton {
+  private func makeButton(title: String, action: Selector?, identifier: String? = nil) -> UIButton {
     var configuration = UIButton.Configuration.gray()
     configuration.title = title
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 4, bottom: 4, trailing: 4)
     let button = UIButton(configuration: configuration)
     if let action { button.addTarget(self, action: action, for: .touchUpInside) }
+    button.accessibilityIdentifier = identifier
     return button
   }
 
@@ -146,6 +237,7 @@ final class KeyboardViewController: UIInputViewController {
     lines.append("本体アプリを開けない場合: ホームインジケータを左右にスワイプするか、")
     lines.append("App スイッチャーで「utter Probe」を選んで手動で切り替える")
     statusLabel.text = lines.joined(separator: "\n")
+    writePresence(visible: true)
   }
 
   private static func describe(keyboardType: UIKeyboardType) -> String {
@@ -228,6 +320,19 @@ final class KeyboardViewController: UIInputViewController {
     textDocumentProxy.deleteBackward()
   }
 
+  @objc private func spaceTapped() {
+    textDocumentProxy.insertText(" ")
+  }
+
+  @objc private func debugTapped() {
+    debugStack.isHidden.toggle()
+    voicePanel.view.isHidden = !debugStack.isHidden
+    UserDefaults.standard.set(!debugStack.isHidden, forKey: "debugShown")
+    refreshStatus()
+    view.layoutIfNeeded()
+    writePresence(visible: true)
+  }
+
   @objc private func returnTapped() {
     textDocumentProxy.insertText("\n")
   }
@@ -264,6 +369,7 @@ private struct OpenURLProbeButton: View {
       }
     }
     .buttonStyle(.bordered)
+    .accessibilityIdentifier("debug.openSwiftUI")
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
