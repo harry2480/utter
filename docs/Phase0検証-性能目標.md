@@ -21,7 +21,7 @@ utter の Phase 0 成功判定基準となる非機能要件を確定：
 
 ```
 目標:
-- メニューバー常駐状態: < 50MB（アイドル）
+- メニューバー常駐状態: ≤ 50MB（アイドル）
 - EventMonitor 有効時: < 100MB
 - バッファ予約（AudioStreamBuffer): ≤ 10MB（デフォルト）
 
@@ -130,7 +130,7 @@ scripts/record-signposts.sh --label local-builtin-mic-01 --attach "$(pgrep -x ut
 | 項目 | 目標 | 実測 | 判定 |
 |------|------|------|------|
 | 起動時間 | < 2s | XXs | ✅/❌ |
-| 待機メモリ | < 50MB | XXmb | ✅/❌ |
+| 待機メモリ | ≤ 50MB | XXmb | ✅/❌ |
 | バッテリー消費 | < 2%/h | X%/h | ✅/❌ |
 
 **全て ✅ で Phase 1 着手許可**
@@ -149,4 +149,4 @@ scripts/record-signposts.sh --label local-builtin-mic-01 --attach "$(pgrep -x ut
 
 - STT 未選択：メモリ 38.8〜39.0MB、CPU 平均 0.010%
 - SpeechAnalyzer を選択：メモリ 19.2〜21.2MB、CPU 平均 0.028%（待機中に STT Worker は起動しない）
-- どちらも 6章の目標（50MB 以下・0.1% 以下）に収まる
+- どちらも 6章の目標（≤ 50MB・≤ 0.1%）に収まる
