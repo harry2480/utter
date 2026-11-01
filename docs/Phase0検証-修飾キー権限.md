@@ -101,7 +101,7 @@ Apple の Web のリファレンスで確かめられなかった点を、Xcode 
 - 権限について何も書いていない [H2]
 - 参考：システムのショートカットを無効にする `PushSymbolicHotKeyMode` は「補助装置のアクセスを有効にする」がオンのときだけ実際に効き、オフなら要求を積むだけでモードは変わらない [H2]（utter は使っていない）
 
-ヘッダーから言えないこと（実機の HotkeyProbe の `system-shortcuts` で確かめる）：修飾キーの値の形式、Fn / 地球儀キーや音声入力のショートカットが一覧に出るか、権限なしで取得できるか。形式と地球儀キーとの組み合わせは 2026-11-01 に実測した（「検証結果の記録」の「システムのショートカットの一覧」）。地球儀キー単独・音声入力と、権限なしで取得できるかは未確認のまま。
+ヘッダーから言えないこと（実機の HotkeyProbe の `system-shortcuts` で確かめる）：修飾キーの値の形式、Fn / 地球儀キーや音声入力のショートカットが一覧に出るか、権限なしで取得できるか。形式と、文字キーに Fn のビットだけが付いた項目が一覧に出ることは 2026-11-01 に実測した（それらを地球儀キーとの組み合わせと見るのは推測。「検証結果の記録」の「システムのショートカットの一覧」）。地球儀キー単独・音声入力と、権限なしで取得できるかは未確認のまま。
 
 #### `flagsChanged` だけを見るイベントタップの権限（未確認の点 2）
 
@@ -195,7 +195,7 @@ SDK のヘッダー（H1〜H9）との照合：
 - 一致：`SystemShortcuts` が辞書のキー `kHISymbolicHotKeyCode` / `Modifiers` / `Enabled` を読み、項目の ID を一覧上の位置にしている（項目名を取れない）のは H2 と合う。修飾キーの形式を Carbon・NSEvent の両方で読めるようにしているのも、ヘッダーが形式を書いていないこと [H2] と矛盾しない
 - **食い違い（表示の文言）**：`HotKeyRegistrationFailure.alreadyRegistered` は `eventHotKeyExistsErr` を「同じ組み合わせが他で排他登録済み。他アプリとの競合」とし、`GlobalShortcutStatusText` は「他のアプリが同じ組み合わせを使っています」と出す。H4 では `eventHotKeyExistsErr` は**今のプロセスの中での二重登録**でも返る。utter の中で同じ組み合わせを二重に登録する経路がなければ実害はない。今の実装は、Edit Mode の登録で録音と同じ組み合わせを `sameAsRecording` として断り（`EditModeShortcut`）、録音・Edit Mode とも登録し直す前に解除している。録音のショートカットを Edit Mode と同じ組み合わせに変えた場合など、登録の順序によって二重登録が起きないかは、ヘッダーではなく utter 側のテストで確かめる（コードは変えていない）
 - **確かめる点（タップの作成と権限）**：`CGKeyEventTapFactory` のコメントは「権限がないと作成に失敗する」とし、作成に失敗したとき（`nil`）だけを権限の問題として扱う。H6 では、許されないイベントのビットはマスクから外され、**マスクが空になったときだけ** `NULL` が返る。修飾キー単独の「他のキーを挟まずに離したときだけ反応」（`ModifierOnlyDetector.observedEvents` が `flagsChanged`・`keyDown`・マウス）では、`keyDown` だけが許されない場合にタップが作成され、`keyDown` が届かず「他のキーを挟んだ」ことを検出できない、という状態がヘッダーの記述上ありうる。実装は作成前に `CGPreflightListenEventAccess()` を確かめるため、その値が真のときに `keyDown` が外されることがあるかを HotkeyProbe（`modifier right-option --fire-on clean-up` を権限ごとに）で確かめる。外されることがあれば、作成後に `keyDown` が届くかを確かめる処理か、権限の確認の見直しが要る
-- **解消（出典のないコメント）**：`SystemShortcuts` のコメントは（2026-11-01 に直す前は）「Fn / 地球儀キーの割り当てと、Control 2回押し等の音声入力ショートカットも一覧に出ない（HotkeyProbe の結果）」「macOS 26 の実機では Carbon 形式で返った（HotkeyProbe の結果）」と書く。後者と同じ内容（macOS 26 で Carbon 形式、Fn / 地球儀キーの項目が 0x20000）は `Verification/HotkeyProbe/Sources/HotkeyProbe/CarbonHotKey.swift` のコメントと [HotkeyProbe の README](../Verification/HotkeyProbe/README.md)「読み方」にも「開発機（macOS 26）では」として書かれている。前者（Fn / 地球儀キーと音声入力ショートカットが一覧に出ない）は README「読み方」に注意書きとして書かれているだけで、Probe のソースのコメントにはない。どちらも、この文書の「検証結果の記録」には日付・機種つきで記録されていない。ヘッダー [H2] からはどちらも言えない。→ 2026-11-01 に実測して「検証結果の記録」に書き、コメントを直した：Carbon 形式は実測と一致した。「Fn / 地球儀キーの割り当てが一覧に出ない」は、地球儀キーとの組み合わせについては実測と合わない（出た）ため、地球儀キー単独と音声入力のショートカットは判別できていない、と書き直した
+- **解消（出典のないコメント）**：`SystemShortcuts` のコメントは（2026-11-01 に直す前は）「Fn / 地球儀キーの割り当てと、Control 2回押し等の音声入力ショートカットも一覧に出ない（HotkeyProbe の結果）」「macOS 26 の実機では Carbon 形式で返った（HotkeyProbe の結果）」と書く。後者と同じ内容（macOS 26 で Carbon 形式、Fn / 地球儀キーの項目が 0x20000）は `Verification/HotkeyProbe/Sources/HotkeyProbe/CarbonHotKey.swift` のコメントと [HotkeyProbe の README](../Verification/HotkeyProbe/README.md)「読み方」にも「開発機（macOS 26）では」として書かれている。前者（Fn / 地球儀キーと音声入力ショートカットが一覧に出ない）は README「読み方」に注意書きとして書かれているだけで、Probe のソースのコメントにはない。どちらも、この文書の「検証結果の記録」には日付・機種つきで記録されていない。ヘッダー [H2] からはどちらも言えない。→ 2026-11-01 に実測して「検証結果の記録」に書き、コメントを直した：Carbon 形式は実測と一致した。「Fn / 地球儀キーの割り当てが一覧に出ない」は、文字キーに Fn のビットだけが付いた項目が一覧に出た（観測）ことと合わない。これらを地球儀キーとの組み合わせと見るのは推測（項目名を取れないため）。そのうえで、地球儀キー単独と音声入力のショートカットは判別できていない、と書き直した
 - 参考：`SystemShortcuts.loadEnabledBindings` はショートカットの登録時・設定画面・初回セットアップで呼ばれる。H2 は「不必要に呼ばない・性能が重要なコードで呼ばない」と書くが、キー入力ごとに呼ぶ経路はなく、食い違いはない
 - **確かめる点**：権限がないときに開くシステム設定の URL（`x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent` / `?Privacy_Accessibility`）は、公式の説明を見つけられなかった（未確認）。macOS 26 で該当の画面が開くかを実機で確かめる
 - **確かめる点**：下の「3. 権限要件」の表は、以前はイベントタップによるキー監視と EventMonitor を「権限不要」としており、W1・A6 と食い違っていた（実装は権限が要る前提で書かれていた）。一次情報と未確認を分けた暫定の表に置き換えた
@@ -207,7 +207,7 @@ SDK のヘッダー（H1〜H9）との照合：
 | `RegisterEventHotKey` が権限なしで登録・受信できるか、登録した組み合わせが他アプリに届くか | `hotkey ctrl+option+k` | 未確認（ヘッダー [H1] は権限と、最前面のアプリへの配送に触れていない） |
 | 排他登録の競合と戻り値 | `hotkey ctrl+option+k --exclusive`（2つ同時に）。排他なしと排他ありの組み合わせも | **済み（2026-11-01）**。排他どうしは `eventHotKeyExistsErr`、排他なしが先にあるときの排他は `noErr`。押したときにどちらへ届くかは未確認 |
 | Fn を Carbon の修飾キーとして登録できるか | `hotkey fn+f5` | 登録は `noErr`（2026-11-01）。押して `pressed` が届くかは未確認（人が押して確かめる） |
-| システムのショートカットの一覧（Fn・音声入力のショートカットが出るか、修飾キーの値の形式） | `system-shortcuts` | 形式は Carbon、地球儀キーとの組み合わせは一覧に出る（2026-11-01）。地球儀キー単独と音声入力は判別できず未確認 |
+| システムのショートカットの一覧（Fn・音声入力のショートカットが出るか、修飾キーの値の形式） | `system-shortcuts` | 形式は Carbon、文字キーに Fn のビットだけが付いた項目が一覧に出る（2026-11-01。地球儀キーとの組み合わせと見るのは推測）。地球儀キー単独と音声入力は判別できず未確認 |
 | `flagsChanged` だけの listenOnly タップに入力監視が要るか | `modifier right-option --flags-only`（入力監視・アクセシビリティをオン・オフ） | 未確認（W1・H6 ともキーの押下・解放についてだけ述べている） |
 | 他のキーを挟んだかの判定に要る `keyDown` が、タップの作成に成功しても外されていることがあるか | `modifier right-option --fire-on clean-up`（権限ごとに） | H6 は「許されないビットは外し、空のときだけ NULL」と書く。実際に外れるかは未確認 |
 | NSEvent のグローバルモニタで修飾キーを取るのに要る権限（入力監視かアクセシビリティか） | `modifier right-command --backend nsevent` | A6・H9 はアクセシビリティと書くが、今の OS では未確認 |
@@ -315,7 +315,7 @@ SDK のヘッダー（H1〜H9）との照合：
 - F キー・矢印キーの項目には Fn のビットが付いて返る（例: Control+←（操作スペースの切り替え）とみられる項目が `ctrl+fn+left`、raw=0x21000。項目名を取れないため推測）。キー自体が Fn 層にあるためとみられるが、地球儀キー＋Control＋矢印キー（ウインドウのタイル配置）のような本物の Fn 付きの組み合わせと、値からは区別できない。外して照合すると、後者も Fn なしの組み合わせとの競合として出る（競合を多めに出す側の誤検出）。アプリの `SystemShortcuts.enabledBindings` はこのビットを外して照合しているが、HotkeyProbe は外しておらず `ctrl+left` の競合を見逃していたため、アプリと同じく外すように直した（直した後は `ctrl+left` が 3 件、`ctrl+f2` が 1 件の競合になる）
 - 修飾キーなしの有効な項目：かな・英数、キーコード 127・179。キーコード 179 は地球儀キーに当たる可能性がある（推測）
 - Control 2回押し等の音声入力のショートカットに当たる項目は、一覧からは判別できなかった
-- `UtterCore.ShortcutValidator` の判定（Probe を直した後）：`ctrl+option+k` は問題 0 件、`cmd+space` は `system.index.50` と `identical`、`ctrl+left` は 3 件、`ctrl+f2` は 1 件。`fn+f5` は問題 0 件。これは Probe の照合の仕様による結果で（一覧側の F キーの Fn を外すため、Fn を付けた指定はどの項目とも一致しない）、Fn+F5 がシステムのショートカットと競合しないことを示すものではない。utter は Fn を含む組み合わせを `RegisterEventHotKey` に渡さない
+- `UtterCore.ShortcutValidator` の判定（Probe を直した後）：`ctrl+option+k` は問題 0 件、`cmd+space` は `system.index.50` と `identical`、`ctrl+left` は 3 件、`ctrl+f2` は 1 件。`fn+f5` は問題 0 件。Probe は F キー・矢印キーの指定の Fn も外して照合する（アプリの `ShortcutRecorder` がこれらのキーの Fn を外して記録するのと同じ）ため、F5 単独として照合した結果で、F5 単独の項目は一覧になかった。`ctrl+fn+left` は `ctrl+left` と同じく 3 件。utter は Fn を含む組み合わせを `RegisterEventHotKey` に渡さない
 
 ### テスト日: YYYY-MM-DD
 

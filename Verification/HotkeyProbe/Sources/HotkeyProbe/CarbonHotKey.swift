@@ -182,7 +182,7 @@ enum SystemShortcuts {
   /// キー自体が Fn 層にあり、一覧の項目に Fn のビットが付くキー（F1〜F12・矢印キー）。
   /// アプリ（MacKeyCodes.isFunctionKey）は F13〜F20 も外すが、Probe の KeyNames に F13 以降の名前がなく
   /// 指定としても受け付けないため、照合の結果は変わらない（一覧の表示だけ Fn が残る）
-  private static let fnLayerKeys: Set<String> =
+  static let fnLayerKeys: Set<String> =
     Set((1...12).map { "f\($0)" }).union(["left", "right", "up", "down"])
 
   /// NSEvent 形式にしかないビット（control / option / command / function）
