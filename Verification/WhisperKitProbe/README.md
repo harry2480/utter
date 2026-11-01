@@ -134,8 +134,8 @@ Verification/PerfProbe/scripts/power-log.sh report --target wk-turbo --control w
 ```
 
 - 記録するもの：対象・対照の CPU / GPU / ANE / 合計の平均（mW）と差、区間中の熱の状態（`power-summary.csv` の `thermal_levels`）、電源（AC かバッテリーか）、モデル名・`--compute`・音声の長さ。`summary.csv` の `thermal_state` とも合わせて見ます
-- 1回の推論あたりの電力量は、差（mW）× 記録した秒数 ÷ その間に終わった回数で見積もります（`summary.csv` の各回の終了時刻から数える）
-- 記録の5分のあいだに `bench` が終わらないよう、`--runs` は多めにします
+- 1回の推論あたりの電力量（mJ）は、差（mW）× 記録した秒数 ÷ その間に終わった回数で見積もります（`summary.csv` の各回の終了時刻から数える）
+- 記録の5分のあいだずっと推論が続くよう、`bench` は記録より長く走らせます（例の 60 回は約9分）。記録が終わったら `bench` は Ctrl-C で止めてかまいません
 - Mac 全体のフリーズ・再起動が起きた場合は、日時・モデル・`--compute`・何回目だったか（`summary.csv` の最後の行）を記録します。LM Studio 固有の原因究明は対象外です（要件定義 10章）
 - 重いモデル（medium 以上）は、保存していない作業を閉じてから実行してください
 

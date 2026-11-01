@@ -15,6 +15,7 @@
 # 列（NAME-power.csv）: sample, elapsed_ms, cpu_mw, gpu_mw, ane_mw, combined_mw, thermal_pressure
 # 消費電力は SoC の CPU・GPU・ANE の分だけで、画面・SSD・周辺機器は含まない（powermetrics の推定値）。
 # プロセスごとの値ではないため、ほかのアプリを閉じ、同じ条件で対照を測って差を見る。
+# Apple Silicon の Mac 専用（ane_power のサンプラーと「Combined Power」の行を前提にしている）。
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +27,7 @@ target=""
 control=""
 
 usage() {
-  sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -99,13 +100,15 @@ parse_raw() {
   ' "$raw"
 }
 
-# CSV の平均を1行（label,samples,cpu_mw,gpu_mw,ane_mw,combined_mw,thermal_levels）で出す
+# CSV の平均を1行（label,samples,cpu_mw,gpu_mw,ane_mw,combined_mw,thermal_levels）で出す。
+# 平均はサンプルの単純平均（間隔の揺れで重み付けしない）
 summarize_csv() {
   local name="$1" csv="$2"
   awk -F, -v name="$name" '
     NR == 1 { next }
     {
       n++
+      if ($3 == "" || $4 == "" || $5 == "") missing++
       if ($3 != "") { cs += $3; cn++ }
       if ($4 != "") { gs += $4; gn++ }
       if ($5 != "") { as += $5; an++ }
@@ -116,6 +119,9 @@ summarize_csv() {
     END {
       if (n == 0) { exit 1 }
       printf "%s,%d,%s,%s,%s,%s,%s\n", name, n, avg(cs, cn), avg(gs, gn), avg(as, an), avg(ms, mn), levels
+      if (missing > 0) {
+        printf "注意: CPU・GPU・ANE のどれかの値がないサンプルが %d 件あります（その値は平均から除いた）\n", missing > "/dev/stderr"
+      }
     }
   ' "$csv"
 }
@@ -134,14 +140,24 @@ do_parse() {
   if [[ ! -f "$summary_csv" ]]; then
     echo "label,samples,cpu_mw,gpu_mw,ane_mw,combined_mw,thermal_levels" >"$summary_csv"
   fi
-  # 同じラベルを測り直したときは古い行を置き換える
-  local tmp
-  tmp="$(mktemp)"
-  awk -F, -v name="$label" 'NR == 1 || $1 != name' "$summary_csv" >"$tmp"
-  echo "$line" >>"$tmp"
-  mv "$tmp" "$summary_csv"
+  # 同じラベルを測り直したときは古い行を置き換える（一時ファイルを使わず、既存のファイルの権限を保って書き戻す）
+  local kept
+  kept="$(awk -F, -v name="$label" 'NR == 1 || $1 != name' "$summary_csv")"
+  printf '%s\n%s\n' "$kept" "$line" >"$summary_csv"
   echo "$csv"
   echo "$line"
+}
+
+# sudo で作ったファイルを、実行した利用者の持ち物に戻す（成功でも失敗でも EXIT で呼ぶ）。
+# ディレクトリは利用者として作るので、ここではファイルだけを戻す
+fix_owner() {
+  [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]] || return 0
+  local f
+  for f in "$output_dir/$label-powermetrics.txt" "$output_dir/$label-power.csv" "$summary_csv"; do
+    if [[ -f "$f" && ! -L "$f" ]]; then
+      chown "$SUDO_UID:$SUDO_GID" "$f" || true
+    fi
+  done
 }
 
 do_record() {
@@ -150,31 +166,36 @@ do_record() {
     echo "powermetrics は管理者権限が要ります。sudo を付けて実行してください" >&2
     exit 77
   fi
-  mkdir -p "$output_dir"
+  if [[ ! -d "$output_dir" ]]; then
+    if [[ -n "${SUDO_UID:-}" ]]; then
+      sudo -u "#$SUDO_UID" mkdir -p "$output_dir"
+    else
+      mkdir -p "$output_dir"
+    fi
+  fi
+  trap fix_owner EXIT
   local raw="$output_dir/$label-powermetrics.txt"
   local args=(--samplers "cpu_power,gpu_power,ane_power,thermal" -i "$interval_ms")
   if ((duration > 0)); then
-    # 1サンプル目は区間の始まりの値が揃わないことがあるため、1つ多く取る
-    args+=(-n "$((duration * 1000 / interval_ms + 1))")
+    args+=(-n "$((duration * 1000 / interval_ms))")
   fi
   echo "記録中: $raw（終了は Ctrl-C）" >&2
   # Ctrl-C で powermetrics だけを止め、続けて parse する
+  local rc=0
   trap 'true' INT
-  powermetrics "${args[@]}" >"$raw" || true
+  powermetrics "${args[@]}" >"$raw" || rc=$?
   trap - INT
-  # sudo で作ったファイルを、実行した利用者が読み書きできるようにする
-  if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
-    chown "$SUDO_UID:$SUDO_GID" "$output_dir" "$raw"
+  # 0 は --duration で終わったとき、130 は Ctrl-C で止めたとき。それ以外は powermetrics の失敗
+  if ((rc != 0 && rc != 130)); then
+    echo "powermetrics が終了コード $rc で終わりました（Apple Silicon 以外の Mac、または引数の誤りの可能性があります）" >&2
   fi
   do_parse
-  if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
-    chown "$SUDO_UID:$SUDO_GID" "$output_dir/$label-power.csv" "$summary_csv"
-  fi
 }
 
 do_report() {
   [[ -f "$summary_csv" ]] || { echo "記録がありません: $summary_csv" >&2; exit 1; }
-  column -s, -t "$summary_csv"
+  # 空の欄があると column が詰めて列がずれるため、表示だけ - で埋める
+  sed -e 's/,,/,-,/g' -e 's/,,/,-,/g' -e 's/,$/,-/' "$summary_csv" | column -s, -t
   if [[ -n "$target" || -n "$control" ]]; then
     [[ -n "$target" && -n "$control" ]] || { echo "--target と --control は両方指定してください" >&2; exit 64; }
     awk -F, -v t="$target" -v c="$control" '
