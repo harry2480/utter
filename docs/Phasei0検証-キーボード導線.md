@@ -85,7 +85,7 @@ let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdent
 | 候補 | フルアクセス | キーボードの表示 | 本体アプリが開いたか（イベントの via） |
 |---|---|---|---|
 | `extensionContext.open`（utter 本体のキーボードの「本体アプリを開く」。検証用アプリではなく utter 本体で試した） | 未記録 | 本体アプリは開かない | ×（開かなかった）。同じ URL（`utterapp://open`）を Mac から `xcrun devicectl device process launch --payload-url` で渡すと utter は起動したため、URL スキームの登録は正しく、キーボード拡張からの呼び出しだけが通らない |
-| SwiftUI `openURL`（開く(UI)） | | | 未実施（下の一次情報により、試す意味が小さい） |
+| SwiftUI `openURL`（開く(UI)）（iOSKeyboardProbe で試した。2026-11-01） | あり | — | **○（開いた）**。UI テスト（`testOpenHostFromKeyboard`）で本体アプリが前面に出て、手でも確認した。同じ UI テストで `extensionContext.open`（開く(ctx)）は開かなかった。記録は [計測/2026-11-01-iPhone-キーボード待機セッション.md](計測/2026-11-01-iPhone-キーボード待機セッション.md) |
 | 手動切替（スワイプ・App スイッチャー） | — | — | |
 
 ### 記録 G: 本体アプリから元アプリへの復帰（12.2節の未確定リスク）
@@ -96,11 +96,14 @@ let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdent
 | Safari | | | | | |
 | メッセージ | | | | | |
 
-記録した日付・iPhone / iOS・署名の種類: 2026-10-31（記録 F の1行目のみ）・iPhone 17 Pro / iOS 27.2・無料 Personal Team（App Group 有効、`UTTER_HOST_APP_URL_SCHEME = utterapp`）
+記録した日付・iPhone / iOS・署名の種類: 2026-10-31（記録 F の1行目）・2026-11-01（記録 F の2行目、iOSKeyboardProbe）・iPhone 17 Pro / iOS 27.2・無料 Personal Team（App Group 有効、`UTTER_HOST_APP_URL_SCHEME = utterapp`）
 
 一次情報（記録 F の裏付け）: Apple のドキュメント [`NSExtensionContext.open(_:completionHandler:)`](https://developer.apple.com/documentation/foundation/nsextensioncontext/open(_:completionhandler:)) は「拡張ポイントごとに、このメソッドに対応するかを決める。iOS では Today と iMessage の拡張ポイントが対応する」としており、キーボード拡張（`com.apple.keyboard-service`）は対象に含まれない（2026-10-31 確認）。responder chain から `UIApplication` の `openURL` を呼ぶ抜け道は非公開の挙動に頼るため使わない（iOS-03）
 
 ### 結論（14章の判定）
 
-- キーボードから本体アプリへの導線: **不成立 → 手動アプリ切替を案内**（記録 F と上の一次情報。2026-10-31）。キーボード拡張は既定のビルドで URL スキームを持たず（`UTTER_HOST_APP_URL_SCHEME` が空）、手動で本体アプリへ切り替える手順を案内する。公開 API で本体アプリを開かずに録音を始める形は #233 で検討する
+- キーボードから本体アプリへの導線: **SwiftUI `openURL` で成立（2026-11-01、iPhone 17 Pro・iOS 27.2、フルアクセスあり。フルアクセスなしは未確認）**。`extensionContext.open` では開かない（記録 F と上の一次情報、2026-10-31）
+  - 2026-10-31 の時点では「不成立 → 手動アプリ切替を案内」としていた。SwiftUI `openURL` を試していなかったため
+  - `OpenURLAction` は公開 API で、responder chain の抜け道ではない。ただしキーボード拡張から開けることを Apple は文書で約束していないため、将来の iOS で変わりうる。開けないときの手動切替の案内は残す
+  - utter 本体のキーボードは今、`extensionContext.open` を使っている。直すかどうかは、#233 の要件の見直し（待機セッション方式）と合わせて決める
 - 本体アプリから元入力欄への復帰: （実用的な手順あり / 不成立 → 手動復帰＋結果保持を標準）

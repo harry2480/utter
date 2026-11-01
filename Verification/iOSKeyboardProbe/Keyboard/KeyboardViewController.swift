@@ -2,7 +2,8 @@
 // 拡張はマイク・STT モデル・クラウド認証情報を持たない（iAC-08）。外部への送信もしない。
 // 本体アプリを開く操作は公開 API だけを試す。responder chain をたどって UIApplication の openURL を呼ぶ等の
 // 抜け道は使わない（iOS-03）。開けなければ「開けない」と表示し、手動切替を案内する。
-// ホストアプリの入力欄の本文（documentContextBeforeInput 等）は、音声入力の挿入の確認（VoiceTextInserter）にだけ使い、保存・記録しない。
+// ホストアプリの入力欄の本文（documentContextBeforeInput 等）は、音声入力の挿入の確認（VoiceTextInserter）にだけ使う。
+// 本文は保存・記録せず、計測の記録に残すのは文字数だけ。
 
 import SwiftUI
 import UIKit
@@ -18,6 +19,14 @@ final class KeyboardViewController: UIInputViewController {
   private var openLine = "本体アプリを開く: 未実行"
   private var insertCount = 0
   private lazy var voicePanel = VoiceKeyboardPanel(controller: self)
+  /// このプロセスで何代目のキーボードか（計測の記録用）
+  private static var instanceCount = 0
+  let instanceNumber: Int = {
+    MainActor.assumeIsolated {
+      KeyboardViewController.instanceCount += 1
+      return KeyboardViewController.instanceCount
+    }
+  }()
   private weak var debugToggle: UIView?
   private weak var openContextButton: UIView?
   private weak var openSwiftUIView: UIView?
@@ -25,7 +34,8 @@ final class KeyboardViewController: UIInputViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    VoiceStore.appendEvent(source: "keyboard", name: "viewDidLoad")
+    VoiceStore.appendEvent(
+      source: "keyboard", name: "viewDidLoad", detail: "インスタンス\(instanceNumber)")
     buildLayout()
     refreshStatus()
     voicePanel.onRender = { [weak self] in self?.writePresence(visible: true) }
@@ -33,7 +43,8 @@ final class KeyboardViewController: UIInputViewController {
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
-    VoiceStore.appendEvent(source: "keyboard", name: "viewDidAppear")
+    VoiceStore.appendEvent(
+      source: "keyboard", name: "viewDidAppear", detail: "インスタンス\(instanceNumber)")
     writePresence(visible: true)
   }
 
@@ -44,7 +55,8 @@ final class KeyboardViewController: UIInputViewController {
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
-    VoiceStore.appendEvent(source: "keyboard", name: "viewWillDisappear")
+    VoiceStore.appendEvent(
+      source: "keyboard", name: "viewWillDisappear", detail: "インスタンス\(instanceNumber)")
     voicePanel.keyboardWillDisappear()
     writePresence(visible: false)
   }
