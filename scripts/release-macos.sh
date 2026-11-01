@@ -116,7 +116,7 @@ notarize() {
     --wait --timeout 20m --output-format json)" || rc=$?
   submission_id="$(plutil -extract id raw -o - - <<<"$result" 2>/dev/null || true)"
   status="$(plutil -extract status raw -o - - <<<"$result" 2>/dev/null || true)"
-  echo "提出 ID: ${submission_id:-不明} / 結果: ${status:-不明}（notarytool の終了コード $rc）"
+  echo "提出 ID: ${submission_id:-不明} / 結果: ${status:-不明}（notarytool の終了コード ${rc}）"
   if ((rc != 0)) || [[ "$status" != "Accepted" ]]; then
     if [[ -n "$submission_id" ]]; then
       xcrun notarytool log "$submission_id" \
@@ -193,7 +193,7 @@ echo "==> 署名を確認（Developer ID・Hardened Runtime・secure timestamp�
 codesign --verify --deep --strict "$app"
 signature_info="$(codesign -dvv "$app" 2>&1)"
 if ! grep -q "^Authority=Developer ID Application: .*($UTTER_TEAM_ID)$" <<<"$signature_info"; then
-  echo "Developer ID Application（Team ID $UTTER_TEAM_ID）で署名されていません。" >&2
+  echo "Developer ID Application（Team ID ${UTTER_TEAM_ID}）で署名されていません。" >&2
   exit 1
 fi
 if ! grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime' <<<"$signature_info"; then

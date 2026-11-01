@@ -80,7 +80,7 @@ derived_data="build/local/DerivedData"
 echo "==> プロジェクトを生成"
 xcodegen generate --spec Apps/macOS/project.yml --quiet
 
-echo "==> $configuration 構成を開発用署名でビルド（Team ID: $team_id）"
+echo "==> $configuration 構成を開発用署名でビルド（Team ID: ${team_id}）"
 # 自動署名。Xcode に Apple ID を追加してあれば、開発用証明書とプロファイルを必要に応じて作る
 xcodebuild \
   -project Apps/macOS/Utter.xcodeproj \
