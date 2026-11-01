@@ -154,8 +154,8 @@ enum SystemShortcuts {
       guard let key = KeyNames.shortcutKey(forCode: item.code) else { return nil }
       let ambiguous = format == nil && item.raw & carbonFn != 0
       var modifiers = modifiers(fromRaw: item.raw, format: format ?? .carbon)
-      // F キー・矢印キーの項目には Fn のビットが付く（2026-11-01 の実測で ctrl+← が ctrl+fn+← で返った）。
-      // アプリの SystemShortcuts.enabledBindings と同じく、外して照合する
+      // F キー・矢印キーの項目には Fn のビットが付く（2026-11-01 の実測で、ctrl+← とみられる項目が ctrl+fn+← で返った。
+      // 項目名は取れないため推測）。アプリの SystemShortcuts.enabledBindings と同じく、外して照合する
       if Self.fnLayerKeys.contains(key.rawValue) {
         modifiers.remove(.function)
       }
@@ -179,7 +179,9 @@ enum SystemShortcuts {
 
   private static let carbonBits = 0x1F00
   private static let carbonFn = Int(kEventKeyModifierFnMask)
-  /// キー自体が Fn 層にあり、一覧の項目に Fn のビットが付くキー（F1〜F12・矢印キー）
+  /// キー自体が Fn 層にあり、一覧の項目に Fn のビットが付くキー（F1〜F12・矢印キー）。
+  /// アプリ（MacKeyCodes.isFunctionKey）は F13〜F20 も外すが、Probe の KeyNames に F13 以降の名前がなく
+  /// 指定としても受け付けないため、照合の結果は変わらない（一覧の表示だけ Fn が残る）
   private static let fnLayerKeys: Set<String> =
     Set((1...12).map { "f\($0)" }).union(["left", "right", "up", "down"])
 
