@@ -121,7 +121,7 @@ Verification/iOSKeyboardProbe/run-ui-tests.sh testTwentyCycles testPreviewThenIn
 
 ## 表示が崩れたとき
 
-拡張は `inputView` の `translatesAutoresizingMaskIntoConstraints` を `false` にして高さ 320pt の制約を付けている。実機でキーボードの幅が画面幅にならない・高さが 0 になる等の崩れが出たら、`KeyboardViewController.buildLayout()` の `root.translatesAutoresizingMaskIntoConstraints = false` の行を削除し（幅はシステムに任せる）、高さ制約だけを残して再インストールする。どちらで表示できたかを PR か手順書に残す。
+拡張は `inputView` の幅を OS に任せ、高さだけ 300pt の制約（優先度 `defaultHigh`）を付けている（`KeyboardViewController.buildLayout()`）。`inputView` の `translatesAutoresizingMaskIntoConstraints` を `false` にすると幅が決まらず、中身の最小の幅に縮むため、設定していない。実機で高さが 0 になる等の崩れが出たら、高さの制約の値か優先度を変えて再インストールし、どちらで表示できたかを PR か手順書に残す。
 
 ## 記録先
 

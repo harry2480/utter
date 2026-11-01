@@ -134,18 +134,21 @@ enum VoiceStore {
       let url = try? directoryURL().appending(path: eventsFileName)
     else { return false }
     line.append(0x0A)
-    if let handle = try? FileHandle(forWritingTo: url) {
-      defer { try? handle.close() }
-      do {
-        try handle.seekToEnd()
-        try handle.write(contentsOf: line)
-        return true
-      } catch {
-        return false
-      }
+    // 本体アプリとキーボードが同じファイルに追記するため、O_APPEND で開く（書き込みは常に末尾へ行われ、
+    // 片方の行が上書きされない）。O_CREAT で、ファイルがないときの作成の競合もなくす
+    let created = !FileManager.default.fileExists(atPath: url.path)
+    let descriptor = Darwin.open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+    guard descriptor >= 0 else { return false }
+    defer { Darwin.close(descriptor) }
+    if created {
+      try? FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+        ofItemAtPath: url.path)
     }
-    return (try? line.write(to: url, options: .completeFileProtectionUntilFirstUserAuthentication))
-      != nil
+    let written = line.withUnsafeBytes { buffer in
+      Darwin.write(descriptor, buffer.baseAddress, buffer.count)
+    }
+    return written == line.count
   }
 
   static func eventsData() -> Data? {

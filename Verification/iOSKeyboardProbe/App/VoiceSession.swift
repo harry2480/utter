@@ -290,6 +290,13 @@ final class VoiceSessionController {
       try? startEngine(withInput: false)
     }
     let outcome = await recognition.value
+    // 待っている間に待機の終了・割り込みが入っていたら、結果を保存せず状態も変えない
+    guard phase == .processing, activeSessionID == sessionID else {
+      _ = sink.takeStatistics()
+      VoiceStore.appendEvent(
+        source: "host", name: "resultDiscarded", sessionID: sessionID, detail: phase.rawValue)
+      return
+    }
     self.recognition = nil
     activeSessionID = nil
     let audio = sink.takeStatistics()

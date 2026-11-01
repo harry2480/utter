@@ -17,8 +17,18 @@ fi
 
 device="${UTTER_DEVICE_ID:-}"
 if [ -z "$device" ]; then
-  device="$(xcrun devicectl list devices 2>/dev/null | grep physical \
-    | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}' | head -n 1 || true)"
+  # 表示の形は版で変わるため、--json-output の JSON から物理端末を選ぶ。xcodebuild には UDID を渡し、
+  # UDID がなければ CoreDevice の identifier を渡す
+  device="$(xcrun devicectl list devices --quiet --json-output /dev/stdout 2>/dev/null \
+    | /usr/bin/python3 -I -c '
+import json, sys
+devices = json.load(sys.stdin).get("result", {}).get("devices", [])
+for d in devices:
+    hardware = d.get("hardwareProperties", {})
+    if hardware.get("reality") == "physical":
+        print(hardware.get("udid") or d.get("identifier", ""))
+        break
+' || true)"
 fi
 if [ -z "$device" ]; then
   echo "つないでいる iPhone が見つからない" >&2
