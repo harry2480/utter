@@ -21,7 +21,7 @@ utter の Phase 0 成功判定基準となる非機能要件を確定：
 
 ```
 目標:
-- メニューバー常駐状態: < 50MB（アイドル）
+- メニューバー常駐状態: ≤ 50MB（アイドル）
 - EventMonitor 有効時: < 100MB
 - バッファ予約（AudioStreamBuffer): ≤ 10MB（デフォルト）
 
@@ -130,7 +130,7 @@ scripts/record-signposts.sh --label local-builtin-mic-01 --attach "$(pgrep -x ut
 | 項目 | 目標 | 実測 | 判定 |
 |------|------|------|------|
 | 起動時間 | < 2s | XXs | ✅/❌ |
-| 待機メモリ | < 50MB | XXmb | ✅/❌ |
+| 待機メモリ | ≤ 50MB | XXmb | ✅/❌ |
 | バッテリー消費 | < 2%/h | X%/h | ✅/❌ |
 
 **全て ✅ で Phase 1 着手許可**
@@ -140,3 +140,13 @@ scripts/record-signposts.sh --label local-builtin-mic-01 --attach "$(pgrep -x ut
 1. **メモリ**: バッファサイズ・モデルキャッシュを削減
 2. **CPU**: EventMonitor の精度調整（無駄なイベント削減）
 3. **バッテリー**: ネットワーク通信の最小化（WiFi 優先）
+
+## 記録
+
+### 2026-10-31：待機時のメモリ・CPU（macOS 27.0.1、Apple M5）
+
+詳細は [docs/計測/2026-10-31-macOS待機時メモリ・CPU.md](計測/2026-10-31-macOS待機時メモリ・CPU.md)。Release 構成をアドホック署名でビルドし、起動 5 分後から 30 分記録した。
+
+- STT 未選択：メモリ 38.8〜39.0MB、CPU 平均 0.010%
+- SpeechAnalyzer を選択：メモリ 19.2〜21.2MB、CPU 平均 0.028%（待機中に STT Worker は起動しない）
+- どちらも 6章の目標（≤ 50MB・≤ 0.1%）に収まる
