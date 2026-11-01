@@ -4,9 +4,11 @@
 # アプリターゲット（Apps/, Extensions/, Workers/）は xcodegen で生成し、署名なしの xcodebuild でビルドする。
 # 新しいターゲットを作ったら「アプリの署名なしビルド・テスト」に追加する。
 #
-# 引数で一部だけを実行できる（CI は macos と ios を別のジョブで並列に動かす。省略時は all）
-#   macos: format lint・ログ出力の検査・Package の build/test・macOS アプリ・Release の署名設定・shellcheck・actionlint
-#   ios:   iOS の最低バージョンの一致・iOS Simulator 向けのビルド（Package と Apps/iOS・キーボード拡張）
+# 引数で一部だけを実行できる（CI は macos-packages・macos-app・ios を別のジョブで並列に動かす。省略時は all）
+#   macos:          macos-packages と macos-app の両方
+#   macos-packages: format lint・ログ出力の検査・Package の build/test
+#   macos-app:      macOS アプリ・Release の署名設定・shellcheck・actionlint
+#   ios:            iOS の最低バージョンの一致・iOS Simulator 向けのビルド（Package と Apps/iOS・キーボード拡張）
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,13 +18,17 @@ swift_sources="$(git ls-files --cached --others --exclude-standard -- '*.swift')
 
 part="${1:-all}"
 case "$part" in
-  all | macos | ios) ;;
+  all | macos | macos-packages | macos-app | ios) ;;
   *)
-    echo "使い方: scripts/verify.sh [all|macos|ios]" >&2
+    echo "使い方: scripts/verify.sh [all|macos|macos-packages|macos-app|ios]" >&2
     exit 2
     ;;
 esac
-runs() { [[ "$part" == all || "$part" == "$1" ]]; }
+# 引数の part で、この区分を動かすか。macos は macos-packages と macos-app を含む
+runs() {
+  [[ "$part" == all || "$part" == "$1" ]] && return 0
+  [[ "$part" == macos && ("$1" == macos-packages || "$1" == macos-app) ]]
+}
 
 shopt -s nullglob
 # Apps/*/*/Package.swift はアプリのうち OS の API を使わずにテストできる部分（Apps/iOS/UtteriOSKit）
@@ -38,7 +44,7 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   exit 1
 fi
 
-if runs macos; then
+if runs macos-packages; then
   echo "==> swift format lint"
   if [[ -z "$swift_sources" ]]; then
     echo "Swiftソースがないためスキップします。"
@@ -60,7 +66,9 @@ if runs macos; then
       swift test --package-path "$package_dir"
     done
   fi
+fi
 
+if runs macos-app; then
   echo "==> アプリの署名なしビルド・テスト（xcodegen → xcodebuild）"
   derived_data="build/DerivedData"
   echo "--> Apps/macOS"

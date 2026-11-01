@@ -14,16 +14,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 文書だけの変更（docs/**・*.md）なら検証を飛ばす。必須チェックの「CI ステータス確認」は、飛ばしたときも成功にする
+  # （paths-ignore でワークフローごと飛ばすと、必須チェックが待ちのままになるため）
+  changes:
+    name: 変更の種類の判定
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 文書以外の変更があるかを判定
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: scripts/ci-detect-code-changes.sh
+
   verify:
     name: 検証（${{ matrix.part }}）
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     # macOS 26 / Xcode 26 以降が前提（SpeechAnalyzer・Swift 6）
     runs-on: macos-26
     timeout-minutes: 30
-    # macOS 側（Package の build/test・macOS アプリ・lint）と iOS 側（iOS Simulator 向けのビルド）を並列に動かす
+    # macOS の Package の build/test・macOS アプリ・iOS Simulator 向けのビルドを並列に動かす（#234）
     strategy:
       fail-fast: false
       matrix:
-        part: [macos, ios]
+        part: [macos-packages, macos-app, ios]
     steps:
       - uses: actions/checkout@v7
 
@@ -39,7 +63,7 @@ jobs:
 
       # macOS アプリのテストが落ちたとき、失敗した期待値を xcresult で確かめられるようにする（#193）
       - name: テスト結果を保存
-        if: failure() && matrix.part == 'macos'
+        if: failure() && matrix.part == 'macos-app'
         uses: actions/upload-artifact@v4
         with:
           name: UtterMac-xcresult
@@ -50,13 +74,23 @@ jobs:
   ci-status:
     name: CI ステータス確認
     if: always()
-    needs: [verify]
+    needs: [changes, verify]
     runs-on: ubuntu-latest
     steps:
       - name: 検証の成功を確認
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
           VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "変更の種類を判定できませんでした: $CHANGES_RESULT"
+            exit 1
+          fi
+          if [ "$CODE_CHANGED" != "true" ]; then
+            echo "文書だけの変更のため、検証を飛ばしました"
+            exit 0
+          fi
           if [ "$VERIFY_RESULT" != "success" ]; then
             echo "CI検証結果: $VERIFY_RESULT"
             exit 1
