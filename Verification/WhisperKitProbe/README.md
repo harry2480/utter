@@ -119,13 +119,23 @@ CSV は1行ずつ書き込むため、途中で異常終了・フリーズして
 
 ## 熱・電力・フリーズの確認
 
-`bench` と並行して、別のターミナルで `powermetrics` を記録します。
+`bench` と並行して、別のターミナルで消費電力を記録します。記録には [PerfProbe の `power-log.sh`](../PerfProbe/README.md)（「4. 消費電力」）を使います。`powermetrics` を使うため `sudo` が要ります。コマンドはリポジトリのルートで実行します（`long.wav` の作り方は [合成音声の比較](../../docs/計測/2026-10-31-合成音声-STT比較.md) の再現手順）。
 
 ```sh
-sudo powermetrics --samplers cpu_power,gpu_power,ane_power,thermal -i 1000 -o ~/utter-powermetrics.txt
+# 1. 対照：推論していない状態を5分記録する（ほかのアプリを閉じ、対象と同じ電源・画面の条件で）
+sudo Verification/PerfProbe/scripts/power-log.sh record --label wk-idle --duration 300
+# 2. 対象：ターミナル A で連続推論を始める（例: large-v3 turbo・126.7 秒の音声を 60 回。1回あたり約8秒）
+Verification/WhisperKitProbe/.build/release/whisperkit-probe bench --model openai_whisper-large-v3-v20240930_turbo_632MB \
+  --audio eval/audio/synthetic/long.wav --runs 60 --interval-s 1 --out "$TMPDIR/wk-power"
+#    ターミナル B で、1回目の推論が終わってから（ロードの分を除くため）5分記録する
+sudo Verification/PerfProbe/scripts/power-log.sh record --label wk-turbo --duration 300
+# 3. 差を出す
+Verification/PerfProbe/scripts/power-log.sh report --target wk-turbo --control wk-idle
 ```
 
-- 連続推論（例: `--runs 50 --interval-s 5`）中の CPU / GPU / ANE の電力と熱の推移を、`summary.csv` の `thermal_state` と合わせて記録します
+- 記録するもの：対象・対照の CPU / GPU / ANE / 合計の平均（mW）と差、区間中の熱の状態（`power-summary.csv` の `thermal_levels`）、電源（AC かバッテリーか）、モデル名・`--compute`・音声の長さ。`summary.csv` の `thermal_state` とも合わせて見ます
+- 1回の推論あたりの電力量は、差（mW）× 記録した秒数 ÷ その間に終わった回数で見積もります（`summary.csv` の各回の終了時刻から数える）
+- 記録の5分のあいだに `bench` が終わらないよう、`--runs` は多めにします
 - Mac 全体のフリーズ・再起動が起きた場合は、日時・モデル・`--compute`・何回目だったか（`summary.csv` の最後の行）を記録します。LM Studio 固有の原因究明は対象外です（要件定義 10章）
 - 重いモデル（medium 以上）は、保存していない作業を閉じてから実行してください
 

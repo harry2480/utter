@@ -16,7 +16,7 @@ WhisperKit（オンデバイス STT）の以下を確定：
 ## 検証用コード
 
 計測には [Verification/WhisperKitProbe](../Verification/WhisperKitProbe/README.md) を使う（モデル取得と初回ロード、推論時間・RTF、phys_footprint の推移、連続推論、`utter-eval` 用の STT 結果の出力）。
-熱・電力は `powermetrics` を並行して記録する。手順・出力の見方・モデル重みのライセンスと取得元は同 README を参照。
+熱・電力は `powermetrics` を並行して記録する（集計は `Verification/PerfProbe/scripts/power-log.sh`）。手順・出力の見方・モデル重みのライセンスと取得元は同 README を参照。
 
 ## テスト項目
 
@@ -90,7 +90,7 @@ WhisperKit（オンデバイス STT）の以下を確定：
 - 126.7 秒の音声を約31分（270回）休まず推論し、270回とも成功、すべて1回目と同じ結果だった。推論時間は 6.83〜6.94 秒で、熱による遅れはなかった
 - 熱状態は全区間 `nominal`、Mac 全体の熱の警告もなし。フリーズ・再起動・クラッシュもなかった
 - 自プロセスのメモリは約320MB で頭打ちになり、増え続けなかった（目標 1GB 以下）
-- 消費電力は `powermetrics` に管理者権限が要るため未計測
+- 消費電力は `powermetrics` に管理者権限が要るため未計測。記録の手順と集計のスクリプト（`Verification/PerfProbe/scripts/power-log.sh`）は [WhisperKitProbe の README](../Verification/WhisperKitProbe/README.md) の「熱・電力・フリーズの確認」に用意した（計測は人が `sudo` で行う）
 - モデル重みのライセンスと取得元は、[ライセンス・依存関係.md](ライセンス・依存関係.md) の2章と [WhisperKitProbe の README](../Verification/WhisperKitProbe/README.md) の「モデル重みのライセンスと取得元」に記録済み。2026-10-31 に、取得元 `argmaxinc/whisperkit-coreml` のコミット（`0f63a78`）とライセンス（MIT。トークナイザーは Apache-2.0）が変わっていないことを確かめた
 
 
