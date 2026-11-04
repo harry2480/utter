@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # push の契機は main だけにする。全ブランチにすると、PR のブランチでは push と pull_request の両方で
+  # macOS のジョブが並び、ランナーの空き待ちで pull_request の側が遅れるため（#253）
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
     branches: ['**']
 
