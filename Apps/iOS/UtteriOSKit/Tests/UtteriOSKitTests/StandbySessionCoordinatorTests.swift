@@ -294,6 +294,24 @@ struct StandbySessionCoordinatorTests {
     #expect(coordinator.hostPhase == .off)
   }
 
+  @Test("iOS-04: 待機に移ったあとの終える操作は、状態の書き込みを待たずに効く")
+  func endStandbyAppliedAfterStandbyBegan() async {
+    await signals.setHoldsSave(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    // 状態の書き込みで止まっている間に終える操作を受ける
+    #expect(await waitUntil { coordinator.hostPhase == .standby })
+    let ending = Task { await coordinator.endStandby() }
+
+    #expect(await waitUntil { audio.endedStandbyCount == 1 })
+    #expect(!coordinator.isStandingBy)
+
+    await signals.releaseSave()
+    #expect(await starting.value)
+    await ending.value
+  }
+
   @Test("iOS-04: 待機していないときは、合図を読まない")
   func pollIgnoredWhileOff() async {
     let coordinator = coordinator()
@@ -332,6 +350,8 @@ actor StubStandbySignals: StandbySessionSignals {
   private var writeFails = false
   private var holdsLoad = false
   private var loadGate: CheckedContinuation<Void, Never>?
+  private var holdsSave = false
+  private var saveGates: [CheckedContinuation<Void, Never>] = []
 
   func setCommand(_ command: StandbyCommand) {
     self.command = command
@@ -381,8 +401,26 @@ actor StubStandbySignals: StandbySessionSignals {
     return heartbeat
   }
 
-  func saveHostState(_ state: StandbyHostState) throws {
+  /// 設定すると、状態の書き込みを `releaseSave()` まで止める（書き込み中の割り込みを試す）
+  func setHoldsSave(_ holds: Bool) {
+    holdsSave = holds
+  }
+
+  /// 止めていた状態の書き込みをすべて進める
+  func releaseSave() {
+    holdsSave = false
+    let gates = saveGates
+    saveGates = []
+    for gate in gates {
+      gate.resume()
+    }
+  }
+
+  func saveHostState(_ state: StandbyHostState) async throws {
     if writeFails { throw AccessDenied() }
+    if holdsSave {
+      await withCheckedContinuation { saveGates.append($0) }
+    }
     states.append(state)
   }
 }

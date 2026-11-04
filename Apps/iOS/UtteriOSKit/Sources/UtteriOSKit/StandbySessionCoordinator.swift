@@ -64,7 +64,7 @@ public final class StandbySessionCoordinator {
   @ObservationIgnored private let audio: any StandbyAudioSession
   @ObservationIgnored private let capture: any StandbyCapturing
   @ObservationIgnored private let date: @Sendable () -> Date
-  /// 待機を始める途中（合図の読み直しの待ち）か。状態機械はまだ待機していない
+  /// 待機を始める途中か。状態機械がまだ待機していない（`.off`）間だけ真にする
   @ObservationIgnored private var isStarting = false
   /// 始める途中に待機を終える操作を受けたか。始めたあとに終える
   @ObservationIgnored private var endRequestedWhileStarting = false
@@ -100,16 +100,19 @@ public final class StandbySessionCoordinator {
     guard machine.phase == .off, !isStarting else { return true }
     isStarting = true
     endRequestedWhileStarting = false
-    defer { isStarting = false }
     do {
       try audio.beginStandby()
     } catch {
+      isStarting = false
       return false
     }
     audio.setInputMuted(true)
     // 待機を始める前に書かれていた合図は、処理済みとして実行しない
     let pending = try? await signals.loadCommand()
     machine.startStandby(pendingCommand: pending, at: date())
+    // 状態機械が待機に移ったら、もう始める途中ではない。この後に受けた終える操作は、
+    // 状態の書き込みを待たずにそのまま効く
+    isStarting = false
     failure = nil
     // 読み直しを待つ間に待機を終える操作を受けていたら、始めたうえで終える（要求を落とさない）
     guard !endRequestedWhileStarting else {
@@ -123,7 +126,7 @@ public final class StandbySessionCoordinator {
 
   /// 利用者が待機を終える。録音中なら捨てる
   public func endStandby() async {
-    // 始める途中は状態機械がまだ待機していないため、覚えておいて始めたあとに終える
+    // 状態機械がまだ待機していない（始める途中）ときだけ、覚えておいて始めたあとに終える
     guard !isStarting else {
       endRequestedWhileStarting = true
       return
