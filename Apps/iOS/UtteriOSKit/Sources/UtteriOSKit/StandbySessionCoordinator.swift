@@ -68,6 +68,8 @@ public final class StandbySessionCoordinator {
   @ObservationIgnored private var isStarting = false
   /// 始める途中に待機を終える操作を受けたか。始めたあとに終える
   @ObservationIgnored private var endRequestedWhileStarting = false
+  /// 直前の状態の書き込み。書いた順に完了させ、古い状態で上書きしないためにつなぐ
+  @ObservationIgnored private var writing: Task<Void, Never>?
 
   /// - Parameters:
   ///   - signals: 合図・状態・生存の印の置き場所（App Group）
@@ -181,10 +183,21 @@ public final class StandbySessionCoordinator {
     await writeHostState()
   }
 
+  /// キーボードに知らせる状態を書く。
+  ///
+  /// 書き込みは始めた順に完了させる。待機を始めた直後に終えたときのように書き込みが重なると、
+  /// 順序が入れ替わって古い状態（`standby`）が最後に残りうるため（#247 のレビュー）。
+  /// 書けなくても（端末のロック中など）待機は続ける。キーボードは更新が途絶えたことで気づく
   private func writeHostState() async {
     let state = machine.hostState(at: date())
     hostPhase = state.phase
-    // 書けなくても（端末のロック中など）待機は続ける。キーボードは更新が途絶えたことで気づく
-    try? await signals.saveHostState(state)
+    let previous = writing
+    let signals = signals
+    let task = Task { @MainActor in
+      await previous?.value
+      try? await signals.saveHostState(state)
+    }
+    writing = task
+    await task.value
   }
 }

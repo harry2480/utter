@@ -310,6 +310,9 @@ struct StandbySessionCoordinatorTests {
     await signals.releaseSave()
     #expect(await starting.value)
     await ending.value
+
+    // 書き込みは始めた順に完了するため、共有ファイルに残る最後の状態は待機していない状態
+    #expect(await signals.savedPhases() == [.standby, .off])
   }
 
   @Test("iOS-04: 待機していないときは、合図を読まない")
