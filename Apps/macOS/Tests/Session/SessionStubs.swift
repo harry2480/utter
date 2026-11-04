@@ -314,6 +314,33 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   return condition()
 }
 
+/// 録音の開始がセッションへ届くまで待つ（#193, #249）。
+///
+/// `StubAudioRecorder.isRecording` は、セッションが録音の開始を受け取る前に真になる。
+/// これだけを待って停止・割り込みを起こすと、セッションは「開始を待つ間に停止された」として音声を捨て、
+/// 認識・整形・挿入を通らずに待機へ戻るため、テストがまれに落ちる。
+/// 音声を流し、それがセッションへ届く（一時音声の差し込み口へ積まれる）のを待つ
+@MainActor
+func feedUntilReceived(
+  _ recorder: StubAudioRecorder, retention: StubAudioRetention, samples: Int = 1_600
+) async -> Bool {
+  guard await eventually({ recorder.isRecording }) else { return false }
+  let received = retention.appendedSampleCount
+  recorder.feed([Float](repeating: 0.1, count: samples))
+  return await eventually { retention.appendedSampleCount >= received + samples }
+}
+
+/// 音声を流さずに、録音の開始がセッションへ届くまで待つ（#249）。
+///
+/// セッションは録音の開始を受け取ってから認識を依頼するため、依頼の数で確かめられる。
+/// 流した音声のサンプル数を数えるテストで、`feedUntilReceived` の音声を混ぜたくないときに使う
+@MainActor
+func waitUntilRecognitionStarted(
+  _ recognizer: ScriptedSpeechRecognizer, recorder: StubAudioRecorder, runs: Int = 1
+) async -> Bool {
+  await eventually { recognizer.runCount >= runs && recorder.isRecording }
+}
+
 /// 除外アプリの保存値の代わり。テストの途中で値を変え、開始ごとに読み直すことを確かめる
 @MainActor
 final class ExcludedAppsBox {
