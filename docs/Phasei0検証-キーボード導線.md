@@ -105,5 +105,5 @@ let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdent
 - キーボードから本体アプリへの導線: **SwiftUI `openURL` で成立（2026-11-01、iPhone 17 Pro・iOS 27.2、フルアクセスあり。フルアクセスなしは未確認）**。`extensionContext.open` では開かない（記録 F と上の一次情報、2026-10-31）
   - 2026-10-31 の時点では「不成立 → 手動アプリ切替を案内」としていた。SwiftUI `openURL` を試していなかったため
   - `OpenURLAction` は公開 API で、responder chain の抜け道ではない。ただしキーボード拡張から開けることを Apple は文書で約束していないため、将来の iOS で変わりうる。開けないときの手動切替の案内は残す
-  - utter 本体のキーボードは今、`extensionContext.open` を使っている。直すかどうかは、#233 の要件の見直し（待機セッション方式）と合わせて決める
+  - utter 本体のキーボードは `OpenURLAction` に直した（#247）。`extensionContext.open` は使わない
 - 本体アプリから元入力欄への復帰: （実用的な手順あり / 不成立 → 手動復帰＋結果保持を標準）

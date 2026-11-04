@@ -1,4 +1,5 @@
 import Network
+import SwiftUI
 import UIKit
 import UtterCore
 import UtterPersistence
@@ -16,8 +17,8 @@ import UtterPersistence
 /// - マイク録音・STT モデル・クラウド認証トークン・ネットワーク送信を持たない（iAC-08）。録音は本体アプリで行う
 /// - 挿入は `UITextDocumentProxy` だけで行い、利用者の明示的な挿入操作まで挿入しない（iOS-05, iAC-04）
 /// - セキュア入力欄・電話番号欄・判定できない欄では共有結果を読まず、文字入力と地球儀キーだけを残す（iOS-09, iAC-06）
-/// - 本体アプリを開くのは公開 API（`NSExtensionContext.open(_:)`）で、自アプリの URL スキームを設定したときだけ。
-///   開けなければ手動で切り替える案内を出す（iOS-03, iAC-05）
+/// - 本体アプリを開くのは公開 API（SwiftUI の `OpenURLAction`。`HostAppOpener` に任せる）で、自アプリの
+///   URL スキームを設定したときだけ。開けなければ手動で切り替える案内を出す（iOS-03, iAC-05）
 /// - 入力した文字・本文をログに出さず、保持もしない
 final class KeyboardViewController: UIInputViewController {
   /// 共有結果を読む準備の結果
@@ -84,6 +85,9 @@ final class KeyboardViewController: UIInputViewController {
   private var statusMessage: String?
   private var hostAppOpenFailed = false
   private var showsFullAccessSteps = false
+
+  /// 本体アプリを開く要求。開くのは `HostAppOpenerView`（SwiftUI の `OpenURLAction`）
+  private let hostAppOpenRequest = HostAppOpenRequest()
 
   private var network = NetworkReachability.unknown
   private var networkMonitor: NWPathMonitor?
@@ -312,17 +316,17 @@ final class KeyboardViewController: UIInputViewController {
     }
   }
 
+  /// 本体アプリを開く。URL スキームを設定していない・開けなかったときは、手動で切り替える案内を出す（iOS-03, iAC-05）
   private func openHostApp() {
-    guard let url = configuration.hostAppURL, let context = extensionContext else {
+    guard let url = configuration.hostAppURL else {
       hostAppOpenFailed = true
       render()
       return
     }
-    context.open(url) { [weak self] success in
-      Task { @MainActor in
-        self?.hostAppOpenFailed = !success
-        self?.render()
-      }
+    hostAppOpenRequest.open(url) { [weak self] accepted in
+      guard let self else { return }
+      hostAppOpenFailed = !accepted
+      render()
     }
   }
 
@@ -456,6 +460,7 @@ final class KeyboardViewController: UIInputViewController {
 
   private func buildLayout() {
     let root: UIView = inputView ?? view
+    addHostAppOpener(to: root)
     let height = root.heightAnchor.constraint(equalToConstant: 330)
     height.priority = .defaultHigh
     height.isActive = true
@@ -544,6 +549,23 @@ final class KeyboardViewController: UIInputViewController {
       keysView.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
       keysView.bottomAnchor.constraint(
         equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
+    ])
+  }
+
+  /// 本体アプリを開くための画面を重ねる。大きさを持たないため、キーボードの見た目は変わらない
+  private func addHostAppOpener(to root: UIView) {
+    let opener = UIHostingController(rootView: HostAppOpenerView(request: hostAppOpenRequest))
+    opener.view.translatesAutoresizingMaskIntoConstraints = false
+    opener.view.backgroundColor = .clear
+    opener.view.isUserInteractionEnabled = false
+    addChild(opener)
+    root.addSubview(opener.view)
+    opener.didMove(toParent: self)
+    NSLayoutConstraint.activate([
+      opener.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      opener.view.topAnchor.constraint(equalTo: root.topAnchor),
+      opener.view.widthAnchor.constraint(equalToConstant: 0),
+      opener.view.heightAnchor.constraint(equalToConstant: 0),
     ])
   }
 
