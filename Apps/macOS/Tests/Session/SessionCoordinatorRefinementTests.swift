@@ -65,7 +65,7 @@ struct SessionCoordinatorRefinementTests {
     whileRecording: () -> Void = {}
   ) async {
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     whileRecording()
     session.toggle()
     #expect(await eventually { session.phase == .idle })

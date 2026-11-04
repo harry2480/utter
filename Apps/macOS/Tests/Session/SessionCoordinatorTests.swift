@@ -71,8 +71,7 @@ struct SessionCoordinatorTests {
     #expect(session.phase == .recording)
     #expect(inserter.recordCount == 1)
     #expect(presenter.current?.title == "録音中")
-    #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    #expect(await feedUntilReceived(recorder, retention: retention))
 
     session.toggle()
     #expect(session.phase == .recognizing)
@@ -126,7 +125,7 @@ struct SessionCoordinatorTests {
     let session = coordinator(recorder: recorder, appDisplayName: { _ in "エディター" })
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -144,7 +143,7 @@ struct SessionCoordinatorTests {
     let session = coordinator(recorder: recorder, appDisplayName: { _ in "エディター" })
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -162,8 +161,7 @@ struct SessionCoordinatorTests {
     }
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 1_600))
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -181,7 +179,7 @@ struct SessionCoordinatorTests {
       mode: .natural)
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -197,7 +195,7 @@ struct SessionCoordinatorTests {
     let session = coordinator(recorder: recorder)
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -289,7 +287,7 @@ struct SessionCoordinatorTests {
     #expect(session.phase == .recording)
     #expect(presenter.current?.title == "録音中")
     #expect(presenter.current?.messages.isEmpty == true)
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
     #expect(insertedTexts == ["こんにちは"])
@@ -305,7 +303,7 @@ struct SessionCoordinatorTests {
     session.toggle()
     #expect(inserter.sensitiveContextRequests == 1)
     #expect(session.phase == .recording)
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { session.phase == .idle })
 
@@ -496,7 +494,7 @@ struct SessionCoordinatorTests {
     let session = coordinator(recorder: recorder)
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
     session.toggle()
     #expect(await eventually { inserter.isHoldingInsertion })
     #expect(session.phase == .inserting)
@@ -536,7 +534,7 @@ struct SessionCoordinatorTests {
 
     session.perform(.startRecording)
     session.perform(.startRecording)
-    #expect(await eventually { recorder.isRecording })
+    #expect(await waitUntilRecognitionStarted(recognizer, recorder: recorder))
     session.perform(.stopRecording)
     session.toggle()
     session.perform(.startRecording)
@@ -558,7 +556,7 @@ struct SessionCoordinatorTests {
 
     session.toggle()
     #expect(deadlineScheduler.deadline == clock.now.advanced(by: .seconds(10)))
-    #expect(await eventually { recorder.isRecording })
+    #expect(await feedUntilReceived(recorder, retention: retention))
 
     // 期限より早く発火したら予約し直す
     clock.advance(by: .seconds(5))
@@ -619,7 +617,7 @@ struct SessionCoordinatorTests {
       recorder: recorder, recognizer: recognizer, configuration: configuration)
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
+    #expect(await waitUntilRecognitionStarted(recognizer, recorder: recorder))
     recorder.feed([Float](repeating: 0.1, count: 16_000 * 3))
 
     #expect(await eventually { session.phase == .recognizing })
@@ -654,8 +652,7 @@ struct SessionCoordinatorTests {
     let session = coordinator(recorder: recorder, recognizer: recognizer)
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 3_200))
+    #expect(await feedUntilReceived(recorder, retention: retention, samples: 3_200))
     recorder.interrupt(.audioRouteChanged(.inputDeviceLost))
 
     #expect(await eventually { session.phase == .recognizing })
@@ -680,8 +677,7 @@ struct SessionCoordinatorTests {
     let session = coordinator(recorder: recorder, recognizer: recognizer)
 
     session.toggle()
-    #expect(await eventually { recorder.isRecording })
-    recorder.feed([Float](repeating: 0.1, count: 3_200))
+    #expect(await feedUntilReceived(recorder, retention: retention, samples: 3_200))
     recorder.interrupt(interruption)
 
     #expect(await eventually { session.phase == .recognizing })
