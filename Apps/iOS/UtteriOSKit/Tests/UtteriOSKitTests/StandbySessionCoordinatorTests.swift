@@ -261,6 +261,39 @@ struct StandbySessionCoordinatorTests {
     #expect(saved.last?.updatedAt == start.addingTimeInterval(5))
   }
 
+  @Test("iOS-04: 始める途中に重ねて始める操作を受けても、オーディオセッションを二重に確保しない")
+  func startStandbyIgnoredWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    // 合図の読み直しで止まっている間に、もう一度始める操作を受ける
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    #expect(await coordinator.startStandby())
+    #expect(audio.beganStandbyCount == 1)
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(coordinator.isStandingBy)
+    #expect(coordinator.hostPhase == .standby)
+  }
+
+  @Test("iOS-04: 始める途中に待機を終える操作を受けたら、始めたうえで終える")
+  func endStandbyRequestedWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.endStandby()
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(audio.endedStandbyCount == 1)
+    #expect(!coordinator.isStandingBy)
+    #expect(coordinator.hostPhase == .off)
+  }
+
   @Test("iOS-04: 待機していないときは、合図を読まない")
   func pollIgnoredWhileOff() async {
     let coordinator = coordinator()
@@ -297,6 +330,8 @@ actor StubStandbySignals: StandbySessionSignals {
   private var states: [StandbyHostState] = []
   private var readFails = false
   private var writeFails = false
+  private var holdsLoad = false
+  private var loadGate: CheckedContinuation<Void, Never>?
 
   func setCommand(_ command: StandbyCommand) {
     self.command = command
@@ -320,8 +355,24 @@ actor StubStandbySignals: StandbySessionSignals {
   func savedPhases() -> [StandbyHostState.Phase] { states.map(\.phase) }
   func savedFailures() -> [StandbyFailure] { states.compactMap(\.failure) }
 
-  func loadCommand() throws -> StandbyCommand? {
+  /// 設定すると、合図の読みを `releaseLoad()` まで止める（開始の途中の割り込みを試す）
+  func setHoldsLoad(_ holds: Bool) {
+    holdsLoad = holds
+  }
+
+  /// 止めていた合図の読みを進める
+  func releaseLoad() {
+    let gate = loadGate
+    loadGate = nil
+    holdsLoad = false
+    gate?.resume()
+  }
+
+  func loadCommand() async throws -> StandbyCommand? {
     if readFails { throw AccessDenied() }
+    if holdsLoad {
+      await withCheckedContinuation { loadGate = $0 }
+    }
     return command
   }
 

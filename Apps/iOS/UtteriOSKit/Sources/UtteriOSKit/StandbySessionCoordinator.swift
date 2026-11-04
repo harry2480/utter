@@ -64,6 +64,10 @@ public final class StandbySessionCoordinator {
   @ObservationIgnored private let audio: any StandbyAudioSession
   @ObservationIgnored private let capture: any StandbyCapturing
   @ObservationIgnored private let date: @Sendable () -> Date
+  /// 待機を始める途中（合図の読み直しの待ち）か。状態機械はまだ待機していない
+  @ObservationIgnored private var isStarting = false
+  /// 始める途中に待機を終える操作を受けたか。始めたあとに終える
+  @ObservationIgnored private var endRequestedWhileStarting = false
 
   /// - Parameters:
   ///   - signals: 合図・状態・生存の印の置き場所（App Group）
@@ -92,7 +96,11 @@ public final class StandbySessionCoordinator {
   /// - Returns: 始められたら `true`。オーディオセッションを確保できなければ `false`
   @discardableResult
   public func startStandby() async -> Bool {
-    guard machine.phase == .off else { return true }
+    // 始める途中（合図の読み直しの待ち）に重ねて呼ばれても、オーディオセッションを二重に確保しない
+    guard machine.phase == .off, !isStarting else { return true }
+    isStarting = true
+    endRequestedWhileStarting = false
+    defer { isStarting = false }
     do {
       try audio.beginStandby()
     } catch {
@@ -103,12 +111,23 @@ public final class StandbySessionCoordinator {
     let pending = try? await signals.loadCommand()
     machine.startStandby(pendingCommand: pending, at: date())
     failure = nil
+    // 読み直しを待つ間に待機を終える操作を受けていたら、始めたうえで終える（要求を落とさない）
+    guard !endRequestedWhileStarting else {
+      endRequestedWhileStarting = false
+      await apply(machine.endStandby(at: date()))
+      return true
+    }
     await writeHostState()
     return true
   }
 
   /// 利用者が待機を終える。録音中なら捨てる
   public func endStandby() async {
+    // 始める途中は状態機械がまだ待機していないため、覚えておいて始めたあとに終える
+    guard !isStarting else {
+      endRequestedWhileStarting = true
+      return
+    }
     await apply(machine.endStandby(at: date()))
   }
 
