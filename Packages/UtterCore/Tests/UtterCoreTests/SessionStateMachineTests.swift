@@ -103,6 +103,26 @@ struct SessionStateMachineTests {
     #expect(machine.activeSession?.id != first)
   }
 
+  @Test("iOS-04: 呼ぶ側が渡したIDでセッションを始められる。録音中の開始操作は渡したIDによらず停止する")
+  func startsWithGivenSessionID() {
+    let given = SessionID()
+    var machine = SessionStateMachine()
+
+    guard case .started(let token) = machine.start(at: t0, sessionID: given) else {
+      Issue.record("録音を開始できなかった")
+      return
+    }
+    #expect(token.sessionID == given)
+    #expect(machine.activeSession?.id == given)
+
+    let second = machine.start(at: t0 + .seconds(1), sessionID: SessionID())
+    guard case .stopped(let stopped) = second else {
+      Issue.record("録音中の開始操作で停止しなかった")
+      return
+    }
+    #expect(stopped.sessionID == given)
+  }
+
   @Test(
     "REC-06: 許可されていない遷移は拒否され、状態は変わらない",
     arguments: [ProcessingPhase?.none] + ProcessingPhase.allCases.map(Optional.some),

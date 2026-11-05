@@ -18,6 +18,16 @@ import UtterSpeech
 @MainActor
 @Observable
 public final class RecordingSessionModel {
+  /// セッションの終わり方（待機セッションが、停止の合図の後に結果を待つため, iOS-04）
+  public enum SessionOutcome: Hashable, Sendable {
+    /// 共有結果に保存した
+    case saved
+    /// 失敗した。理由が分かれば添える
+    case failed(RecordingFailure?)
+    /// 取り消した
+    case cancelled
+  }
+
   /// 現在の状態
   public private(set) var phase: SessionPhase = .idle
   /// 直近のセッションで録音を自動で止めた理由
@@ -52,9 +62,17 @@ public final class RecordingSessionModel {
   @ObservationIgnored private var stateMachine: SessionStateMachine
   @ObservationIgnored private var capture: Capture?
   @ObservationIgnored private var isPreparing = false
+  /// 準備中（マイクの許可の確認中など）に取り消されたか。許可が返っても録音を始めない
+  @ObservationIgnored private var cancelledWhilePreparing = false
   /// 一覧の読み直しの世代。後から始めた読み直しの結果だけを反映する
   @ObservationIgnored private var refreshGeneration = 0
   @ObservationIgnored private let dependencies: Dependencies
+
+  private typealias OutcomeWaiter = CheckedContinuation<SessionOutcome, Never>
+  /// セッションの終わりを待っているもの
+  @ObservationIgnored private var outcomeWaiters: [SessionID: [OutcomeWaiter]] = [:]
+  /// 直近に終わったセッションの終わり方（待ち始める前に終わっていた場合に返す）
+  @ObservationIgnored private var lastOutcome: (sessionID: SessionID, outcome: SessionOutcome)?
 
   /// 進行中のセッションの録音と認識
   private struct Capture {
@@ -132,6 +150,9 @@ public final class RecordingSessionModel {
   /// 録音中か（画面の自動ロックを止めるかの判断に使う）
   public var isRecording: Bool { phase == .recording }
 
+  /// 進行中（失敗の表示中を含む）のセッションのID。なければ `nil`
+  public var activeSessionID: SessionID? { stateMachine.activeSession?.id }
+
   /// 新しい録音を始められるか（待機中か、失敗の表示中）
   public var canStartRecording: Bool {
     switch phase {
@@ -163,13 +184,16 @@ public final class RecordingSessionModel {
   }
 
   /// 録音を始める。失敗の表示中なら閉じてから始める。処理中は何もしない。
-  public func startRecording() async {
+  /// - Parameter sessionID: セッションのID。`nil` なら作る。待機セッションでは、キーボードが作った ID を渡し、
+  ///   その ID で共有結果を保存する（キーボードが結果を見つけるため, iOS-04）
+  public func startRecording(sessionID requested: SessionID? = nil) async {
     guard !isPreparing else { return }
     if case .error = stateMachine.phase {
       dismissError()
     }
     guard stateMachine.phase == .idle else { return }
     isPreparing = true
+    cancelledWhilePreparing = false
     defer { isPreparing = false }
     stopNotice = nil
     failure = nil
@@ -181,7 +205,10 @@ public final class RecordingSessionModel {
       failure = .microphoneDenied
       return
     }
-    guard case .started(let token) = stateMachine.start(at: dependencies.now()) else { return }
+    // 許可の確認を待つ間に取り消されたら、録音を始めない（キーボードが閉じた後にマイクを開かない, iOS-06）
+    guard !cancelledWhilePreparing else { return }
+    let start = stateMachine.start(at: dependencies.now(), sessionID: requested)
+    guard case .started(let token) = start else { return }
     let sessionID = token.sessionID
     sessionRefinementMode = refinementMode
     transcript = TranscriptPreview()
@@ -203,8 +230,8 @@ public final class RecordingSessionModel {
     } catch {
       audio.finish()
       dependencies.recorder.stop()
-      apply(.failed, token: token)
       failure = .recordingUnavailable
+      apply(.failed, token: token)
       return
     }
 
@@ -236,9 +263,28 @@ public final class RecordingSessionModel {
     phase = stateMachine.phase
   }
 
+  /// セッションが終わるまで待ち、終わり方を返す（待機セッションの停止の後, iOS-04）。
+  ///
+  /// 既に終わっていれば、すぐに返す。進行中でも直近に終わったものでもない ID（始められなかったなど）は、
+  /// 失敗として返す
+  public func outcome(of sessionID: SessionID) async -> SessionOutcome {
+    if let lastOutcome, lastOutcome.sessionID == sessionID {
+      return lastOutcome.outcome
+    }
+    guard stateMachine.activeSession?.id == sessionID else {
+      return .failed(failure)
+    }
+    return await withCheckedContinuation { continuation in
+      outcomeWaiters[sessionID, default: []].append(continuation)
+    }
+  }
+
   /// 録音〜整形中のセッションを破棄する（REC-01）。保存中は取り消せないため何もしない。
   public func cancel() {
-    guard stateMachine.cancel() != nil else { return }
+    // 準備中は状態機械がまだ録音していないため、準備が済んでも録音を始めないよう覚えておく
+    if isPreparing { cancelledWhilePreparing = true }
+    guard let cancelled = stateMachine.cancel() else { return }
+    finish(cancelled, .cancelled)
     endCapture(cancelsRecognition: true)
     capture = nil
     stopNotice = nil
@@ -278,6 +324,7 @@ public final class RecordingSessionModel {
       failure = .interruptedWithoutAudio(cause)
       endCapture(cancelsRecognition: true)
       self.capture = nil
+      finish(capture.sessionID, .failed(failure))
     }
     phase = stateMachine.phase
   }
@@ -525,6 +572,19 @@ public final class RecordingSessionModel {
       assertionFailure("状態機械が許可しない遷移を依頼した")
     }
     phase = stateMachine.phase
+    switch kind {
+    case .insertionCompleted: finish(token.sessionID, .saved)
+    case .failed: finish(token.sessionID, .failed(failure))
+    case .recognitionCompleted, .refinementCompleted: break
+    }
+  }
+
+  /// セッションの終わりを、待っているものに知らせる
+  private func finish(_ sessionID: SessionID, _ outcome: SessionOutcome) {
+    lastOutcome = (sessionID, outcome)
+    for waiter in outcomeWaiters.removeValue(forKey: sessionID) ?? [] {
+      waiter.resume(returning: outcome)
+    }
   }
 }
 
