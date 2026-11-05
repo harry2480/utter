@@ -18,6 +18,8 @@ public final class RecordingStandbyCapture: StandbyCapturing {
   private var starting: [SessionID: Task<Void, Never>] = [:]
   /// 直前に受けた開始・取り消し。次の開始・取り消しはこれが済んでから行う
   private var lastOperation: Task<Void, Never>?
+  /// 取り消しを受けたセッション。開始の順番が来ても録音を始めない（iOS-06）。取り消しを終えたら外す
+  private var abandoned: Set<SessionID> = []
 
   public init(model: RecordingSessionModel) {
     self.model = model
@@ -27,8 +29,10 @@ public final class RecordingStandbyCapture: StandbyCapturing {
   public func beginCapture(_ sessionID: SessionID) {
     let model = model
     let previous = lastOperation
-    let start = Task {
+    let start = Task { [weak self] in
       await previous?.value
+      // 開始の順番を待つ間に取り消されていたら、キーボードが閉じた後にマイクを開かない
+      guard let self, !abandoned.contains(sessionID) else { return }
       await model.startRecording(sessionID: sessionID)
     }
     starting[sessionID] = start
@@ -53,11 +57,13 @@ public final class RecordingStandbyCapture: StandbyCapturing {
   /// - Note: 共有結果への保存を始めた後は取り消せない（`RecordingSessionModel.cancel()` と同じ）
   public func abandonCapture(_ sessionID: SessionID) {
     starting[sessionID] = nil
+    abandoned.insert(sessionID)
     let model = model
     let previous = lastOperation
-    lastOperation = Task {
+    lastOperation = Task { [weak self] in
       // このセッションの開始も、これより前に受けた操作に含まれる
       await previous?.value
+      self?.abandoned.remove(sessionID)
       guard model.activeSessionID == sessionID else { return }
       model.cancel()
     }

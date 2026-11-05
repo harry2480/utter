@@ -123,6 +123,32 @@ struct RecordingStandbyCaptureTests {
     #expect(try await store.load(sessionID: previous) == nil)
   }
 
+  @Test("iOS-06: 開始の順番を待つ間に取り消されたセッションは、録音を始めない")
+  func abandonedBeforeStartNeverStarts() async {
+    // 最初の録音の開始がマイクの許可の確認で止まっている間に、交代と取り消しの合図が続けて届く
+    recorder.holdsPermission = true
+    let model = model(recognizer: speaking)
+    let capture = RecordingStandbyCapture(model: model)
+    let first = SessionID()
+    let queued = SessionID()
+    let last = SessionID()
+
+    capture.beginCapture(first)
+    #expect(await waitUntil { recorder.isAwaitingPermission })
+    capture.abandonCapture(first)
+    capture.beginCapture(queued)
+    capture.abandonCapture(queued)
+    recorder.holdsPermission = false
+    recorder.grantPermission()
+    // 操作は届いた順に行うため、最後の開始が済めば、それより前の操作もすべて済んでいる
+    capture.beginCapture(last)
+
+    #expect(await waitUntil { model.activeSessionID == last && recorder.isRecording })
+    // 録音を始めたのは最初と最後だけで、取り消されたセッションは始めていない
+    #expect(recorder.startCount == 2)
+    model.cancel()
+  }
+
   @Test("iOS-04: 渡したIDのセッションが進行中でなければ止めない（本体アプリで始めた録音を止めない）")
   func doesNotStopAnotherSession() async {
     let model = model(recognizer: speaking)
