@@ -23,13 +23,15 @@ final class StandbyAudioSessionAdapter: StandbyAudioSession {
     isMuted = true
     try? AVAudioApplication.shared.setInputMuted(true)
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(
-      .playAndRecord, mode: .default,
-      options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
-    try session.setActive(true)
     do {
+      try session.setCategory(
+        .playAndRecord, mode: .default,
+        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
+      try session.setActive(true)
       try startEngine()
     } catch {
+      // 待機を始められなければ、通常の録音がミュートのまま残らないようにする
+      try? AVAudioApplication.shared.setInputMuted(false)
       try? session.setActive(false, options: .notifyOthersOnDeactivation)
       throw error
     }
