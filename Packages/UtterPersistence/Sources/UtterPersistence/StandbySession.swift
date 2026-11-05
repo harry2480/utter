@@ -64,22 +64,57 @@ public struct StandbyHostState: Hashable, Sendable, Codable {
   /// 本体アプリが最後に書いた時刻。待機中は定期的に書き直す（古ければ本体アプリが止まっている）
   public let updatedAt: Date
   public let failure: StandbyFailure?
+  /// 停止後の挿入のしかた（本体アプリの設定。キーボードはこれに従う, iOS-05）
+  public let insertionMode: StandbyInsertionMode
 
   /// 待機中とみなす、更新の新しさの上限
   public static let heartbeatTimeout: Duration = .seconds(8)
 
-  public init(phase: Phase, sessionID: SessionID?, updatedAt: Date, failure: StandbyFailure? = nil)
-  {
+  public init(
+    phase: Phase, sessionID: SessionID?, updatedAt: Date, failure: StandbyFailure? = nil,
+    insertionMode: StandbyInsertionMode = .automatic
+  ) {
     self.phase = phase
     self.sessionID = sessionID
     self.updatedAt = updatedAt
     self.failure = failure
+    self.insertionMode = insertionMode
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case phase, sessionID, updatedAt, failure, insertionMode
+  }
+
+  /// 設定を持たない古い状態のファイルは、既定（自動挿入）として読む
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    phase = try container.decode(Phase.self, forKey: .phase)
+    sessionID = try container.decodeIfPresent(SessionID.self, forKey: .sessionID)
+    updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    failure = try container.decodeIfPresent(StandbyFailure.self, forKey: .failure)
+    insertionMode =
+      try container.decodeIfPresent(StandbyInsertionMode.self, forKey: .insertionMode) ?? .automatic
+  }
+
+  /// 挿入のしかたを差し替えた状態
+  public func with(insertionMode: StandbyInsertionMode) -> StandbyHostState {
+    StandbyHostState(
+      phase: phase, sessionID: sessionID, updatedAt: updatedAt, failure: failure,
+      insertionMode: insertionMode)
   }
 
   /// 本体アプリが待機セッションを続けているか。待機していない・更新が途絶えていれば `false`
   public func isAlive(at now: Date) -> Bool {
     phase != .off && now.timeIntervalSince(updatedAt) <= Self.heartbeatTimeout.timeInterval
   }
+}
+
+/// 待機セッションで録音を止めたあとの挿入のしかた（iOS-05）。
+public enum StandbyInsertionMode: String, Hashable, Sendable, Codable {
+  /// 停止後に自動で挿入する（既定）
+  case automatic
+  /// 挿入前にプレビューを出し、利用者の明示的な挿入操作を待つ
+  case preview
 }
 
 /// 録音を捨てた・失敗した理由。発話の本文やエラーの詳細を持たない。

@@ -19,6 +19,8 @@ struct RecordingView: View {
   let speechModel: SpeechModelSettingsModel?
   /// キーボード拡張に本体アプリの状態を伝える。App Group を設定したときだけ（#56）
   let hostAppStatus: HostAppStatusPublisher?
+  /// キーボードの待機セッション。App Group を設定したときだけ（iOS-04）
+  let standby: StandbyDriver?
   /// セットアップ画面の状態（#200）
   let setup: SetupChecklistModel
   /// 個人署名の期限。読めなければ `nil`（警告を出さない）
@@ -37,6 +39,9 @@ struct RecordingView: View {
           }
         }
         recordingSection
+        if let standby {
+          StandbySection(driver: standby, isRecording: !model.canStartRecording)
+        }
         resultsSection
         if hasCopyableResult {
           returnGuideSection
@@ -131,7 +136,8 @@ struct RecordingView: View {
         )
         .font(.title2)
       }
-      .disabled(!canToggle)
+      // 待機中は入力がミュートされた待機のセッションを保つため、本体アプリでの録音は待機を終えてから行う
+      .disabled(!canToggle || standby?.isStandingBy == true)
 
       if model.canStartRecording {
         homeSummary

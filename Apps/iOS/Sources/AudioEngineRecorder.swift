@@ -8,6 +8,7 @@ import UtteriOSKit
 ///
 /// マイクの入力を 16kHz モノラルの `AudioChunk` に変換して渡すだけで、音声をファイル・ログには出さない。
 /// オーディオセッションは録音カテゴリ（`.record`）で、録音中だけ有効にする（iOS-PERF-02: 待機中にマイクを使わない）。
+/// 利用者が始めた待機セッションの間だけは、待機側が保つカテゴリとセッションをそのまま使う（`StandbyAudioSessionAdapter`）。
 /// 経路の変更（ヘッドセットの抜き差しなど）でエンジンが止まったら、新しい入力の形式で作り直して続ける。
 /// 録音を止めるかは割り込みの通知（`RecordingSignalObserver`）と `RecordingInterruptionPolicy` が決め、
 /// 作り直せなかったときだけ `onFailure` で知らせる。
@@ -34,9 +35,15 @@ final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
   private var inputPortIDs: Set<String> = []
   /// マイクの許可の後に、音声認識の権限も求めるか
   private let requestsSpeechRecognitionPermission: Bool
+  /// 待機セッションがオーディオセッションを保っているか。保っている間は、カテゴリを変えず、手放さない
+  private let holdsSession: @MainActor () -> Bool
 
-  init(requestsSpeechRecognitionPermission: Bool) {
+  init(
+    requestsSpeechRecognitionPermission: Bool,
+    holdsSession: @escaping @MainActor () -> Bool = { false }
+  ) {
     self.requestsSpeechRecognitionPermission = requestsSpeechRecognitionPermission
+    self.holdsSession = holdsSession
   }
 
   func requestPermission() async -> Bool {
@@ -57,7 +64,13 @@ final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
   ) throws {
     stop()
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.record, mode: .default)
+    // 待機中は、待機のカテゴリ（playAndRecord）のまま使う。変えると待機のエンジンが止まる
+    if holdsSession() {
+      // 待機中に本体アプリの録音を始めたときも、ミュートされたままにならないようにする
+      try? AVAudioApplication.shared.setInputMuted(false)
+    } else {
+      try session.setCategory(.record, mode: .default)
+    }
     try session.setActive(true)
     isSessionActive = true
     inputPortIDs = Self.currentInputPortIDs()
@@ -78,6 +91,11 @@ final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
     inputPortIDs = []
     if isSessionActive {
       isSessionActive = false
+      // 待機セッションが保っている間は手放さない（待機を終えるときに待機側が手放す）
+      guard !holdsSession() else {
+        try? AVAudioApplication.shared.setInputMuted(true)
+        return
+      }
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
   }

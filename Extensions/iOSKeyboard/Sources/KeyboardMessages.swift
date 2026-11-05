@@ -80,6 +80,50 @@ enum KeyboardMessages {
 
   static let hideFullAccessSteps = "手順を閉じる"
 
+  // MARK: 待機セッションの録音（iOS-03〜06）
+
+  /// マイクのボタンの表示。待機していないときは本体アプリを開く
+  static func micTitle(_ state: KeyboardStandbyState) -> String {
+    switch state {
+    case .unavailable: "🎤 本体アプリで録音"
+    case .ready, .inserted, .failed, .resultReady, .insertionUnknown: "🎤 録音を始める"
+    case .starting: "🎤 開始しています…"
+    case .recording: "⏹ 止めて挿入"
+    case .processing: "文字にしています…"
+    }
+  }
+
+  /// 録音の状態の案内。案内が要らない状態は `nil`
+  static func standbyStatus(_ state: KeyboardStandbyState) -> String? {
+    switch state {
+    case .unavailable, .ready, .starting: nil
+    case .recording: "録音中です。話し終えたらもう一度押してください。"
+    case .processing: "文字にしています。"
+    case .resultReady: "結果ができました。内容を確かめて「挿入」を押してください。"
+    case .inserted: "挿入しました。"
+    case .insertionUnknown: "挿入できたか確認できません。下で確かめてください。"
+    case .failed(let failure): standbyFailure(failure)
+    }
+  }
+
+  static func standbyFailure(_ failure: KeyboardStandbyFailure) -> String {
+    switch failure {
+    case .host(let reason):
+      switch reason {
+      case .keyboardDismissed, .keyboardHeartbeatLost: "録音を捨てました。もう一度押してください。"
+      case .captureLimitExceeded: "録音の上限を超えたため、録音を捨てました。"
+      case .interrupted: "着信などで途切れたため、録音を捨てました。"
+      case .supersededBySession: "別の録音が始まったため、録音を捨てました。"
+      case .standbyEnded: "本体アプリの待機が終わったため、録音を捨てました。"
+      case .noSpeech: "話した内容を認識できませんでした。"
+      case .processingFailed: "文字にできませんでした。本体アプリで確かめてください。"
+      }
+    case .hostLost: "本体アプリの待機が途絶えました。本体アプリで待機を始め直してください。"
+    case .startTimedOut: "本体アプリが応えませんでした。本体アプリで待機を始め直してください。"
+    case .insertFailed: "挿入できませんでした。結果は挿入候補に残っています。"
+    }
+  }
+
   static let previewLoading = "本体アプリの結果を読み込んでいます…"
 
   static let previewLoadFailed = "本体アプリの結果を読めませんでした。「更新」で読み直してください。"

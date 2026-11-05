@@ -31,6 +31,8 @@ struct UtterApp: App {
   private let speechEngine: SpeechEngineSelection
   private let hostAppStatus: HostAppStatusPublisher?
   private let signals: RecordingSignalObserver
+  /// 待機セッション。App Group を設定したときだけ（キーボードとやりとりする場所が要る, #56）
+  private let standby: StandbyDriver?
 
   init() {
     let speechEngine = Self.speechEngine()
@@ -53,9 +55,12 @@ struct UtterApp: App {
           path: "PendingCloudRefinementCost.json")))
     // ホームで選んだ文体（整形モード）は同じ保存先に書き、次の録音から使う
     let home = HomeSettingsModel(store: settingsStore, speechEngine: speechEngine)
+    // 待機セッションがオーディオセッションを保っている間は、録音がカテゴリを変えず、セッションを手放さない
+    let standbyAudio = StandbyAudioSessionAdapter()
     let model = RecordingSessionModel(
       recorder: AudioEngineRecorder(
-        requestsSpeechRecognitionPermission: speechEngine.requestsSpeechRecognitionPermission),
+        requestsSpeechRecognitionPermission: speechEngine.requestsSpeechRecognitionPermission,
+        holdsSession: { standbyAudio.isHolding }),
       recognizer: Self.makeRecognizer(speechEngine), cloudRefinement: cloudRefinement,
       refinementMode: home.style, storage: storage, copier: PasteboardCopier())
     _model = State(initialValue: model)
@@ -82,6 +87,8 @@ struct UtterApp: App {
     let appGroupID = appGroupIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let setupReportStore =
       sharesWithKeyboard ? KeyboardSetupReportStore(groupIdentifier: appGroupID) : nil
+    standby = Self.makeStandby(
+      model: model, audio: standbyAudio, appGroupID: sharesWithKeyboard ? appGroupID : nil)
     _setup = State(
       initialValue: SetupChecklistModel(
         store: SetupMarksStore(defaults: .standard), reportReader: setupReportStore,
@@ -95,9 +102,28 @@ struct UtterApp: App {
         model: model, home: home, refinementSettings: refinementSettings,
         consentSettings: consentSettings,
         claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
-        speechModel: speechModel, hostAppStatus: hostAppStatus, setup: setup,
+        speechModel: speechModel, hostAppStatus: hostAppStatus, standby: standby, setup: setup,
         signingExpiry: signingExpiry)
     }
+  }
+
+  /// 待機セッションを組み立てる。App Group を使えないときは `nil`
+  private static func makeStandby(
+    model: RecordingSessionModel, audio: StandbyAudioSessionAdapter, appGroupID: String?
+  ) -> StandbyDriver? {
+    guard let appGroupID, !appGroupID.isEmpty,
+      let store = StandbySessionStore(groupIdentifier: appGroupID)
+    else {
+      return nil
+    }
+    let preferences = StandbyPreferences()
+    let coordinator = StandbySessionCoordinator(
+      signals: NotifyingStandbySignals(store: store, groupIdentifier: appGroupID),
+      audio: audio, capture: RecordingStandbyCapture(model: model),
+      configuration: preferences.sessionConfiguration,
+      insertionMode: { preferences.insertionMode })
+    return StandbyDriver(
+      coordinator: coordinator, audio: audio, preferences: preferences, groupIdentifier: appGroupID)
   }
 
   /// アプリに埋め込まれたプロビジョニングプロファイルから個人署名の期限を読む（12.6節）。
