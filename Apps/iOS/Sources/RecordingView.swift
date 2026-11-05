@@ -19,6 +19,8 @@ struct RecordingView: View {
   let speechModel: SpeechModelSettingsModel?
   /// キーボード拡張に本体アプリの状態を伝える。App Group を設定したときだけ（#56）
   let hostAppStatus: HostAppStatusPublisher?
+  /// キーボードの待機セッション。App Group を設定したときだけ（iOS-04）
+  let standby: StandbyDriver?
   /// セットアップ画面の状態（#200）
   let setup: SetupChecklistModel
   /// 個人署名の期限。読めなければ `nil`（警告を出さない）
@@ -37,6 +39,9 @@ struct RecordingView: View {
           }
         }
         recordingSection
+        if let standby {
+          StandbySection(driver: standby)
+        }
         resultsSection
         if hasCopyableResult {
           returnGuideSection

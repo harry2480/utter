@@ -84,6 +84,13 @@ struct StandbySessionStoreTests {
         phase: .failed, sessionID: SessionID(), updatedAt: now, failure: .processingFailed))
     let data = try Data(contentsOf: directory.url.appendingPathComponent("host.json"))
     let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-    #expect(Set(object.keys) == ["phase", "sessionID", "updatedAt", "failure"])
+    #expect(Set(object.keys) == ["phase", "sessionID", "updatedAt", "failure", "insertionMode"])
+  }
+
+  @Test("挿入のしかたを持たない古い状態のファイルは、自動挿入として読める")
+  func legacyHostStateDefaultsToAutomatic() throws {
+    let json = #"{"phase":"standby","updatedAt":0}"#
+    let state = try JSONDecoder().decode(StandbyHostState.self, from: Data(json.utf8))
+    #expect(state.insertionMode == .automatic)
   }
 }

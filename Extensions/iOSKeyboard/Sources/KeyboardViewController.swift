@@ -27,7 +27,9 @@ final class KeyboardViewController: UIInputViewController {
     case notConfigured
     /// App Group のコンテナを取得できない
     case unavailable
-    case ready(coordinator: SharedResultInsertionCoordinator, hostAppStatus: HostAppStatusStore)
+    case ready(
+      coordinator: SharedResultInsertionCoordinator, hostAppStatus: HostAppStatusStore,
+      standby: KeyboardStandbyDictation?)
   }
 
   /// 共有結果の表示の状態
@@ -94,6 +96,10 @@ final class KeyboardViewController: UIInputViewController {
   private var networkTask: Task<Void, Never>?
   /// 表示している間、残り時間を更新する
   private var clockTask: Task<Void, Never>?
+  /// 表示している間、待機セッションの状態を読み直す（iOS-04）。通知は読み直しのきっかけにだけ使う
+  private var standbyTask: Task<Void, Never>?
+  private var standbyObservation: StandbyDarwinObservation?
+  private let micButton = KeyboardViewController.makeActionButton(title: "🎤")
 
   /// 共有結果への操作と、そのボタン。並べる順は `SharedResultKeyboardPanel.actions` が決める
   private var actionButtons: [(SharedResultKeyboardAction, UIButton)] {
@@ -116,6 +122,7 @@ final class KeyboardViewController: UIInputViewController {
     showsFullAccessSteps = false
     startNetworkMonitor()
     startClock()
+    startStandbyLoop()
     reload()
     reportSetup()
   }
@@ -124,6 +131,7 @@ final class KeyboardViewController: UIInputViewController {
     super.viewDidDisappear(animated)
     stopNetworkMonitor()
     stopClock()
+    stopStandbyLoop()
   }
 
   override func viewWillLayoutSubviews() {
@@ -152,7 +160,15 @@ final class KeyboardViewController: UIInputViewController {
     }
     let coordinator = SharedResultInsertionCoordinator(
       store: store, inserter: TextDocumentProxyInserter(controller: self))
-    return .ready(coordinator: coordinator, hostAppStatus: hostAppStatus)
+    // 待機セッションの置き場所を開けなければ、従来の経路（本体アプリで録音）だけにする
+    let standby = StandbySessionStore(groupIdentifier: appGroupID).map { standbyStore in
+      let dictation = KeyboardStandbyDictation(
+        signals: NotifyingKeyboardStandbySignals(store: standbyStore, groupIdentifier: appGroupID),
+        inserter: coordinator)
+      dictation.onChange = { [weak self] in self?.standbyStateChanged() }
+      return dictation
+    }
+    return .ready(coordinator: coordinator, hostAppStatus: hostAppStatus, standby: standby)
   }
 
   private func currentInputField() -> KeyboardInputField {
@@ -186,7 +202,7 @@ final class KeyboardViewController: UIInputViewController {
     case .unavailable:
       snapshot = SharedSnapshot(container: .unavailable, preview: .cleared)
       render()
-    case .ready(let coordinator, let hostAppStatus):
+    case .ready(let coordinator, let hostAppStatus, _):
       if case .available = snapshot.container {
         snapshot.preview = .loading
       } else {
@@ -256,7 +272,7 @@ final class KeyboardViewController: UIInputViewController {
 
   /// 利用者が選んだ共有結果への操作を行う。挿入結果が不明でも、自動ではやり直さない（iOS-IPC-03）
   private func perform(_ action: SharedResultKeyboardAction) {
-    guard !isBusy, case .ready(let coordinator, _) = services,
+    guard !isBusy, case .ready(let coordinator, _, _) = services,
       let sessionID = snapshot.sessionID
     else {
       return
@@ -328,6 +344,74 @@ final class KeyboardViewController: UIInputViewController {
       hostAppOpenFailed = !accepted
       render()
     }
+  }
+
+  // MARK: 待機セッションの録音（iOS-03〜06）
+
+  private var standby: KeyboardStandbyDictation? {
+    guard case .ready(_, _, let standby) = services else { return nil }
+    return standby
+  }
+
+  /// 待機セッションの状態を読み直し続ける。録音中は生存の印も書く。本体アプリからの通知でもすぐ読み直す
+  private func startStandbyLoop() {
+    guard standbyTask == nil, let standby else { return }
+    if let appGroupID = configuration.appGroupID {
+      standbyObservation = StandbyDarwinSignal.hostState.observe(groupIdentifier: appGroupID) {
+        [weak self] in
+        Task { @MainActor in await self?.standby?.tick() }
+      }
+    }
+    standbyTask = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self else { return }
+        // 制限のある入力欄では録音しない（iOS-09）
+        if currentInputField().restrictions.isEmpty {
+          await standby.tick()
+        } else {
+          await standby.keyboardClosed()
+        }
+        // 録音の途中は細かく、そうでなければ間を空けて読み直す
+        try? await Task.sleep(for: standby.isBusy ? .milliseconds(300) : .seconds(2))
+      }
+    }
+  }
+
+  /// キーボードが閉じられた。録音中なら取り消しを送る（iOS-06）
+  private func stopStandbyLoop() {
+    standbyTask?.cancel()
+    standbyTask = nil
+    standbyObservation = nil
+    guard let standby else { return }
+    Task { await standby.keyboardClosed() }
+  }
+
+  private func standbyStateChanged() {
+    switch standby?.state {
+    case .inserted:
+      // 挿入した結果は削除済み。次にキーボードを表示するまで別の結果を出さない
+      statusMessage = nil
+      loadGeneration += 1
+      snapshot.sessionID = nil
+      snapshot.preview = .cleared
+    case .resultReady, .insertionUnknown:
+      // 結果のプレビューと明示的な操作の画面に出す
+      statusMessage = nil
+      reload()
+    default:
+      break
+    }
+    render()
+  }
+
+  /// マイクのボタン。待機していれば録音を始め・止め、待機していなければ本体アプリを開く
+  private func tapMic() {
+    guard let standby, standby.state != .unavailable else {
+      openHostApp()
+      return
+    }
+    statusMessage = nil
+    Task { await standby.toggle() }
   }
 
   // MARK: 残り時間
@@ -446,8 +530,17 @@ final class KeyboardViewController: UIInputViewController {
     }
     primaryButtons.isHidden = !actions.contains { $0 != .discard }
 
-    statusLabel.text = statusMessage
-    statusLabel.isHidden = statusMessage == nil
+    // マイクのボタンは、制限のない入力欄で、共有結果を読める（待機の状態を使える）ときだけ出す
+    let standbyState = standby?.state ?? .unavailable
+    micButton.isHidden = !(showsSharedResult && standby != nil)
+    micButton.configuration?.title = KeyboardMessages.micTitle(standbyState)
+    var isProcessing = false
+    if case .processing = standbyState { isProcessing = true }
+    micButton.isEnabled = !isBusy && !isProcessing
+    let standbyMessage = KeyboardMessages.standbyStatus(standbyState)
+    let message = [statusMessage, standbyMessage].compactMap { $0 }.joined(separator: "\n")
+    statusLabel.text = message
+    statusLabel.isHidden = message.isEmpty
 
     hostAppSection.isHidden = !availability.actions.contains(.openHostApp)
     let guide =
@@ -487,6 +580,8 @@ final class KeyboardViewController: UIInputViewController {
       }, for: .touchUpInside)
     openHostAppButton.addAction(
       UIAction { [weak self] _ in self?.openHostApp() }, for: .touchUpInside)
+    micButton.addAction(
+      UIAction { [weak self] _ in self?.tapMic() }, for: .touchUpInside)
 
     previewTextLabel.font = .preferredFont(forTextStyle: .body)
     previewTextLabel.textColor = .label
@@ -521,7 +616,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     let panel = UIStackView(arrangedSubviews: [
-      noticesLabel, fullAccessSection, statusLabel, sharedResultSection, hostAppSection,
+      noticesLabel, fullAccessSection, micButton, statusLabel, sharedResultSection, hostAppSection,
     ])
     panel.axis = .vertical
     panel.spacing = 8

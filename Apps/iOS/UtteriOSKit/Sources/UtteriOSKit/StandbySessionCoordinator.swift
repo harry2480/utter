@@ -64,6 +64,8 @@ public final class StandbySessionCoordinator {
   @ObservationIgnored private let audio: any StandbyAudioSession
   @ObservationIgnored private let capture: any StandbyCapturing
   @ObservationIgnored private let date: @Sendable () -> Date
+  /// 停止後の挿入のしかた（iOS-05）。キーボードが従うため、状態に載せて知らせる
+  @ObservationIgnored private let insertionMode: @MainActor () -> StandbyInsertionMode
   /// 待機を始める途中か。状態機械がまだ待機していない（`.off`）間だけ真にする
   @ObservationIgnored private var isStarting = false
   /// 始める途中に待機を終える操作を受けたか。始めたあとに終える
@@ -76,23 +78,32 @@ public final class StandbySessionCoordinator {
   ///   - audio: 待機中のオーディオセッション
   ///   - capture: 録音と、その後の認識・整形・保存
   ///   - configuration: 無操作で終える時間・録音の上限など
+  ///   - insertionMode: 停止後の挿入のしかた。状態を書くたびに読む
   ///   - date: 実時刻。テストでは固定できる
   public init(
     signals: any StandbySessionSignals,
     audio: any StandbyAudioSession,
     capture: any StandbyCapturing,
     configuration: StandbySessionConfiguration = StandbySessionConfiguration(),
+    insertionMode: @escaping @MainActor () -> StandbyInsertionMode = { .automatic },
     date: @escaping @Sendable () -> Date = { Date() }
   ) {
     machine = StandbySessionMachine(configuration: configuration)
     self.signals = signals
     self.audio = audio
     self.capture = capture
+    self.insertionMode = insertionMode
     self.date = date
   }
 
   /// 待機中か（待機していなければ `false`）
   public var isStandingBy: Bool { machine.phase != .off }
+
+  /// 無操作で終える時間などを変える。待機していないときだけ反映する（待機の途中では変えない）
+  public func updateConfiguration(_ configuration: StandbySessionConfiguration) {
+    guard machine.phase == .off, !isStarting else { return }
+    machine.configuration = configuration
+  }
 
   /// 利用者が待機を始める（iOS-04）。マイクの入力は合図が届くまでミュートする
   /// - Returns: 始められたら `true`。オーディオセッションを確保できなければ `false`
@@ -189,7 +200,7 @@ public final class StandbySessionCoordinator {
   /// 順序が入れ替わって古い状態（`standby`）が最後に残りうるため（#247 のレビュー）。
   /// 書けなくても（端末のロック中など）待機は続ける。キーボードは更新が途絶えたことで気づく
   private func writeHostState() async {
-    let state = machine.hostState(at: date())
+    let state = machine.hostState(at: date()).with(insertionMode: insertionMode())
     hostPhase = state.phase
     let previous = writing
     let signals = signals

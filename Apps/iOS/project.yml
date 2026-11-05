@@ -63,6 +63,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        # 利用者が明示的に始めた待機セッション（iOS-04）のオーディオセッションを保つためにだけ使う（iOS-PERF-03）
+        INFOPLIST_KEY_UIBackgroundModes: audio
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         # 権限の用途説明（PERM-01）。音声認識の権限は SpeechAnalyzer を選んだとき（UTTER_IOS_STT_ENGINE）だけ求める。
         # SpeechAnalyzer に要るかは未確認で、Verification/iOSSTTProbe と同じく求めてから使う（不要と分かれば外す）

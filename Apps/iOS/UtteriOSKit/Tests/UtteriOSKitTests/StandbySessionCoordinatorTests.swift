@@ -60,6 +60,31 @@ struct StandbySessionCoordinatorTests {
     #expect(await signals.savedPhases() == [.standby])
   }
 
+  @Test("iOS-05: 停止後の挿入のしかた（設定）を、状態に載せてキーボードへ知らせる")
+  func publishesInsertionMode() async {
+    let clock = clock
+    let coordinator = StandbySessionCoordinator(
+      signals: signals, audio: audio, capture: capture, insertionMode: { .preview },
+      date: { clock.now })
+
+    #expect(await coordinator.startStandby())
+
+    #expect(await signals.savedStates().map(\.insertionMode) == [.preview])
+  }
+
+  @Test("iOS-04: 無操作で終える時間は、待機していないときだけ変えられる")
+  func configurationChangesOnlyWhenOff() async {
+    let coordinator = coordinator(StandbySessionConfiguration(idleTimeout: .seconds(60)))
+    coordinator.updateConfiguration(StandbySessionConfiguration(idleTimeout: .seconds(10)))
+    #expect(await coordinator.startStandby())
+    // 待機の途中では変えない
+    coordinator.updateConfiguration(StandbySessionConfiguration(idleTimeout: .seconds(1)))
+
+    advance(to: 30)
+    await coordinator.poll()
+    #expect(coordinator.isStandingBy == false)  // 10秒の設定が効いている（1秒でも60秒でもない）
+  }
+
   @Test("iOS-04: 待機を始める前に書かれていた合図は、処理済みとして実行しない")
   func pendingCommandBeforeStandbyIgnored() async {
     await signals.setCommand(command(1, .start))
