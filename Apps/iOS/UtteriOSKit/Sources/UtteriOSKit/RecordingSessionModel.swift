@@ -62,6 +62,8 @@ public final class RecordingSessionModel {
   @ObservationIgnored private var stateMachine: SessionStateMachine
   @ObservationIgnored private var capture: Capture?
   @ObservationIgnored private var isPreparing = false
+  /// 準備中（マイクの許可の確認中など）に取り消されたか。許可が返っても録音を始めない
+  @ObservationIgnored private var cancelledWhilePreparing = false
   /// 一覧の読み直しの世代。後から始めた読み直しの結果だけを反映する
   @ObservationIgnored private var refreshGeneration = 0
   @ObservationIgnored private let dependencies: Dependencies
@@ -191,6 +193,7 @@ public final class RecordingSessionModel {
     }
     guard stateMachine.phase == .idle else { return }
     isPreparing = true
+    cancelledWhilePreparing = false
     defer { isPreparing = false }
     stopNotice = nil
     failure = nil
@@ -202,6 +205,8 @@ public final class RecordingSessionModel {
       failure = .microphoneDenied
       return
     }
+    // 許可の確認を待つ間に取り消されたら、録音を始めない（キーボードが閉じた後にマイクを開かない, iOS-06）
+    guard !cancelledWhilePreparing else { return }
     let start = stateMachine.start(at: dependencies.now(), sessionID: requested)
     guard case .started(let token) = start else { return }
     let sessionID = token.sessionID
@@ -276,6 +281,8 @@ public final class RecordingSessionModel {
 
   /// 録音〜整形中のセッションを破棄する（REC-01）。保存中は取り消せないため何もしない。
   public func cancel() {
+    // 準備中は状態機械がまだ録音していないため、準備が済んでも録音を始めないよう覚えておく
+    if isPreparing { cancelledWhilePreparing = true }
     guard let cancelled = stateMachine.cancel() else { return }
     finish(cancelled, .cancelled)
     endCapture(cancelsRecognition: true)

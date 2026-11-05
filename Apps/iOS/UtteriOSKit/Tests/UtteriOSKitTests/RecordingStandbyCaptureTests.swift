@@ -123,7 +123,23 @@ struct RecordingStandbyCaptureTests {
     #expect(try await store.load(sessionID: previous) == nil)
   }
 
-  @Test("iOS-06: 開始の順番を待つ間に取り消されたセッションは、録音を始めない")
+  @Test("iOS-06: マイクの許可の確認中に取り消したら、許可が返っても録音を始めない")
+  func cancelWhileAwaitingPermission() async {
+    recorder.holdsPermission = true
+    let model = model(recognizer: speaking)
+
+    let starting = Task { await model.startRecording(sessionID: SessionID()) }
+    #expect(await waitUntil { recorder.isAwaitingPermission })
+    model.cancel()
+    recorder.grantPermission()
+    await starting.value
+
+    #expect(recorder.startCount == 0)
+    #expect(model.phase == .idle)
+    #expect(model.activeSessionID == nil)
+  }
+
+  @Test("iOS-06: 開始の順番を待つ間・許可の確認中に取り消されたセッションは、録音を始めない")
   func abandonedBeforeStartNeverStarts() async {
     // 最初の録音の開始がマイクの許可の確認で止まっている間に、交代と取り消しの合図が続けて届く
     recorder.holdsPermission = true
@@ -144,8 +160,9 @@ struct RecordingStandbyCaptureTests {
     capture.beginCapture(last)
 
     #expect(await waitUntil { model.activeSessionID == last && recorder.isRecording })
-    // 録音を始めたのは最初と最後だけで、取り消されたセッションは始めていない
-    #expect(recorder.startCount == 2)
+    // 録音を始めたのは最後だけ。許可の確認中に取り消された最初のセッションも、順番待ちの間に
+    // 取り消されたセッションも始めていない
+    #expect(recorder.startCount == 1)
     model.cancel()
   }
 
