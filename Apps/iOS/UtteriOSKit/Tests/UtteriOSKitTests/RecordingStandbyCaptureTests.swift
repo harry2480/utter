@@ -99,6 +99,30 @@ struct RecordingStandbyCaptureTests {
     #expect(try await store.load(sessionID: sessionID)?.text == refined)
   }
 
+  @Test("iOS-04: 別のセッションの開始で前の録音を捨てるときは、捨て終えてから新しい録音を始める")
+  func supersedingSessionStartsAfterAbandon() async throws {
+    // 前の録音の開始が、マイクの許可の確認で止まっている間に交代の合図が届く
+    recorder.holdsPermission = true
+    let model = model(recognizer: speaking)
+    let capture = RecordingStandbyCapture(model: model)
+    let previous = SessionID()
+    let next = SessionID()
+
+    capture.beginCapture(previous)
+    #expect(await waitUntil { recorder.isAwaitingPermission })
+    // StandbySessionMachine は、前の録音を捨ててから新しい録音を始めるよう続けて求める
+    capture.abandonCapture(previous)
+    capture.beginCapture(next)
+    recorder.holdsPermission = false
+    recorder.grantPermission()
+
+    #expect(await waitUntil { model.activeSessionID == next && recorder.isRecording })
+    recorder.emit(seconds: 1)
+    #expect(await capture.finishCapture(next) == nil)
+    #expect(try await store.load(sessionID: next)?.text == refined)
+    #expect(try await store.load(sessionID: previous) == nil)
+  }
+
   @Test("iOS-04: 渡したIDのセッションが進行中でなければ止めない（本体アプリで始めた録音を止めない）")
   func doesNotStopAnotherSession() async {
     let model = model(recognizer: speaking)
