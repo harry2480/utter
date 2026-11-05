@@ -40,7 +40,7 @@ struct RecordingView: View {
         }
         recordingSection
         if let standby {
-          StandbySection(driver: standby)
+          StandbySection(driver: standby, isRecording: !model.canStartRecording)
         }
         resultsSection
         if hasCopyableResult {
@@ -136,7 +136,8 @@ struct RecordingView: View {
         )
         .font(.title2)
       }
-      .disabled(!canToggle)
+      // 待機中は入力がミュートされた待機のセッションを保つため、本体アプリでの録音は待機を終えてから行う
+      .disabled(!canToggle || standby?.isStandingBy == true)
 
       if model.canStartRecording {
         homeSummary

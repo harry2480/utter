@@ -19,6 +19,9 @@ final class StandbyAudioSessionAdapter: StandbyAudioSession {
 
   func beginStandby() throws {
     guard !isHolding else { return }
+    // 入力を開く前にミュートする。ミュートより先にエンジンが動くと、マイクの使用表示が一瞬出る
+    isMuted = true
+    try? AVAudioApplication.shared.setInputMuted(true)
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(
       .playAndRecord, mode: .default,
@@ -70,12 +73,16 @@ final class StandbyAudioSessionAdapter: StandbyAudioSession {
     let engine = AVAudioEngine()
     let input = engine.inputNode
     let format = input.outputFormat(forBus: 0)
-    guard format.sampleRate > 0, format.channelCount > 0 else {
+    // 経路の変更の直後に形式が食い違ったまま installTap すると例外になるため、そろっていなければ開始しない
+    guard format.sampleRate > 0, format.channelCount > 0,
+      input.inputFormat(forBus: 0).sampleRate == format.sampleRate
+    else {
       throw AudioEngineRecorder.RecorderError.microphoneUnavailable
     }
     // 待機中に受けた音は読み捨てる。音声認識にもファイルにも渡さない
     input.installTap(onBus: 0, bufferSize: 4096, format: format, block: Self.discardingTap())
     engine.prepare()
+    try? AVAudioApplication.shared.setInputMuted(isMuted)
     do {
       try engine.start()
     } catch {

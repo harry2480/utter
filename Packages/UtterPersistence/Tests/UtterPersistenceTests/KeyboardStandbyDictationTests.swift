@@ -63,6 +63,17 @@ struct KeyboardStandbyDictationTests {
     return id
   }
 
+  /// 録音が始まった（本体アプリが録音中と知らせた）ところまで進める
+  private func startAndRecord(
+    _ dictation: KeyboardStandbyDictation, _ store: StandbySessionStore, _ clock: Clock
+  ) async throws -> SessionID {
+    let id = try await startRecording(dictation, store, clock)
+    try await store.saveHostState(host(.recording, session: id, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .recording(id))
+    return id
+  }
+
   @Test("iOS-03: 待機中でなければ使えない。待機していれば録音を始められる")
   func availabilityFollowsHost() async throws {
     let clock = Clock(base)
@@ -141,7 +152,7 @@ struct KeyboardStandbyDictationTests {
     let clock = Clock(base)
     let inserter = CountingInserter()
     let (dictation, store) = make(inserter: inserter, clock: clock)
-    let id = try await startRecording(dictation, store, clock)
+    let id = try await startAndRecord(dictation, store, clock)
     await dictation.toggle()
 
     try await store.saveHostState(host(.done, session: id, mode: .preview, at: clock.now))
@@ -155,7 +166,7 @@ struct KeyboardStandbyDictationTests {
     let clock = Clock(base)
     let inserter = CountingInserter(outcome: .insertionUnknown)
     let (dictation, store) = make(inserter: inserter, clock: clock)
-    let id = try await startRecording(dictation, store, clock)
+    let id = try await startAndRecord(dictation, store, clock)
     await dictation.toggle()
 
     try await store.saveHostState(host(.done, session: id, at: clock.now))
@@ -185,7 +196,7 @@ struct KeyboardStandbyDictationTests {
     let clock = Clock(base)
     let inserter = CountingInserter()
     let (dictation, store) = make(inserter: inserter, clock: clock)
-    let id = try await startRecording(dictation, store, clock)
+    let id = try await startAndRecord(dictation, store, clock)
     await dictation.toggle()
     #expect(dictation.state == .processing(id))
 
@@ -245,7 +256,7 @@ struct KeyboardStandbyDictationTests {
   func canStartAgainAfterResult() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
-    let first = try await startRecording(dictation, store, clock)
+    let first = try await startAndRecord(dictation, store, clock)
     await dictation.toggle()
     try await store.saveHostState(host(.done, session: first, at: clock.now))
     await dictation.tick()
@@ -257,5 +268,84 @@ struct KeyboardStandbyDictationTests {
       return
     }
     #expect(second != first)
+  }
+
+  @Test("開始の待ちの間にもう一度押したら、停止ではなく取り消しを書いて戻る（開始が上書きされて処理中に固まらない）")
+  func stopWhileStartingCancels() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = try await startRecording(dictation, store, clock)
+
+    await dictation.toggle()
+
+    #expect(try await store.loadCommand()?.action == .cancel)
+    #expect(try await store.loadCommand()?.sessionID == id)
+    #expect(dictation.state == .ready)
+  }
+
+  @Test("停止のあと、本体アプリが結果を返さなければ待ち続けずに失敗にする")
+  func processingTimesOut() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = try await startRecording(dictation, store, clock)
+    try await store.saveHostState(host(.recording, session: id, at: clock.now))
+    await dictation.tick()
+    await dictation.toggle()
+
+    clock.advance(60)
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .processing(id))
+
+    clock.advance(40)
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .failed(.hostLost))
+  }
+
+  @Test("挿入や失敗のあとで本体アプリが待機を終えたら、本体アプリを開く案内に戻る")
+  func returnsToUnavailableWhenHostEnds() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = try await startAndRecord(dictation, store, clock)
+    await dictation.toggle()
+    try await store.saveHostState(host(.done, session: id, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .inserted)
+
+    try await store.saveHostState(host(.off, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .unavailable)
+  }
+
+  @Test("iOS-06: キーボードが表示されていなければ自動挿入せず、結果を候補として残す")
+  func doesNotInsertWhenNotVisible() async throws {
+    let clock = Clock(base)
+    let inserter = CountingInserter()
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: store, inserter: inserter, canInsert: { false }, now: { clock.now })
+    let id = try await startAndRecord(dictation, store, clock)
+    await dictation.toggle()
+
+    try await store.saveHostState(host(.done, session: id, at: clock.now))
+    await dictation.tick()
+
+    #expect(inserter.insertedSessions.isEmpty)
+    #expect(dictation.state != .inserted)
+  }
+
+  @Test("プレビューで挿入し終えたら、結果の案内を消して次の録音に進める")
+  func resultHandledReturnsToReady() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = try await startAndRecord(dictation, store, clock)
+    await dictation.toggle()
+    try await store.saveHostState(host(.done, session: id, mode: .preview, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .resultReady(id))
+
+    dictation.resultHandled()
+    #expect(dictation.state == .ready)
   }
 }

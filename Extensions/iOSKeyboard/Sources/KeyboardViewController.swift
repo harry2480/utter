@@ -164,7 +164,7 @@ final class KeyboardViewController: UIInputViewController {
     let standby = StandbySessionStore(groupIdentifier: appGroupID).map { standbyStore in
       let dictation = KeyboardStandbyDictation(
         signals: NotifyingKeyboardStandbySignals(store: standbyStore, groupIdentifier: appGroupID),
-        inserter: coordinator)
+        inserter: coordinator, canInsert: { [weak self] in self?.viewIfLoaded?.window != nil })
       dictation.onChange = { [weak self] in self?.standbyStateChanged() }
       return dictation
     }
@@ -302,6 +302,7 @@ final class KeyboardViewController: UIInputViewController {
       }
       statusMessage = message
       if finished {
+        standby?.resultHandled()
         // 挿入した・消した結果は削除済み。続けて別の結果を出さず、次にキーボードを表示したときに読み直す
         loadGeneration += 1
         snapshot.sessionID = nil
@@ -359,7 +360,10 @@ final class KeyboardViewController: UIInputViewController {
     if let appGroupID = configuration.appGroupID {
       standbyObservation = StandbyDarwinSignal.hostState.observe(groupIdentifier: appGroupID) {
         [weak self] in
-        Task { @MainActor in await self?.standby?.tick() }
+        Task { @MainActor in
+          guard let self, self.currentInputField().restrictions.isEmpty else { return }
+          await self.standby?.tick()
+        }
       }
     }
     standbyTask = Task { [weak self] in
@@ -394,7 +398,7 @@ final class KeyboardViewController: UIInputViewController {
       loadGeneration += 1
       snapshot.sessionID = nil
       snapshot.preview = .cleared
-    case .resultReady, .insertionUnknown:
+    case .resultReady, .insertionUnknown, .failed(.insertFailed):
       // 結果のプレビューと明示的な操作の画面に出す
       statusMessage = nil
       reload()
@@ -406,6 +410,11 @@ final class KeyboardViewController: UIInputViewController {
 
   /// マイクのボタン。待機していれば録音を始め・止め、待機していなければ本体アプリを開く
   private func tapMic() {
+    // 制限のある入力欄では録音しない（iOS-09）。押した時点でも確かめる
+    guard currentInputField().restrictions.isEmpty else {
+      render()
+      return
+    }
     guard let standby, standby.state != .unavailable else {
       openHostApp()
       return

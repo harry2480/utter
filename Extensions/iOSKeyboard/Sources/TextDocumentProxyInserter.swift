@@ -27,7 +27,8 @@ final class TextDocumentProxyInserter: SharedResultTextInserter {
   }
 
   func insert(_ text: String) async -> SharedResultInsertionConfirmation {
-    guard let proxy = controller?.textDocumentProxy else {
+    // 画面から外れたキーボードには挿入しない（待機セッションの停止後に閉じられた場合, iOS-06）
+    guard controller?.viewIfLoaded?.window != nil, let proxy = controller?.textDocumentProxy else {
       // キーボードが閉じられた。挿入していないが、確認できないものとして扱う（自動では再挿入しない）
       return .unknown
     }

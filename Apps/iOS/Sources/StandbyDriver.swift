@@ -47,6 +47,8 @@ final class StandbyDriver {
       startFailed = true
       return
     }
+    // 始める途中に終える操作を受けていたら、すでに終わっている
+    guard coordinator.isStandingBy else { return }
     beginObserving()
   }
 

@@ -4,15 +4,12 @@ import UtterPersistence
 /// 待機セッションの設定（iOS-04・iOS-05）。端末内の `UserDefaults` に置き、App Group には置かない。
 /// 挿入のしかたはキーボードが従うため、本体アプリが状態に載せて知らせる（`StandbyHostState.insertionMode`）。
 public struct StandbyPreferences {
-  /// 無操作で待機を終えるまでの選択肢（分）。`nil` は終えない
-  public static let idleTimeoutChoices: [Int?] = [1, 5, 15, 30, nil]
+  /// 無操作で待機を終えるまでの選択肢（分）。無期限にはしない（iOS-04, iOS-PERF-03: バックグラウンドの audio は、無操作で終わる待機のためにだけ使う）
+  public static let idleTimeoutChoices: [Int] = [1, 5, 15, 30]
   public static let defaultIdleTimeoutMinutes = 5
 
   private static let insertionModeKey = "standby.insertionMode"
   private static let idleTimeoutKey = "standby.idleTimeoutMinutes"
-  /// 「終えない」を保存するための値
-  private static let neverValue = 0
-
   private let defaults: UserDefaults
 
   public init(defaults: UserDefaults = .standard) {
@@ -28,21 +25,17 @@ public struct StandbyPreferences {
     nonmutating set { defaults.set(newValue.rawValue, forKey: Self.insertionModeKey) }
   }
 
-  /// 無操作で待機を終えるまでの分。`nil` なら終えない。選択肢にない値は既定に戻す
-  public var idleTimeoutMinutes: Int? {
+  /// 無操作で待機を終えるまでの分。選択肢にない値（以前の「終えない」を含む）は既定に戻す
+  public var idleTimeoutMinutes: Int {
     get {
-      guard defaults.object(forKey: Self.idleTimeoutKey) != nil else {
-        return Self.defaultIdleTimeoutMinutes
-      }
       let stored = defaults.integer(forKey: Self.idleTimeoutKey)
-      if stored == Self.neverValue { return nil }
       return Self.idleTimeoutChoices.contains(stored) ? stored : Self.defaultIdleTimeoutMinutes
     }
-    nonmutating set { defaults.set(newValue ?? Self.neverValue, forKey: Self.idleTimeoutKey) }
+    nonmutating set { defaults.set(newValue, forKey: Self.idleTimeoutKey) }
   }
 
   /// 状態機械に渡す設定
   public var sessionConfiguration: StandbySessionConfiguration {
-    StandbySessionConfiguration(idleTimeout: idleTimeoutMinutes.map { .seconds($0 * 60) })
+    StandbySessionConfiguration(idleTimeout: .seconds(idleTimeoutMinutes * 60))
   }
 }

@@ -8,12 +8,15 @@ import UtteriOSKit
 /// ミュートされ、無操作が続くと自動で終わる。
 struct StandbySection: View {
   let driver: StandbyDriver
+  /// 本体アプリで録音中（または認識中）か。待機は録音が済んでから始める
+  let isRecording: Bool
   @State private var insertionMode: StandbyInsertionMode
-  @State private var idleTimeoutMinutes: Int?
+  @State private var idleTimeoutMinutes: Int
   private let preferences = StandbyPreferences()
 
-  init(driver: StandbyDriver) {
+  init(driver: StandbyDriver, isRecording: Bool) {
     self.driver = driver
+    self.isRecording = isRecording
     let preferences = StandbyPreferences()
     _insertionMode = State(initialValue: preferences.insertionMode)
     _idleTimeoutMinutes = State(initialValue: preferences.idleTimeoutMinutes)
@@ -34,6 +37,7 @@ struct StandbySection: View {
           driver.isStandingBy ? "待機を終える" : "待機を始める",
           systemImage: driver.isStandingBy ? "stop.circle" : "mic.badge.plus")
       }
+      .disabled(isRecording && !driver.isStandingBy)
       if let message = statusMessage {
         Text(message)
           .font(.footnote)
@@ -46,7 +50,7 @@ struct StandbySection: View {
       .onChange(of: insertionMode) { _, mode in preferences.insertionMode = mode }
       Picker("無操作で終える", selection: $idleTimeoutMinutes) {
         ForEach(StandbyPreferences.idleTimeoutChoices, id: \.self) { minutes in
-          Text(minutes.map { "\($0) 分" } ?? "終えない").tag(minutes)
+          Text("\(minutes) 分").tag(minutes)
         }
       }
       .disabled(driver.isStandingBy)

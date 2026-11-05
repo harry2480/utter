@@ -76,8 +76,11 @@ public final class KeyboardStandbyDictation {
   private let signals: any KeyboardStandbySignals
   private let inserter: any KeyboardStandbyInserting
   private let now: @Sendable () -> Date
+  /// 挿入先のキーボードが表示されているか。表示されていなければ、結果を確保せずに候補として残す（iOS-06）
+  private let canInsert: @MainActor () -> Bool
   private let heartbeatInterval: TimeInterval
   private let startTimeout: TimeInterval
+  private let processingTimeout: TimeInterval
 
   /// 開始の合図を書いた時刻
   private var startedAt: Date?
@@ -86,23 +89,32 @@ public final class KeyboardStandbyDictation {
   private var epoch = 0
   /// 挿入を試みた（または試みている）セッション
   private var insertionAttempted: Set<SessionID> = []
+  /// 停止の合図を書いた時刻（本体アプリが結果を返さないときに待ち続けないため）
+  private var processingSince: Date?
+  /// 開始・停止の合図を書いている間（重ねて押されても合図を重ねない）
+  private var isIssuing = false
   /// `tick()` が重ならないようにする
   private var isTicking = false
 
   /// - Parameters:
   ///   - heartbeatInterval: 生存の印を書く間隔。本体アプリの途絶の判定（既定5秒）より十分短くする
   ///   - startTimeout: 開始の合図に本体アプリが応えるのを待つ時間
+  ///   - processingTimeout: 停止の合図のあと、結果を待つ時間
   public init(
     signals: any KeyboardStandbySignals,
     inserter: any KeyboardStandbyInserting,
     heartbeatInterval: TimeInterval = 1,
     startTimeout: TimeInterval = 8,
+    processingTimeout: TimeInterval = 90,
+    canInsert: @escaping @MainActor () -> Bool = { true },
     now: @escaping @Sendable () -> Date = { Date() }
   ) {
     self.signals = signals
     self.inserter = inserter
     self.heartbeatInterval = heartbeatInterval
     self.startTimeout = startTimeout
+    self.processingTimeout = processingTimeout
+    self.canInsert = canInsert
     self.now = now
   }
 
@@ -116,6 +128,9 @@ public final class KeyboardStandbyDictation {
 
   /// マイクの操作。待機中なら録音を始め、録音中なら止める。それ以外では何もしない
   public func toggle() async {
+    guard !isIssuing else { return }
+    isIssuing = true
+    defer { isIssuing = false }
     switch state {
     case .ready, .inserted, .failed, .resultReady, .insertionUnknown:
       await start()
@@ -172,10 +187,16 @@ public final class KeyboardStandbyDictation {
   private func start() async {
     let id = SessionID()
     let current = now()
+    let startEpoch = epoch
     do {
       _ = try await signals.issueCommand(.start, sessionID: id, at: current)
     } catch {
-      set(.failed(.hostLost))
+      if startEpoch == epoch { set(.failed(.hostLost)) }
+      return
+    }
+    // 合図を書いている間に閉じられたら、追跡せず、書いた開始を取り消す（iOS-06）
+    guard startEpoch == epoch else {
+      _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())
       return
     }
     startedAt = current
@@ -186,13 +207,26 @@ public final class KeyboardStandbyDictation {
   }
 
   private func stop(_ id: SessionID) async {
+    let startEpoch = epoch
+    // 本体アプリが開始を読む前に停止を書くと、合図は1つのファイルのため開始が上書きされ、停止だけが残って
+    // 無視される。開始の待ちの間は、停止ではなく取り消しを書いて、録音を始めずに戻る
+    var isStarting = false
+    if case .starting = state { isStarting = true }
     do {
-      _ = try await signals.issueCommand(.stop, sessionID: id, at: now())
+      _ = try await signals.issueCommand(isStarting ? .cancel : .stop, sessionID: id, at: now())
     } catch {
-      set(.failed(.hostLost))
+      if startEpoch == epoch { set(.failed(.hostLost)) }
       return
     }
-    set(.processing(id))
+    guard startEpoch == epoch else { return }
+    if isStarting {
+      startedAt = nil
+      lastHeartbeat = nil
+      set(.ready)
+    } else {
+      processingSince = now()
+      set(.processing(id))
+    }
   }
 
   private func writeHeartbeat(_ id: SessionID, at current: Date) async {
@@ -209,7 +243,9 @@ public final class KeyboardStandbyDictation {
     let standing = host.map { Self.isStandingBy($0, at: current) } ?? false
     switch state {
     case .unavailable where standing: set(.ready)
-    case .ready where !standing: set(.unavailable)
+    // 完了・失敗の後でも、本体アプリが待機を終えたら本体アプリを開く案内に戻す
+    case .ready, .inserted, .failed, .resultReady, .insertionUnknown:
+      if !standing { set(.unavailable) }
     default: break
     }
   }
@@ -242,6 +278,12 @@ public final class KeyboardStandbyDictation {
       return
     }
     guard host.sessionID == id else {
+      if case .processing = state, let processingSince,
+        current.timeIntervalSince(processingSince) > processingTimeout
+      {
+        set(.failed(.hostLost))
+        return
+      }
       if case .starting = state, let startedAt, current.timeIntervalSince(startedAt) > startTimeout
       {
         // 開始の合図に応えない。遅れて録音が始まる場合に備えて取り消しを書く
@@ -277,6 +319,11 @@ public final class KeyboardStandbyDictation {
     case .preview:
       set(.resultReady(id))
     case .automatic:
+      // 表示されていないキーボードには挿入せず、結果を確保しないまま次の表示の挿入候補にする（iOS-06）
+      guard canInsert() else {
+        set(.unavailable)
+        return
+      }
       // 1つのセッションにつき1回だけ試みる。結果不明でも自動では重ねて試みない
       guard insertionAttempted.insert(id).inserted else { return }
       let outcome = try? await inserter.insertResult(sessionID: id)

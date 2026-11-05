@@ -27,14 +27,20 @@ struct StandbyPreferencesTests {
     #expect(preferences.insertionMode == .preview)
   }
 
-  @Test("iOS-04: 無操作で終える時間を変えられ、「終えない」も選べる")
+  @Test("iOS-04: 無操作で終える時間を変えられる")
   func idleTimeoutRoundTrip() {
     let preferences = preferences()
     preferences.idleTimeoutMinutes = 15
     #expect(preferences.sessionConfiguration.idleTimeout == .seconds(900))
-    preferences.idleTimeoutMinutes = nil
-    #expect(preferences.idleTimeoutMinutes == nil)
-    #expect(preferences.sessionConfiguration.idleTimeout == nil)
+  }
+
+  @Test("iOS-04: 無期限にはできない。以前の「終えない」（0）が保存されていても既定に戻す")
+  func neverIsNotAllowed() {
+    let suite = "StandbyPreferencesTests-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.set(0, forKey: "standby.idleTimeoutMinutes")
+    #expect(StandbyPreferences(defaults: defaults).idleTimeoutMinutes == 5)
+    defaults.removePersistentDomain(forName: suite)
   }
 
   @Test("選択肢にない値が保存されていたら既定に戻す")

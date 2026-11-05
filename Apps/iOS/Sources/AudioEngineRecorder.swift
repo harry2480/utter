@@ -65,7 +65,10 @@ final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
     stop()
     let session = AVAudioSession.sharedInstance()
     // 待機中は、待機のカテゴリ（playAndRecord）のまま使う。変えると待機のエンジンが止まる
-    if !holdsSession() {
+    if holdsSession() {
+      // 待機中に本体アプリの録音を始めたときも、ミュートされたままにならないようにする
+      try? AVAudioApplication.shared.setInputMuted(false)
+    } else {
       try session.setCategory(.record, mode: .default)
     }
     try session.setActive(true)
@@ -89,7 +92,10 @@ final class AudioEngineRecorder: UtteriOSKit.AudioRecorder {
     if isSessionActive {
       isSessionActive = false
       // 待機セッションが保っている間は手放さない（待機を終えるときに待機側が手放す）
-      guard !holdsSession() else { return }
+      guard !holdsSession() else {
+        try? AVAudioApplication.shared.setInputMuted(true)
+        return
+      }
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
   }
