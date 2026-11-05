@@ -35,11 +35,16 @@ public struct SessionStateMachine: Sendable {
   /// - `idle`: 新しいセッションで録音を開始する
   /// - `recording`: 2回目の操作として録音を停止する（REC-01）
   /// - それ以外（処理中・失敗の表示中）: 無視する
+  /// - Parameter sessionID: 新しいセッションのID。`nil` なら作る。iOS の待機セッションで、キーボードが作った
+  ///   ID で結果を保存するときに渡す（iOS-04, #247）
   @discardableResult
-  public mutating func start(at now: ContinuousClock.Instant) -> SessionStartOutcome {
+  public mutating func start(
+    at now: ContinuousClock.Instant, sessionID: SessionID? = nil
+  ) -> SessionStartOutcome {
     switch phase {
     case .idle:
-      let session = ActiveSession(id: makeSessionID(), sequence: 0, startedAt: now, stopReason: nil)
+      let session = ActiveSession(
+        id: sessionID ?? makeSessionID(), sequence: 0, startedAt: now, stopReason: nil)
       activeSession = session
       phase = .recording
       return .started(session.token)
