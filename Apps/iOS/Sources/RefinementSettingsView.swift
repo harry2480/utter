@@ -37,6 +37,7 @@ struct RefinementSettingsView: View {
         Button("元に戻す", role: .destructive) { model.revert() }
       }
     }
+    .utterListStyle()
     .navigationTitle("整形と予算")
     .onAppear {
       model.reload()

@@ -16,37 +16,73 @@ struct FirstRunSetupView: View {
   @State private var refinementSelection: RefinementProviderChoice?
 
   var body: some View {
-    Form {
-      Section {
-        ForEach(Array(FirstRunSetupStep.allCases.enumerated()), id: \.element) { index, step in
-          FirstRunSetupStepListRow(
-            number: index + 1, step: step, state: model.state(of: step),
-            isCurrent: step == model.progress.current)
-        }
-      } header: {
-        Text("手順")
-      } footer: {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("最後まで進めるまでは、途中で閉じても次の起動で続きの手順から始めます。")
-          Text("「あとで」にした手順は、メニューの「初回セットアップ…」から続きを済ませられます。")
+    HStack(spacing: 0) {
+      sidebar
+      Divider()
+      Form {
+        if let step = model.progress.current {
+          stepHeader(step)
+          stepContent(step)
+          navigation(step)
+        } else {
+          summary
         }
       }
-
-      if let step = model.progress.current {
-        stepContent(step)
-        navigation(step)
-      } else {
-        summary
-      }
+      .formStyle(.grouped)
+      .scrollContentBackground(.hidden)
     }
-    .formStyle(.grouped)
-    .frame(minWidth: 520, minHeight: 560)
+    .background(UtterTheme.pageBackground)
+    .tint(UtterTheme.accent)
+    .frame(minWidth: 820, minHeight: 600)
     .onAppear { bringToFront() }
     .task { await model.refresh() }
     .onReceive(
       NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
     ) { _ in
       Task { await model.refresh() }
+    }
+  }
+
+  /// 左の手順一覧。今の手順と、済んだ手順
+  private var sidebar: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("utter の準備")
+          .font(.title2.weight(.bold))
+        Text("使う機能に必要な許可だけを、順番にお願いします。")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+      }
+      VStack(alignment: .leading, spacing: 4) {
+        ForEach(Array(FirstRunSetupStep.allCases.enumerated()), id: \.element) { index, step in
+          FirstRunSetupStepListRow(
+            number: index + 1, step: step, state: model.state(of: step),
+            isCurrent: step == model.progress.current)
+        }
+      }
+      Spacer(minLength: 0)
+      VStack(alignment: .leading, spacing: 4) {
+        Text("最後まで進めるまでは、途中で閉じても次の起動で続きの手順から始めます。")
+        Text("「あとで」にした手順は、メニューの「初回セットアップ…」から続きを済ませられます。")
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    }
+    .padding(24)
+    .frame(width: 280, alignment: .topLeading)
+  }
+
+  /// 右の見出し。「手順 3 / 5」と手順名
+  private func stepHeader(_ step: FirstRunSetupStep) -> some View {
+    let number = (FirstRunSetupStep.allCases.firstIndex(of: step) ?? 0) + 1
+    return Section {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("手順 \(number) / \(FirstRunSetupStep.allCases.count)")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+        Text(step.title)
+          .font(.title.weight(.bold))
+      }
     }
   }
 
@@ -152,17 +188,44 @@ private struct FirstRunSetupStepListRow: View {
   let isCurrent: Bool
 
   var body: some View {
-    HStack {
-      Text("\(number). \(step.title)")
-        .font(isCurrent ? .headline : .body)
-      if isCurrent {
-        Text("今の手順")
+    HStack(spacing: 10) {
+      marker
+        .frame(width: 22, height: 22)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(step.title)
+          .font(isCurrent ? .body.weight(.bold) : .body)
+        Text(state.label)
           .font(.caption)
-          .foregroundStyle(.tint)
+          .foregroundStyle(.secondary)
       }
-      Spacer()
-      Label(state.label, systemImage: state.systemImage)
-        .foregroundStyle(state.color)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(
+      isCurrent ? Color.primary.opacity(0.1) : Color.clear,
+      in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+    )
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(isCurrent ? .isSelected : [])
+  }
+
+  @ViewBuilder private var marker: some View {
+    if state == .completed {
+      Image(systemName: "checkmark.circle.fill")
+        .foregroundStyle(UtterTheme.accent)
+    } else if isCurrent {
+      Text("\(number)")
+        .font(.caption.weight(.bold))
+        .foregroundStyle(.white)
+        .frame(width: 22, height: 22)
+        .background(Color.primary, in: Circle())
+    } else {
+      Text("\(number)")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(width: 22, height: 22)
+        .overlay(Circle().stroke(Color.secondary, lineWidth: 1.5))
     }
   }
 }
