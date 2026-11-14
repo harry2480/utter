@@ -240,7 +240,13 @@ public final class KeyboardStandbyDictation {
     // 開始を書いている間に取り消された。開始が済んだので、取り消しを書いて待機に戻る
     if cancelPending {
       cancelPending = false
-      guard startEpoch == epoch, case .starting = state else { return }
+      // 待っている間に `tick()` が同じセッションを録音中へ進めていても、取り消す
+      switch state {
+      case .starting(let current), .recording(let current):
+        guard current == id, startEpoch == epoch else { return }
+      default:
+        return
+      }
       do {
         _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
       } catch {

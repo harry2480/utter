@@ -344,8 +344,51 @@ struct KeyboardStandbyDictationTests {
     #expect(dictation.state == .ready)
 
     let toggling = Task { await dictation.toggle() }
-    while !gate.hasEntered { await Task.yield() }
+    // 書き込みに失敗するなどでゲートに届かない場合は、待ち続けずに失敗にする
+    var spins = 0
+    while !gate.hasEntered && spins < 100_000 {
+      await Task.yield()
+      spins += 1
+    }
+    #expect(gate.hasEntered, "生存の印の書き込みに届かなかった")
+    guard gate.hasEntered else {
+      toggling.cancel()
+      return
+    }
     await dictation.cancel()
+    gate.open()
+    await toggling.value
+
+    #expect(try await store.loadCommand()?.action == .cancel)
+    #expect(dictation.state == .ready)
+  }
+
+  @Test("開始の合図を書いている間に録音中へ進んでも、保留した取り消しは送られる")
+  func cancelDuringStartIssuingAfterRecordingBegan() async throws {
+    let clock = Clock(base)
+    let store = StandbySessionStore(directory: directory.url)
+    let gate = HeartbeatGate()
+    let dictation = KeyboardStandbyDictation(
+      signals: GatedSignals(base: store, gate: gate), inserter: CountingInserter(),
+      now: { clock.now })
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+
+    let toggling = Task { await dictation.toggle() }
+    var spins = 0
+    while !gate.hasEntered && spins < 100_000 {
+      await Task.yield()
+      spins += 1
+    }
+    guard gate.hasEntered, let command = try await store.loadCommand() else {
+      Issue.record("開始の合図に届かなかった")
+      toggling.cancel()
+      return
+    }
+    await dictation.cancel()
+    try await store.saveHostState(host(.recording, session: command.sessionID, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .recording(command.sessionID))
     gate.open()
     await toggling.value
 

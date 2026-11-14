@@ -43,7 +43,9 @@ struct StandbySection: View {
         driver.isStandingBy
           ? (driver.coordinator.hostPhase == .standby
             ? "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
-            : "キーボードの操作で録音の途中です。終わると、また待機に戻ります。")
+            : (driver.coordinator.hostPhase == .recording
+              ? "キーボードの操作で録音の途中です。終わると、また待機に戻ります。"
+              : "認識と整形を行っています。結果は、キーボードの操作で確かめてください。"))
           : "待機を始めると、ほかのアプリを使いながら、キーボードのマイクで話して文章を入れられます。アプリの切り替えは要りません。"
       )
       .font(.system(size: 15))
