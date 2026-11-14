@@ -67,7 +67,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             .padding(.horizontal, 10)
             .background(
-              selection == tab ? Color.white.opacity(0.7) : Color.clear,
+              selection == tab ? Color.primary.opacity(0.1) : Color.clear,
               in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
             .contentShape(Rectangle())

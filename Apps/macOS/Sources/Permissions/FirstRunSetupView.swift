@@ -203,7 +203,7 @@ private struct FirstRunSetupStepListRow: View {
     .padding(.horizontal, 10)
     .padding(.vertical, 8)
     .background(
-      isCurrent ? Color.white.opacity(0.7) : Color.clear,
+      isCurrent ? Color.primary.opacity(0.1) : Color.clear,
       in: RoundedRectangle(cornerRadius: 10, style: .continuous)
     )
     .accessibilityElement(children: .combine)

@@ -24,7 +24,7 @@ struct MenuBarSwitchItems: View {
     MenuSection(title: "入力モード") {
       Picker("入力モード", selection: inputModeSelection) {
         ForEach(model.inputModeChoices, id: \.self) { mode in
-          Text(mode.label).tag(mode)
+          Text(MenuBarModel.inputModeName(mode)).tag(mode)
         }
       }
       .pickerStyle(.segmented)

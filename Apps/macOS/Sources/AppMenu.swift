@@ -7,6 +7,17 @@ import SwiftUI
 /// 下に設定などの操作を並べる。項目は機能のディレクトリに置き、ここには1機能1行で並べるだけにする。
 struct AppMenu: View {
   var body: some View {
+    // 小さい画面で下の操作に届かなくなる場合だけ、スクロールできるようにする
+    ViewThatFits(in: .vertical) {
+      content
+      ScrollView { content }
+    }
+    .frame(width: 340)
+    .frame(maxHeight: 600)
+    .tint(UtterTheme.accent)
+  }
+
+  private var content: some View {
     VStack(alignment: .leading, spacing: 14) {
       // 状態と録音の操作。1機能1行で、関係する機能の近くに足す
       VStack(alignment: .leading, spacing: 4) {
@@ -34,7 +45,6 @@ struct AppMenu: View {
     }
     .padding(16)
     .frame(width: 340)
-    .tint(UtterTheme.accent)
   }
 }
 

@@ -93,6 +93,10 @@ public final class KeyboardStandbyDictation {
   private var processingSince: Date?
   /// 開始・停止の合図を書いている間（重ねて押されても合図を重ねない）
   private var isIssuing = false
+  /// 開始の合図を書いている間（この間の取り消しは、開始が済んでから送る）
+  private var isStartIssuing = false
+  /// 開始の合図を書いている間に取り消しが押された
+  private var cancelPending = false
   /// `tick()` が重ならないようにする
   private var isTicking = false
 
@@ -133,6 +137,9 @@ public final class KeyboardStandbyDictation {
     defer { isIssuing = false }
     switch state {
     case .ready, .inserted, .failed, .resultReady, .insertionUnknown:
+      isStartIssuing = true
+      cancelPending = false
+      defer { isStartIssuing = false }
       await start()
     case .starting(let id), .recording(let id):
       await stop(id)
@@ -143,7 +150,10 @@ public final class KeyboardStandbyDictation {
 
   /// 録音をやめる（入れない）。開始の待ち・録音中なら取り消しの合図を書いて待機に戻る。それ以外では何もしない
   public func cancel() async {
-    guard !isIssuing else { return }
+    guard !isIssuing else {
+      if isStartIssuing { cancelPending = true }
+      return
+    }
     isIssuing = true
     defer { isIssuing = false }
     switch state {
@@ -227,6 +237,21 @@ public final class KeyboardStandbyDictation {
     set(.starting(id))
     // 録音の開始と同時に印を書き、本体アプリが印を待たずに録音を捨てないようにする
     await writeHeartbeat(id, at: current)
+    // 開始を書いている間に取り消された。開始が済んだので、取り消しを書いて待機に戻る
+    if cancelPending {
+      cancelPending = false
+      guard startEpoch == epoch, case .starting = state else { return }
+      do {
+        _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
+      } catch {
+        if startEpoch == epoch { set(.failed(.hostLost)) }
+        return
+      }
+      guard startEpoch == epoch else { return }
+      startedAt = nil
+      lastHeartbeat = nil
+      set(.ready)
+    }
   }
 
   private func stop(_ id: SessionID) async {

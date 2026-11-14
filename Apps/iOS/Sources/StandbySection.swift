@@ -41,7 +41,9 @@ struct StandbySection: View {
       .accessibilityElement(children: .combine)
       Text(
         driver.isStandingBy
-          ? "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
+          ? (driver.coordinator.hostPhase == .standby
+            ? "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
+            : "キーボードの操作で録音の途中です。終わると、また待機に戻ります。")
           : "待機を始めると、ほかのアプリを使いながら、キーボードのマイクで話して文章を入れられます。アプリの切り替えは要りません。"
       )
       .font(.system(size: 15))
@@ -73,7 +75,10 @@ struct StandbySection: View {
     VStack(alignment: .leading, spacing: 10) {
       step(1, "文章を入れたいアプリに戻る")
       step(2, "utter キーボードの「話す」を押す")
-      step(3, "話し終えたら止める。文章が自動で入る")
+      step(
+        3,
+        insertionMode == .preview
+          ? "話し終えたら止める。確かめて「カーソルの位置に入れる」を押す" : "話し終えたら止める。文章が自動で入る")
     }
   }
 
