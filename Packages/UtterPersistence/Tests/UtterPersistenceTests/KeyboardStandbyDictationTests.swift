@@ -283,6 +283,31 @@ struct KeyboardStandbyDictationTests {
     #expect(dictation.state == .ready)
   }
 
+  @Test("録音中の「やめる」は、取り消しを書いて待機に戻る（入れない）")
+  func cancelWhileRecordingWritesCancel() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = try await startRecording(dictation, store, clock)
+    try await store.saveHostState(host(.recording, session: id, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .recording(id))
+
+    await dictation.cancel()
+
+    #expect(try await store.loadCommand()?.action == .cancel)
+    #expect(try await store.loadCommand()?.sessionID == id)
+    #expect(dictation.state == .ready)
+  }
+
+  @Test("待機中・処理中の「やめる」は何も書かない")
+  func cancelOutsideRecordingDoesNothing() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    await dictation.cancel()
+    #expect(try await store.loadCommand() == nil)
+    #expect(dictation.state == .unavailable)
+  }
+
   @Test("停止のあと、本体アプリが結果を返さなければ待ち続けずに失敗にする")
   func processingTimesOut() async throws {
     let clock = Clock(base)

@@ -23,44 +23,117 @@ struct StandbySection: View {
   }
 
   var body: some View {
-    Section {
-      Button {
-        Task {
-          if driver.isStandingBy {
-            await driver.end()
-          } else {
-            await driver.start()
-          }
-        }
-      } label: {
-        Label(
-          driver.isStandingBy ? "待機を終える" : "待機を始める",
-          systemImage: driver.isStandingBy ? "stop.circle" : "mic.badge.plus")
+    VStack(spacing: 20) {
+      statusCard
+      settingsCard
+    }
+  }
+
+  /// 待機の状態と、始める・やめるボタン（設計: 待機していない／待機中）
+  private var statusCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(spacing: 10) {
+        UtterStatusDot(color: driver.isStandingBy ? .utterAccent : .utterIdleDot)
+        Text(driver.isStandingBy ? "待機中" : "待機していません")
+          .font(.system(size: 20, weight: .bold))
+          .foregroundStyle(Color.utterText)
       }
-      .disabled(isRecording && !driver.isStandingBy)
+      .accessibilityElement(children: .combine)
+      Text(
+        driver.isStandingBy
+          ? "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
+          : "待機を始めると、ほかのアプリを使いながら、キーボードのマイクで話して文章を入れられます。アプリの切り替えは要りません。"
+      )
+      .font(.system(size: 15))
+      .lineSpacing(5)
+      .foregroundStyle(Color.utterSecondary)
+      if driver.isStandingBy {
+        steps
+        Button("待機をやめる") { Task { await driver.end() } }
+          .buttonStyle(UtterOutlineButtonStyle())
+      } else {
+        Button("待機を始める") { Task { await driver.start() } }
+          .buttonStyle(UtterFilledButtonStyle(height: 56))
+          .disabled(isRecording)
+        Text("何もしないまま \(idleTimeoutMinutes) 分たつと、自動で終わります。")
+          .font(.system(size: 13))
+          .lineSpacing(3)
+          .foregroundStyle(Color.utterSecondary)
+      }
       if let message = statusMessage {
         Text(message)
-          .font(.footnote)
-          .foregroundStyle(.secondary)
+          .font(.system(size: 13))
+          .foregroundStyle(Color.utterSecondary)
       }
-      Picker("停止後の挿入", selection: $insertionMode) {
-        Text("自動で挿入").tag(StandbyInsertionMode.automatic)
-        Text("プレビューして挿入").tag(StandbyInsertionMode.preview)
-      }
-      .onChange(of: insertionMode) { _, mode in preferences.insertionMode = mode }
-      Picker("無操作で終える", selection: $idleTimeoutMinutes) {
-        ForEach(StandbyPreferences.idleTimeoutChoices, id: \.self) { minutes in
-          Text("\(minutes) 分").tag(minutes)
+    }
+    .utterCard(padding: EdgeInsets(top: 20, leading: 16, bottom: 20, trailing: 16))
+  }
+
+  private var steps: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      step(1, "文章を入れたいアプリに戻る")
+      step(2, "utter キーボードの「話す」を押す")
+      step(3, "話し終えたら止める。文章が自動で入る")
+    }
+  }
+
+  private func step(_ number: Int, _ text: String) -> some View {
+    HStack(spacing: 12) {
+      Text("\(number)")
+        .font(.system(size: 13, weight: .bold))
+        .foregroundStyle(Color.utterOnStrongFill)
+        .frame(width: 26, height: 26)
+        .background(Color.utterStrongFill, in: Circle())
+        .accessibilityHidden(true)
+      Text(text)
+        .font(.system(size: 15))
+        .foregroundStyle(Color.utterText)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("\(number). \(text)")
+  }
+
+  /// 停止後の挿入のしかたと、無操作で終えるまでの時間
+  private var settingsCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      UtterSectionLabel("キーボードで録音")
+      VStack(spacing: 0) {
+        HStack {
+          Text("入れ方").foregroundStyle(Color.utterText)
+          Spacer()
+          Picker("停止後の挿入", selection: $insertionMode) {
+            Text("止めたら自動で挿入").tag(StandbyInsertionMode.automatic)
+            Text("確かめてから挿入").tag(StandbyInsertionMode.preview)
+          }
+          .labelsHidden()
+          .onChange(of: insertionMode) { _, mode in preferences.insertionMode = mode }
         }
+        .frame(minHeight: 44)
+        .padding(.horizontal, 16)
+        Divider().overlay(Color.utterLine)
+        HStack {
+          Text("無操作で終える").foregroundStyle(Color.utterText)
+          Spacer()
+          Picker("無操作で終える", selection: $idleTimeoutMinutes) {
+            ForEach(StandbyPreferences.idleTimeoutChoices, id: \.self) { minutes in
+              Text("\(minutes) 分").tag(minutes)
+            }
+          }
+          .labelsHidden()
+          .disabled(driver.isStandingBy)
+          .onChange(of: idleTimeoutMinutes) { _, minutes in
+            preferences.idleTimeoutMinutes = minutes
+          }
+        }
+        .frame(minHeight: 44)
+        .padding(.horizontal, 16)
       }
-      .disabled(driver.isStandingBy)
-      .onChange(of: idleTimeoutMinutes) { _, minutes in preferences.idleTimeoutMinutes = minutes }
-    } header: {
-      Text("キーボードで録音")
-    } footer: {
-      Text(
-        "待機中は、キーボードのマイクの操作で本体アプリへ移らずに録音できます。待機中もマイクは使わず（入力はミュート）、録音を始めたときだけ使います。"
-      )
+      .font(.system(size: 15))
+      .background(Color.utterCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+      Text("待機中もマイクは使わず（入力はミュート）、録音を始めたときだけ使います。")
+        .font(.system(size: 13))
+        .foregroundStyle(Color.utterSecondary)
+        .padding(.horizontal, 4)
     }
   }
 

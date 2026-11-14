@@ -64,14 +64,18 @@ final class KeyboardViewController: UIInputViewController {
   private let hostAppLabel = KeyboardViewController.makeLabel()
   private let remainingLabel = KeyboardViewController.makeLabel()
   private let fullAccessStepsLabel = KeyboardViewController.makeLabel()
-  private let insertButton = KeyboardViewController.makeActionButton(title: "挿入")
-  private let confirmInsertedButton = KeyboardViewController.makeActionButton(title: "入っていた")
-  private let reinsertButton = KeyboardViewController.makeActionButton(title: "もう一度入れる")
-  private let discardButton = KeyboardViewController.makeActionButton(title: "消す")
-  private let reloadButton = KeyboardViewController.makeActionButton(title: "更新")
+  private let insertButton = KeyboardViewController.makeActionButton(
+    title: "カーソルの位置に入れる", style: .accent)
+  private let confirmInsertedButton = KeyboardViewController.makeActionButton(
+    title: "入っていた", style: .accent)
+  private let reinsertButton = KeyboardViewController.makeActionButton(
+    title: "もう一度入れる", style: .outline)
+  private let discardButton = KeyboardViewController.makeActionButton(title: "消す", style: .outline)
+  private let reloadButton = KeyboardViewController.makeActionButton(title: "更新", style: .outline)
   private let fullAccessStepsButton = KeyboardViewController.makeActionButton(
-    title: KeyboardMessages.showFullAccessSteps)
-  private let openHostAppButton = KeyboardViewController.makeActionButton(title: "本体アプリを開く")
+    title: KeyboardMessages.showFullAccessSteps, style: .outline)
+  private let openHostAppButton = KeyboardViewController.makeActionButton(
+    title: "本体アプリを開く", style: .outline)
   private let primaryButtons = UIStackView()
   private let sharedResultSection = UIStackView()
   private let fullAccessSection = UIStackView()
@@ -99,7 +103,33 @@ final class KeyboardViewController: UIInputViewController {
   /// 表示している間、待機セッションの状態を読み直す（iOS-04）。通知は読み直しのきっかけにだけ使う
   private var standbyTask: Task<Void, Never>?
   private var standbyObservation: StandbyDarwinObservation?
-  private let micButton = KeyboardViewController.makeActionButton(title: "🎤")
+  private let micButton = KeyboardViewController.makeActionButton(title: "話す", style: .strong)
+  private let micTitleLabel = KeyboardViewController.makeLabel()
+  private let micSubtitleLabel = KeyboardViewController.makeLabel()
+  private let micDotView = UIView()
+  private let micCheckView = UIImageView(image: UIImage(systemName: "checkmark.circle"))
+  private let micRow = UIStackView()
+  private let micTextStack = UIStackView()
+  private let bandCard = UIView()
+  private let scrollView = UIScrollView()
+
+  // 録音中・認識中の暗い帯（設計: キーボード 2・3）
+  private let darkBand = UIView()
+  private let bandTitleLabel = KeyboardViewController.makeBandLabel(size: 16, bold: true)
+  private let bandElapsedLabel = KeyboardViewController.makeBandLabel(
+    size: 15, color: UtterPalette.bandBodyText, monospaced: true)
+  private let bandDotView = UIView()
+  private let bandCaptionLabel = KeyboardViewController.makeBandLabel(
+    size: 12, color: UtterPalette.bandSecondaryText)
+  private let bandProgressStack = UIStackView()
+  private let bandCancelButton = KeyboardViewController.makeBandButton(
+    title: "やめる", filled: false)
+  private let bandStopButton = KeyboardViewController.makeBandButton(
+    title: "止めて入れる", filled: true)
+  private let bandGlobeButton = KeyboardViewController.makeBandGlobeButton()
+  private let bandButtons = UIStackView()
+  /// 録音中の経過時間の起点。録音が始まったときにキーボード側で控える（本体アプリの時間とは別）
+  private var recordingStartedAt: Date?
 
   /// 共有結果への操作と、そのボタン。並べる順は `SharedResultKeyboardPanel.actions` が決める
   private var actionButtons: [(SharedResultKeyboardAction, UIButton)] {
@@ -375,6 +405,7 @@ final class KeyboardViewController: UIInputViewController {
         } else {
           await standby.keyboardClosed()
         }
+        updateBandElapsed()
         // 録音の途中は細かく、そうでなければ間を空けて読み直す
         try? await Task.sleep(for: standby.isBusy ? .milliseconds(300) : .seconds(2))
       }
@@ -539,13 +570,12 @@ final class KeyboardViewController: UIInputViewController {
     }
     primaryButtons.isHidden = !actions.contains { $0 != .discard }
 
-    // マイクのボタンは、制限のない入力欄で、共有結果を読める（待機の状態を使える）ときだけ出す
+    // マイクの行は、制限のない入力欄で、共有結果を読める（待機の状態を使える）ときだけ出す
     let standbyState = standby?.state ?? .unavailable
-    micButton.isHidden = !(showsSharedResult && standby != nil)
-    micButton.configuration?.title = KeyboardMessages.micTitle(standbyState)
-    var isProcessing = false
-    if case .processing = standbyState { isProcessing = true }
-    micButton.isEnabled = !isBusy && !isProcessing
+    let offersMic = showsSharedResult && standby != nil
+    renderMicRow(standbyState, visible: offersMic)
+    renderDarkBand(standbyState, visible: offersMic)
+    micButton.isEnabled = !isBusy
     let standbyMessage = KeyboardMessages.standbyStatus(standbyState)
     let message = [statusMessage, standbyMessage].compactMap { $0 }.joined(separator: "\n")
     statusLabel.text = message
@@ -592,11 +622,13 @@ final class KeyboardViewController: UIInputViewController {
     micButton.addAction(
       UIAction { [weak self] _ in self?.tapMic() }, for: .touchUpInside)
 
-    previewTextLabel.font = .preferredFont(forTextStyle: .body)
-    previewTextLabel.textColor = .label
+    previewTextLabel.font = .systemFont(ofSize: 15)
+    previewTextLabel.textColor = UtterPalette.text
     previewTextLabel.numberOfLines = 4
-    remainingLabel.textColor = .label
-    discardButton.configuration?.baseForegroundColor = .systemRed
+    remainingLabel.textColor = UtterPalette.warningText
+    remainingLabel.font = .systemFont(ofSize: 12)
+    remainingLabel.textAlignment = .right
+    noticesLabel.textColor = UtterPalette.warningText
 
     // 挿入・入っていた・もう一度入れるの行と、消す・更新の行に分ける
     for button in [insertButton, confirmInsertedButton, reinsertButton] {
@@ -624,36 +656,272 @@ final class KeyboardViewController: UIInputViewController {
       section.spacing = 4
     }
 
+    // マイクの行: 状態の文字（点・題・補足）とマイクのボタン
+    micDotView.translatesAutoresizingMaskIntoConstraints = false
+    micDotView.layer.cornerRadius = 4.5
+    micCheckView.translatesAutoresizingMaskIntoConstraints = false
+    micCheckView.tintColor = UtterPalette.accent
+    micCheckView.isHidden = true
+    NSLayoutConstraint.activate([
+      micDotView.widthAnchor.constraint(equalToConstant: 9),
+      micDotView.heightAnchor.constraint(equalToConstant: 9),
+      micCheckView.widthAnchor.constraint(equalToConstant: 24),
+      micCheckView.heightAnchor.constraint(equalToConstant: 24),
+    ])
+    micTitleLabel.font = .systemFont(ofSize: 14, weight: .bold)
+    micTitleLabel.textColor = UtterPalette.text
+    micSubtitleLabel.font = .systemFont(ofSize: 12)
+    let titleRow = UIStackView(arrangedSubviews: [micDotView, micCheckView, micTitleLabel])
+    titleRow.axis = .horizontal
+    titleRow.alignment = .center
+    titleRow.spacing = 6
+    micTextStack.axis = .vertical
+    micTextStack.spacing = 2
+    micTextStack.addArrangedSubview(titleRow)
+    micTextStack.addArrangedSubview(micSubtitleLabel)
+    micRow.axis = .horizontal
+    micRow.alignment = .center
+    micRow.spacing = 10
+    micRow.addArrangedSubview(micTextStack)
+    micRow.addArrangedSubview(micButton)
+    micButton.setContentHuggingPriority(.required, for: .horizontal)
+    micButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
     let panel = UIStackView(arrangedSubviews: [
-      noticesLabel, fullAccessSection, micButton, statusLabel, sharedResultSection, hostAppSection,
+      noticesLabel, fullAccessSection, micRow, statusLabel, sharedResultSection, hostAppSection,
     ])
     panel.axis = .vertical
-    panel.spacing = 8
+    panel.spacing = 10
     panel.translatesAutoresizingMaskIntoConstraints = false
-    let scrollView = UIScrollView()
     scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.addSubview(panel)
 
-    keysView.translatesAutoresizingMaskIntoConstraints = false
-    root.addSubview(scrollView)
-    root.addSubview(keysView)
+    bandCard.backgroundColor = UtterPalette.card
+    bandCard.layer.cornerRadius = 14
+    bandCard.translatesAutoresizingMaskIntoConstraints = false
+    bandCard.addSubview(scrollView)
+    root.backgroundColor = UtterPalette.keyboardBackground
 
+    keysView.translatesAutoresizingMaskIntoConstraints = false
+    root.addSubview(bandCard)
+    root.addSubview(keysView)
+    buildDarkBand(in: root)
+
+    // 内容の高さに合わせ、高くなりすぎたらスクロールにする
+    let fitContent = scrollView.heightAnchor.constraint(
+      equalTo: scrollView.contentLayoutGuide.heightAnchor)
+    fitContent.priority = .defaultHigh
     NSLayoutConstraint.activate([
-      scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 6),
-      scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -6),
-      scrollView.topAnchor.constraint(equalTo: root.topAnchor, constant: 6),
-      scrollView.heightAnchor.constraint(equalToConstant: 130),
+      bandCard.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+      bandCard.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
+      bandCard.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+      scrollView.leadingAnchor.constraint(equalTo: bandCard.leadingAnchor, constant: 12),
+      scrollView.trailingAnchor.constraint(equalTo: bandCard.trailingAnchor, constant: -12),
+      scrollView.topAnchor.constraint(equalTo: bandCard.topAnchor, constant: 10),
+      scrollView.bottomAnchor.constraint(equalTo: bandCard.bottomAnchor, constant: -10),
+      fitContent,
+      scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 130),
       panel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
       panel.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
       panel.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
       panel.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
-      keysView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 3),
-      keysView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -3),
-      keysView.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
+      keysView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
+      keysView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
+      keysView.topAnchor.constraint(equalTo: bandCard.bottomAnchor, constant: 10),
       keysView.bottomAnchor.constraint(
         equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
     ])
+  }
+
+  /// 録音中・認識中の暗い帯。キーの代わりに全面へ重ねる
+  private func buildDarkBand(in root: UIView) {
+    darkBand.backgroundColor = UtterPalette.band
+    darkBand.isHidden = true
+    darkBand.translatesAutoresizingMaskIntoConstraints = false
+    root.addSubview(darkBand)
+
+    bandDotView.translatesAutoresizingMaskIntoConstraints = false
+    bandDotView.layer.cornerRadius = 5.5
+    bandDotView.backgroundColor = UtterPalette.bandAccent
+    NSLayoutConstraint.activate([
+      bandDotView.widthAnchor.constraint(equalToConstant: 11),
+      bandDotView.heightAnchor.constraint(equalToConstant: 11),
+    ])
+    let spacer = UIView()
+    spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let header = UIStackView(arrangedSubviews: [
+      bandDotView, bandTitleLabel, spacer, bandElapsedLabel,
+    ])
+    header.axis = .horizontal
+    header.alignment = .center
+    header.spacing = 8
+
+    bandProgressStack.axis = .horizontal
+    bandProgressStack.distribution = .fillEqually
+    bandProgressStack.spacing = 8
+
+    bandButtons.axis = .horizontal
+    bandButtons.spacing = 12
+    bandButtons.addArrangedSubview(bandCancelButton)
+    bandButtons.addArrangedSubview(bandStopButton)
+    bandCancelButton.setContentHuggingPriority(.required, for: .horizontal)
+    bandStopButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+    bandCaptionLabel.numberOfLines = 0
+    let footer = UIStackView(arrangedSubviews: [bandCaptionLabel, bandGlobeButton])
+    footer.axis = .horizontal
+    footer.alignment = .center
+    footer.spacing = 12
+
+    let content = UIStackView(arrangedSubviews: [header, bandProgressStack, bandButtons, footer])
+    content.axis = .vertical
+    content.distribution = .equalSpacing
+    content.spacing = 12
+    content.translatesAutoresizingMaskIntoConstraints = false
+    darkBand.addSubview(content)
+    NSLayoutConstraint.activate([
+      darkBand.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      darkBand.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+      darkBand.topAnchor.constraint(equalTo: root.topAnchor),
+      darkBand.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+      content.leadingAnchor.constraint(equalTo: darkBand.leadingAnchor, constant: 16),
+      content.trailingAnchor.constraint(equalTo: darkBand.trailingAnchor, constant: -16),
+      content.topAnchor.constraint(equalTo: darkBand.topAnchor, constant: 16),
+      content.bottomAnchor.constraint(
+        equalTo: darkBand.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+      bandStopButton.heightAnchor.constraint(equalToConstant: 56),
+      bandCancelButton.heightAnchor.constraint(equalToConstant: 56),
+    ])
+    bandCancelButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self, let standby else { return }
+        Task { await standby.cancel() }
+      }, for: .touchUpInside)
+    bandStopButton.addAction(
+      UIAction { [weak self] _ in self?.tapMic() }, for: .touchUpInside)
+    bandGlobeButton.addTarget(
+      self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+  }
+
+  // MARK: マイクの行と暗い帯
+
+  /// マイクの行（話せる状態・待機していない・入れた直後）。録音中・認識中は暗い帯が代わる
+  private func renderMicRow(_ state: KeyboardStandbyState, visible: Bool) {
+    var isDarkState = false
+    switch state {
+    case .starting, .recording, .processing: isDarkState = true
+    default: break
+    }
+    micRow.isHidden = !visible || isDarkState
+    guard visible else { return }
+    micCheckView.isHidden = true
+    micDotView.isHidden = false
+    micSubtitleLabel.isHidden = true
+    switch state {
+    case .unavailable:
+      // 待機していない: 本体アプリを開いて待機を始めてもらう
+      micDotView.backgroundColor = UtterPalette.idleDot
+      micTitleLabel.text = "まだ話せません"
+      Self.applyStyle(micButton, title: "utter を開いて待機を始める", style: .accent, symbol: nil)
+      micRow.axis = .vertical
+      micRow.alignment = .fill
+    case .inserted:
+      micCheckView.isHidden = false
+      micDotView.isHidden = true
+      micTitleLabel.text = "入れました"
+      micSubtitleLabel.text = "続けて話せます"
+      micSubtitleLabel.isHidden = false
+      Self.applyStyle(micButton, title: "続けて話す", style: .strong, symbol: "mic")
+      micRow.axis = .horizontal
+      micRow.alignment = .center
+    default:
+      micDotView.backgroundColor = UtterPalette.accent
+      micTitleLabel.text = "話せます"
+      Self.applyStyle(micButton, title: "話す", style: .strong, symbol: "mic")
+      micRow.axis = .horizontal
+      micRow.alignment = .center
+    }
+  }
+
+  /// 暗い帯（録音中・認識中）。表示している間はキーと明るい帯を隠す
+  private func renderDarkBand(_ state: KeyboardStandbyState, visible: Bool) {
+    var showsBand = false
+    switch state {
+    case .starting:
+      showsBand = visible
+      bandTitleLabel.text = "開始しています…"
+      bandElapsedLabel.isHidden = true
+      bandProgressStack.isHidden = true
+      bandButtons.isHidden = false
+      bandStopButton.isEnabled = false
+      bandStopButton.alpha = 0.4
+      bandCaptionLabel.text = "キーボードを閉じると、この録音は捨てます。"
+      recordingStartedAt = nil
+    case .recording:
+      showsBand = visible
+      if recordingStartedAt == nil { recordingStartedAt = Date() }
+      bandTitleLabel.text = "録音中"
+      bandElapsedLabel.isHidden = false
+      bandProgressStack.isHidden = true
+      bandButtons.isHidden = false
+      bandStopButton.isEnabled = !isBusy
+      bandStopButton.alpha = 1
+      bandCaptionLabel.text = "キーボードを閉じると、この録音は捨てます。"
+      updateBandElapsed()
+    case .processing:
+      showsBand = visible
+      recordingStartedAt = nil
+      bandTitleLabel.text = "文字にしています"
+      bandElapsedLabel.isHidden = true
+      bandButtons.isHidden = true
+      bandProgressStack.isHidden = false
+      renderProgressSteps()
+      bandCaptionLabel.text = "終わるまでお待ちください。結果は、キーボードを閉じても残ります。"
+    default:
+      recordingStartedAt = nil
+    }
+    darkBand.isHidden = !showsBand
+    bandCard.isHidden = showsBand
+    keysView.isHidden = showsBand
+    bandDotView.isHidden = state != .unavailable && !isRecordingState(state)
+  }
+
+  private func isRecordingState(_ state: KeyboardStandbyState) -> Bool {
+    if case .recording = state { return true }
+    return false
+  }
+
+  /// 認識・整形の進み具合。キーボードが知っているのは「処理中」だけなので、3段（録音済み・認識と整形・挿入）で示す
+  private func renderProgressSteps() {
+    guard bandProgressStack.arrangedSubviews.isEmpty else { return }
+    let steps: [(String, UIColor, Bool)] = [
+      ("録音", UtterPalette.bandAccent, false),
+      ("認識・整形", UtterPalette.bandText, true),
+      ("挿入", UtterPalette.bandTrack, false),
+    ]
+    for (title, color, isCurrent) in steps {
+      let bar = UIView()
+      bar.backgroundColor = color
+      bar.layer.cornerRadius = 2
+      bar.translatesAutoresizingMaskIntoConstraints = false
+      bar.heightAnchor.constraint(equalToConstant: 4).isActive = true
+      let label = Self.makeBandLabel(
+        size: 13, bold: isCurrent,
+        color: isCurrent ? UtterPalette.bandText : UtterPalette.bandSecondaryText)
+      label.text = title
+      let column = UIStackView(arrangedSubviews: [bar, label])
+      column.axis = .vertical
+      column.spacing = 6
+      bandProgressStack.addArrangedSubview(column)
+    }
+  }
+
+  /// 録音中の経過時間（0:07 の形）。キーボードが録音を始めたと知った時刻から数える
+  private func updateBandElapsed() {
+    guard let startedAt = recordingStartedAt else { return }
+    let seconds = max(0, Int(Date().timeIntervalSince(startedAt)))
+    bandElapsedLabel.text = String(format: "%d:%02d", seconds / 60, seconds % 60)
   }
 
   /// 本体アプリを開くための画面を重ねる。大きさを持たないため、キーボードの見た目は変わらない
@@ -676,14 +944,113 @@ final class KeyboardViewController: UIInputViewController {
   private static func makeLabel() -> UILabel {
     let label = UILabel()
     label.numberOfLines = 0
-    label.font = .preferredFont(forTextStyle: .footnote)
-    label.textColor = .secondaryLabel
+    label.font = .systemFont(ofSize: 13)
+    label.adjustsFontForContentSizeCategory = true
+    label.textColor = UtterPalette.secondaryText
     return label
   }
 
-  private static func makeActionButton(title: String) -> UIButton {
-    var configuration = UIButton.Configuration.tinted()
+  /// 暗い帯の上の文字
+  private static func makeBandLabel(
+    size: CGFloat, bold: Bool = false, color: UIColor = UtterPalette.bandText,
+    monospaced: Bool = false
+  ) -> UILabel {
+    let label = UILabel()
+    label.numberOfLines = 0
+    label.font =
+      monospaced
+      ? .monospacedDigitSystemFont(ofSize: size, weight: .regular)
+      : .systemFont(ofSize: size, weight: bold ? .bold : .regular)
+    label.textColor = color
+    return label
+  }
+
+  private enum ButtonStyle { case accent, strong, outline }
+
+  private static func makeActionButton(title: String, style: ButtonStyle) -> UIButton {
+    let button = UIButton(configuration: .plain())
+    applyStyle(button, title: title, style: style, symbol: nil)
+    button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+    return button
+  }
+
+  /// ボタンの見た目（青・濃い色・枠だけ）。タップ領域は 44pt 以上
+  private static func applyStyle(
+    _ button: UIButton, title: String, style: ButtonStyle, symbol: String?
+  ) {
+    var configuration = UIButton.Configuration.filled()
     configuration.title = title
+    configuration.image = symbol.flatMap { UIImage(systemName: $0) }
+    configuration.imagePadding = 8
+    configuration.cornerStyle = .fixed
+    configuration.background.cornerRadius = style == .strong ? 12 : 10
+    configuration.contentInsets = NSDirectionalEdgeInsets(
+      top: 10, leading: 16, bottom: 10, trailing: 16)
+    let font = UIFont.systemFont(
+      ofSize: style == .strong ? 17 : 15, weight: style == .outline ? .regular : .bold)
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+      var attributes = $0
+      attributes.font = font
+      return attributes
+    }
+    switch style {
+    case .accent:
+      configuration.baseBackgroundColor = UtterPalette.accent
+      configuration.baseForegroundColor = UtterPalette.onAccent
+    case .strong:
+      configuration.baseBackgroundColor = UtterPalette.strongFill
+      configuration.baseForegroundColor = UtterPalette.onStrongFill
+    case .outline:
+      configuration.baseBackgroundColor = UtterPalette.card
+      configuration.baseForegroundColor = UtterPalette.text
+      configuration.background.strokeColor = UtterPalette.line
+      configuration.background.strokeWidth = 1
+    }
+    button.configuration = configuration
+  }
+
+  /// 暗い帯のボタン。`filled` は明るい塗り（止めて入れる）、そうでなければ枠だけ（やめる）
+  private static func makeBandButton(title: String, filled: Bool) -> UIButton {
+    var configuration = UIButton.Configuration.filled()
+    configuration.title = title
+    configuration.cornerStyle = .fixed
+    configuration.background.cornerRadius = 14
+    configuration.contentInsets = NSDirectionalEdgeInsets(
+      top: 12, leading: 16, bottom: 12, trailing: 16)
+    if filled {
+      configuration.baseBackgroundColor = UtterPalette.bandText
+      configuration.baseForegroundColor = UtterPalette.band
+      configuration.image = UIImage(systemName: "stop.fill")
+      configuration.imagePadding = 10
+    } else {
+      configuration.baseBackgroundColor = .clear
+      configuration.baseForegroundColor = UtterPalette.bandText
+      configuration.background.strokeColor = UtterPalette.bandLine
+      configuration.background.strokeWidth = 1
+    }
+    let size: CGFloat = filled ? 18 : 15
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+      var attributes = $0
+      attributes.font = UIFont.systemFont(ofSize: size, weight: filled ? .bold : .regular)
+      return attributes
+    }
     return UIButton(configuration: configuration)
+  }
+
+  private static func makeBandGlobeButton() -> UIButton {
+    var configuration = UIButton.Configuration.filled()
+    configuration.image = UIImage(systemName: "globe")
+    configuration.baseBackgroundColor = UtterPalette.bandRaised
+    configuration.baseForegroundColor = UtterPalette.bandText
+    configuration.cornerStyle = .fixed
+    configuration.background.cornerRadius = 8
+    let button = UIButton(configuration: configuration)
+    button.accessibilityLabel = "キーボードを切り替える"
+    button.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      button.widthAnchor.constraint(equalToConstant: 44),
+      button.heightAnchor.constraint(equalToConstant: 44),
+    ])
+    return button
   }
 }

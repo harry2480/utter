@@ -31,22 +31,32 @@ struct RecordingView: View {
 
   var body: some View {
     NavigationStack {
-      List {
-        if let signingWarning {
-          Section {
+      ScrollView {
+        VStack(spacing: 20) {
+          if let signingWarning {
             Text(signingWarning.message)
-              .foregroundStyle(.orange)
+              .font(.system(size: 15, weight: .bold))
+              .foregroundStyle(Color.utterWarningText)
+              .utterCard()
+              .background(
+                Color.utterWarningFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+          }
+          if let standby {
+            StandbySection(driver: standby, isRecording: !model.canStartRecording)
+          }
+          recordingSection
+          if model.canStartRecording {
+            homeSummary
+          }
+          resultsSection
+          if hasCopyableResult {
+            returnGuideSection
           }
         }
-        recordingSection
-        if let standby {
-          StandbySection(driver: standby, isRecording: !model.canStartRecording)
-        }
-        resultsSection
-        if hasCopyableResult {
-          returnGuideSection
-        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 34)
       }
+      .background(Color.utterBackground)
       .navigationTitle("utter")
       .refreshable { await model.refreshResults() }
       .toolbar {
@@ -80,6 +90,7 @@ struct RecordingView: View {
           speechEngine: speechEngine, speechModel: speechModel, signingExpiry: signingExpiry)
       }
     }
+    .tint(Color.utterAccent)
     .sheet(
       isPresented: $isShowingSettings,
       onDismiss: {
@@ -122,7 +133,8 @@ struct RecordingView: View {
   }
 
   private var recordingSection: some View {
-    Section {
+    VStack(alignment: .leading, spacing: 12) {
+      UtterSectionLabel("このアプリで録音")
       Button {
         Task {
           await model.toggleRecording()
@@ -132,67 +144,86 @@ struct RecordingView: View {
       } label: {
         Label(
           model.isRecording ? "録音を止める" : "録音を始める",
-          systemImage: model.isRecording ? "stop.circle.fill" : "mic.circle.fill"
-        )
-        .font(.title2)
+          systemImage: model.isRecording ? "stop.circle.fill" : "mic.circle.fill")
       }
+      .buttonStyle(UtterFilledButtonStyle(tone: .strong, height: 56))
       // 待機中は入力がミュートされた待機のセッションを保つため、本体アプリでの録音は待機を終えてから行う
       .disabled(!canToggle || standby?.isStandingBy == true)
 
       if model.canStartRecording {
-        homeSummary
+        Text(RecordingDurationText.maximum(model.maxRecordingDuration))
+          .font(.system(size: 13))
+          .foregroundStyle(Color.utterSecondary)
       } else {
         sessionProgress
       }
 
       Text(model.phase.statusLabel)
-        .foregroundStyle(.secondary)
+        .font(.system(size: 15))
+        .foregroundStyle(Color.utterSecondary)
 
       if canCancel {
         Button("キャンセル", role: .cancel) { model.cancel() }
+          .buttonStyle(UtterOutlineButtonStyle())
       }
       if let stopNotice = model.stopNotice {
         Text(stopNotice.message)
+          .font(.system(size: 15))
+          .foregroundStyle(Color.utterText)
       }
       if let refinementNotice = model.refinementNotice {
         Text(refinementNotice.message)
-          .font(.footnote)
-          .foregroundStyle(.secondary)
+          .font(.system(size: 13))
+          .foregroundStyle(Color.utterSecondary)
       }
       if let failure = model.failure {
         Text(failure.message)
+          .font(.system(size: 15))
           .foregroundStyle(.red)
         Button("閉じる") { model.dismissError() }
+          .buttonStyle(UtterOutlineButtonStyle())
       }
       if let unsavedText = model.unsavedText {
         Text(unsavedText)
+          .font(.system(size: 15))
+          .foregroundStyle(Color.utterText)
           .textSelection(.enabled)
         Button("コピー") { Task { await model.copyUnsavedText() } }
+          .buttonStyle(UtterOutlineButtonStyle())
       }
     }
+    .utterCard()
   }
 
-  /// ホーム: 文体の切り替え、整形先・認識先、最大録音時間
-  @ViewBuilder
+  /// ホーム: 文体の切り替え、整形先・認識先（設計の「いつもの設定」）
   private var homeSummary: some View {
-    Picker("文体", selection: styleSelection) {
-      ForEach(RefinementMode.allCases, id: \.self) { mode in
-        Text(mode.styleName).tag(mode)
+    VStack(alignment: .leading, spacing: 8) {
+      UtterSectionLabel("いつもの設定")
+      VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+          Picker("文体", selection: styleSelection) {
+            ForEach(RefinementMode.allCases, id: \.self) { mode in
+              Text(mode.styleName).tag(mode)
+            }
+          }
+          .pickerStyle(.segmented)
+          Text(home.style.styleDescription)
+            .font(.system(size: 13))
+            .foregroundStyle(Color.utterSecondary)
+          if home.saveFailed {
+            Text("文体を保存できませんでした。")
+              .font(.system(size: 13))
+              .foregroundStyle(.red)
+          }
+        }
+        .padding(16)
+        Divider().overlay(Color.utterLine)
+        DestinationRow(title: "整形", destination: home.refinementDestination)
+        Divider().overlay(Color.utterLine)
+        DestinationRow(title: "認識", destination: home.speechDestination)
       }
+      .background(Color.utterCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
-    .pickerStyle(.segmented)
-    Text(home.style.styleDescription)
-      .font(.footnote)
-      .foregroundStyle(.secondary)
-    if home.saveFailed {
-      Text("文体を保存できませんでした。")
-        .foregroundStyle(.red)
-    }
-    DestinationRow(title: "整形", destination: home.refinementDestination)
-    DestinationRow(title: "認識", destination: home.speechDestination)
-    Text(RecordingDurationText.maximum(model.maxRecordingDuration))
-      .font(.footnote)
-      .foregroundStyle(.secondary)
   }
 
   /// 録音中・処理中: 経過時間、音量の波形、文体・認識・整形先のチップ、途中の文字
@@ -204,6 +235,7 @@ struct RecordingView: View {
           VStack(alignment: .leading, spacing: 4) {
             Text(progress.text)
               .font(.title3.monospacedDigit())
+              .foregroundStyle(Color.utterText)
             ProgressView(value: progress.fraction)
           }
           .accessibilityElement(children: .ignore)
@@ -233,26 +265,32 @@ struct RecordingView: View {
   }
 
   private var resultsSection: some View {
-    Section {
-      Text(model.sharing.message)
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-      if let copyNotice = model.copyNotice {
-        Text(copyNotice.message)
+    VStack(alignment: .leading, spacing: 8) {
+      UtterSectionLabel("結果")
+      VStack(alignment: .leading, spacing: 6) {
+        Text(model.sharing.message)
+          .font(.system(size: 13))
+          .foregroundStyle(Color.utterSecondary)
+        if let copyNotice = model.copyNotice {
+          Text(copyNotice.message)
+        }
+        if let discardNotice = model.discardNotice {
+          Text(discardNotice.message)
+        }
+        if model.isRescueListUnavailable {
+          Text("保存した結果を読み込めませんでした。端末のロック中なら、解除してから引き下げて読み直してください。")
+        }
+        if model.rescueList.unavailableCount > 0 {
+          Text("端末のロック中のため読めない結果が \(model.rescueList.unavailableCount) 件あります。")
+        }
+        if model.rescueList.items.isEmpty {
+          Text("保存した結果はありません。")
+            .foregroundStyle(Color.utterSecondary)
+        }
       }
-      if let discardNotice = model.discardNotice {
-        Text(discardNotice.message)
-      }
-      if model.isRescueListUnavailable {
-        Text("保存した結果を読み込めませんでした。端末のロック中なら、解除してから引き下げて読み直してください。")
-      }
-      if model.rescueList.unavailableCount > 0 {
-        Text("端末のロック中のため読めない結果が \(model.rescueList.unavailableCount) 件あります。")
-      }
-      if model.rescueList.items.isEmpty {
-        Text("保存した結果はありません。")
-          .foregroundStyle(.secondary)
-      }
+      .font(.system(size: 15))
+      .foregroundStyle(Color.utterText)
+      .utterCard()
       ForEach(model.rescueList.items, id: \.sessionID) { item in
         ResultRow(
           item: item, context: model.resultContexts[item.sessionID],
@@ -267,23 +305,25 @@ struct RecordingView: View {
             }
           })
       }
-    } header: {
-      Text("結果")
     }
   }
 
   /// 元のアプリに戻ってキーボードから入れる手順と、キーボードが出ない欄でのコピーの案内（iOS-03, iOS-07）
   private var returnGuideSection: some View {
     let guide = ResultReturnGuide(sharing: model.sharing)
-    return Section {
-      ForEach(Array(guide.steps.enumerated()), id: \.offset) { index, step in
-        Text("\(index + 1). \(step)")
+    return VStack(alignment: .leading, spacing: 8) {
+      UtterSectionLabel("元のアプリで入れる")
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(Array(guide.steps.enumerated()), id: \.offset) { index, step in
+          Text("\(index + 1). \(step)")
+            .font(.system(size: 15))
+            .foregroundStyle(Color.utterText)
+        }
+        Text(guide.copyHint)
+          .font(.system(size: 13))
+          .foregroundStyle(Color.utterSecondary)
       }
-      Text(guide.copyHint)
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-    } header: {
-      Text("元のアプリで入れる")
+      .utterCard()
     }
   }
 
@@ -343,13 +383,15 @@ private struct ResultRow: View {
   let recordAgain: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 10) {
       HStack {
         Text(item.createdAt, style: .time)
+          .font(.system(size: 13, weight: .bold))
+          .foregroundStyle(Color.utterSecondary)
         Spacer()
         Text(item.state.label)
-          .font(.footnote)
-          .foregroundStyle(.secondary)
+          .font(.system(size: 13))
+          .foregroundStyle(Color.utterWarningText)
       }
       if let text = item.state.text {
         if let context {
@@ -360,23 +402,29 @@ private struct ResultRow: View {
           }
         }
         Text(text)
+          .font(.system(size: 15))
+          .lineSpacing(5)
+          .foregroundStyle(Color.utterText)
           .textSelection(.enabled)
         // 表示している間も残り時間を進める（キーボードと同じく 15 秒ごと）
         TimelineView(.periodic(from: .now, by: 15)) { timeline in
           Text(ResultRemainingTime.message(until: item.expiresAt, at: timeline.date))
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+            .font(.system(size: 13))
+            .foregroundStyle(Color.utterWarningText)
         }
-        HStack(spacing: 16) {
+        HStack(spacing: 8) {
           Button("コピー", action: copy)
-          Button("この文章を消す", role: .destructive, action: discard)
+            .buttonStyle(UtterOutlineButtonStyle())
+          Button("消す", role: .destructive, action: discard)
+            .buttonStyle(UtterOutlineButtonStyle(role: .destructive))
+            .accessibilityLabel("この文章を消す")
           Button("録音し直す", action: recordAgain)
+            .buttonStyle(UtterOutlineButtonStyle())
             .disabled(!canRecordAgain)
         }
-        // 1 行に複数のボタンを置くため、行全体ではなくボタンごとに押せるようにする
-        .buttonStyle(.borderless)
       }
     }
+    .utterCard(padding: EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
   }
 }
 
@@ -386,16 +434,22 @@ private struct DestinationRow: View {
   let destination: ProcessingDestination
 
   var body: some View {
-    LabeledContent(title) {
-      HStack(spacing: 6) {
+    HStack {
+      Text(title)
+        .foregroundStyle(Color.utterText)
+      Spacer()
+      HStack(spacing: 8) {
         Text(destination.name)
+          .foregroundStyle(Color.utterSecondary)
         if destination.sendsText {
-          Label(ProcessingDestination.sendsTextLabel, systemImage: "arrow.up.circle")
-            .font(.caption)
-            .foregroundStyle(.orange)
+          UtterWarningPill(text: ProcessingDestination.sendsTextLabel)
         }
       }
     }
+    .font(.system(size: 15))
+    .frame(minHeight: 44)
+    .padding(.horizontal, 16)
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -407,15 +461,16 @@ private struct Chip: View {
   var body: some View {
     HStack(spacing: 4) {
       Text(text)
+        .foregroundStyle(Color.utterText)
       if sendsText {
         Text("・\(ProcessingDestination.sendsTextLabel)")
-          .foregroundStyle(.orange)
+          .foregroundStyle(Color.utterWarningText)
       }
     }
-    .font(.caption)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
-    .background(.quaternary, in: Capsule())
+    .font(.system(size: 12))
+    .padding(.horizontal, 10)
+    .padding(.vertical, 3)
+    .background(Color.utterBackground, in: Capsule())
   }
 }
 
@@ -429,7 +484,7 @@ private struct LevelWaveform: View {
     HStack(alignment: .center, spacing: 2) {
       ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
         Capsule()
-          .fill(.tint)
+          .fill(Color.utterAccent)
           .frame(width: 3, height: max(2, CGFloat(level) * height))
       }
     }
@@ -447,15 +502,16 @@ private struct InterimTranscriptView: View {
       if let confirmed = interim.confirmed {
         Text("確定")
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Color.utterSecondary)
         Text(confirmed)
+          .foregroundStyle(Color.utterText)
       }
       if let listening = interim.listening {
         Text("聞き取り中")
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Color.utterSecondary)
         Text(listening)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Color.utterSecondary)
           .italic()
       }
     }

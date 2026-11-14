@@ -40,6 +40,7 @@ struct ClaudeAPIKeySettingsView: View {
         )
       }
     }
+    .utterListStyle()
     .navigationTitle("Claude API キー")
     .onAppear { model.refresh() }
     .onDisappear { model.clearInput() }

@@ -141,6 +141,29 @@ public final class KeyboardStandbyDictation {
     }
   }
 
+  /// 録音をやめる（入れない）。開始の待ち・録音中なら取り消しの合図を書いて待機に戻る。それ以外では何もしない
+  public func cancel() async {
+    guard !isIssuing else { return }
+    isIssuing = true
+    defer { isIssuing = false }
+    switch state {
+    case .starting(let id), .recording(let id):
+      let startEpoch = epoch
+      do {
+        _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
+      } catch {
+        if startEpoch == epoch { set(.failed(.hostLost)) }
+        return
+      }
+      guard startEpoch == epoch else { return }
+      startedAt = nil
+      lastHeartbeat = nil
+      set(.ready)
+    case .unavailable, .ready, .processing, .resultReady, .inserted, .insertionUnknown, .failed:
+      break
+    }
+  }
+
   /// 本体アプリの状態を読み直す。録音の途中なら生存の印も書く
   public func tick() async {
     guard !isTicking else { return }

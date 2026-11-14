@@ -1,29 +1,54 @@
 import AppKit
 import SwiftUI
 
-/// メニューバーのメニュー。
+/// メニューバーのメニュー（ウインドウ形式）。
 ///
-/// 項目は機能のディレクトリに置き、ここには1機能1行で並べるだけにする。
+/// 上に今の状態と録音ショートカット、中に入力モード・文体・整形の実行先・認識モデルと費用、
+/// 下に設定などの操作を並べる。項目は機能のディレクトリに置き、ここには1機能1行で並べるだけにする。
 struct AppMenu: View {
   var body: some View {
-    // 機能ごとの項目。1機能1行で、関係する機能の近くに足す
-    SessionStatusMenuItem()
-    ShortcutStatusMenuItem()
-    Divider()
-    SessionMenuItems()
-    Divider()
-    MenuBarSwitchItems()
-    Divider()
-    EditModeMenuItems()
-    Divider()
-    PermissionOnboardingMenuItem()
-    SettingsMenuItem()
-    DictionaryEditorMenuItem()
-    InputHistoryMenuItem()
-    ConsentSettingsMenuItem()
-    Divider()
-    SoftwareUpdateMenuItem()
-    QuitMenuItem()
+    VStack(alignment: .leading, spacing: 14) {
+      // 状態と録音の操作。1機能1行で、関係する機能の近くに足す
+      VStack(alignment: .leading, spacing: 4) {
+        SessionStatusMenuItem()
+          .font(.headline)
+        ShortcutStatusMenuItem()
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      SessionMenuItems()
+      Divider()
+      MenuBarSwitchItems()
+      Divider()
+      VStack(alignment: .leading, spacing: 2) {
+        EditModeMenuItems()
+        PermissionOnboardingMenuItem()
+        SettingsMenuItem()
+        DictionaryEditorMenuItem()
+        InputHistoryMenuItem()
+        ConsentSettingsMenuItem()
+        SoftwareUpdateMenuItem()
+        QuitMenuItem()
+      }
+      .buttonStyle(MenuRowButtonStyle())
+    }
+    .padding(16)
+    .frame(width: 340)
+    .tint(UtterTheme.accent)
+  }
+}
+
+/// メニュー下部の操作の行。幅いっぱいを押せる
+private struct MenuRowButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+      .padding(.horizontal, 6)
+      .background(
+        configuration.isPressed ? Color.primary.opacity(0.1) : Color.clear,
+        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+      )
+      .contentShape(Rectangle())
   }
 }
 

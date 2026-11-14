@@ -12,7 +12,8 @@ final class KeyboardKeysView: UIView {
   var onDelete: (() -> Void)?
 
   /// 地球儀キー。キーボードの切り替えは呼び出し側（`UIInputViewController`）の操作に結ぶ
-  let globeButton = KeyboardKeysView.makeKey(title: "🌐", accessibilityLabel: "次のキーボード")
+  let globeButton = KeyboardKeysView.makeKey(
+    title: nil, symbol: "globe", accessibilityLabel: "キーボードを切り替える", isFunction: true)
 
   private enum Plane {
     case letters
@@ -22,7 +23,8 @@ final class KeyboardKeysView: UIView {
   private static let letterRows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
   private static let symbolRows = ["1234567890", "-/:;()¥&@\"", ".,?!'、。"]
 
-  private static let functionKeyWidth: CGFloat = 56
+  private static let functionKeyWidth: CGFloat = 44
+  private static let newlineKeyWidth: CGFloat = 76
 
   private let rows = UIStackView()
   private var plane = Plane.letters
@@ -32,7 +34,7 @@ final class KeyboardKeysView: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     rows.axis = .vertical
-    rows.spacing = 6
+    rows.spacing = 10
     rows.distribution = .fillEqually
     rows.translatesAutoresizingMaskIntoConstraints = false
     addSubview(rows)
@@ -69,11 +71,14 @@ final class KeyboardKeysView: UIView {
       }
       if index == characterRows.count - 1 {
         if plane == .letters {
-          let shift = Self.makeKey(title: isShifted ? "⬆︎" : "⇧", accessibilityLabel: "シフト")
+          let shift = Self.makeKey(
+            title: nil, symbol: isShifted ? "shift.fill" : "shift", accessibilityLabel: "大文字",
+            isFunction: true)
           shift.addAction(UIAction { [weak self] _ in self?.toggleShift() }, for: .touchUpInside)
           keys.insert(shift, at: 0)
         }
-        let delete = Self.makeKey(title: "⌫", accessibilityLabel: "削除")
+        let delete = Self.makeKey(
+          title: nil, symbol: "delete.left", accessibilityLabel: "1文字消す", isFunction: true)
         delete.addAction(UIAction { [weak self] _ in self?.onDelete?() }, for: .touchUpInside)
         keys.append(delete)
       }
@@ -82,20 +87,19 @@ final class KeyboardKeysView: UIView {
 
     let planeKey = Self.makeKey(
       title: plane == .letters ? "123" : "ABC",
-      accessibilityLabel: plane == .letters ? "数字と記号" : "英字")
+      accessibilityLabel: plane == .letters ? "数字と記号" : "英字", isFunction: true)
     planeKey.addAction(UIAction { [weak self] _ in self?.togglePlane() }, for: .touchUpInside)
     let space = Self.makeKey(title: "空白", accessibilityLabel: "空白")
     space.addAction(UIAction { [weak self] _ in self?.onText?(" ") }, for: .touchUpInside)
-    let newline = Self.makeKey(title: "改行", accessibilityLabel: "改行")
+    let newline = Self.makeKey(title: "改行", accessibilityLabel: "改行", isFunction: true)
     newline.addAction(UIAction { [weak self] _ in self?.onText?("\n") }, for: .touchUpInside)
     let bottom = UIStackView(arrangedSubviews: [planeKey, globeButton, space, newline])
     bottom.axis = .horizontal
-    bottom.spacing = 4
+    bottom.spacing = 6
     bottom.distribution = .fill
     space.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    for key in [planeKey, newline] {
-      key.widthAnchor.constraint(equalToConstant: Self.functionKeyWidth).isActive = true
-    }
+    planeKey.widthAnchor.constraint(equalToConstant: Self.functionKeyWidth).isActive = true
+    newline.widthAnchor.constraint(equalToConstant: Self.newlineKeyWidth).isActive = true
     rows.addArrangedSubview(bottom)
   }
 
@@ -131,23 +135,42 @@ final class KeyboardKeysView: UIView {
   private static func row(_ keys: [UIView]) -> UIStackView {
     let row = UIStackView(arrangedSubviews: keys)
     row.axis = .horizontal
-    row.spacing = 4
+    row.spacing = 6
     row.distribution = .fillEqually
     return row
   }
 
-  private static func makeKey(title: String, accessibilityLabel: String) -> UIButton {
-    var configuration = UIButton.Configuration.gray()
+  private static func makeKey(
+    title: String?, symbol: String? = nil, accessibilityLabel: String, isFunction: Bool = false
+  ) -> UIButton {
+    var configuration = UIButton.Configuration.plain()
     configuration.title = title
+    if let symbol { configuration.image = UIImage(systemName: symbol) }
+    configuration.baseForegroundColor = UtterPalette.text
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 2, leading: 0, bottom: 2, trailing: 0)
+    configuration.background.backgroundColor =
+      isFunction ? UtterPalette.functionKey : UtterPalette.key
+    configuration.background.cornerRadius = 6
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       var attributes = $0
-      attributes.font = UIFont.systemFont(ofSize: 18)
+      attributes.font = UIFont.systemFont(ofSize: title.map { $0.count > 1 ? 15 : 20 } ?? 20)
       return attributes
     }
-    let key = UIButton(configuration: configuration)
+    let key = KeyButton(configuration: configuration)
     key.accessibilityLabel = accessibilityLabel
+    key.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     return key
+  }
+}
+
+/// キーの下に1ptの影を引くボタン（ライト/ダークで色が変わるため、描くたびに解決し直す）
+private final class KeyButton: UIButton {
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    layer.shadowColor = UtterPalette.keyShadow.resolvedColor(with: traitCollection).cgColor
+    layer.shadowOffset = CGSize(width: 0, height: 1)
+    layer.shadowRadius = 0
+    layer.shadowOpacity = 1
   }
 }

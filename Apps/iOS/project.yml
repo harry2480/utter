@@ -36,6 +36,8 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # 本体アプリとキーボードで共有する色
+      - path: Shared
       # アプリアイコン（scripts/make-app-icon.py で描き出す）
       - path: Resources
     dependencies:
@@ -84,6 +86,8 @@ targets:
     platform: iOS
     sources:
       - path: ../../Extensions/iOSKeyboard/Sources
+      # 本体アプリと共有する色（色の値だけ）
+      - path: Shared
     dependencies:
       - package: UtterCore
       - package: UtterPersistence

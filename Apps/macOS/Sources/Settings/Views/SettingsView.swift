@@ -30,39 +30,74 @@ struct SettingsView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      TabView(selection: $selection) {
-        RecordingSettingsTab(model: model)
-          .tabItem { Label("録音とショートカット", systemImage: "mic") }
-          .tag(SettingsTab.recording)
-        StyleAndDictionarySettingsTab(model: model)
-          .tabItem { Label("文体と辞書", systemImage: "character.book.closed") }
-          .tag(SettingsTab.styleAndDictionary)
-        RefinementSettingsTab(
-          model: model, chatGPTAccount: chatGPTAccount, apiKey: apiKeyModel,
-          openAIAPIKey: openAIAPIKeyModel
-        )
-        .tabItem { Label("整形の実行先と費用", systemImage: "text.badge.checkmark") }
-        .tag(SettingsTab.refinement)
-        AppSpecificSettingsTab(model: model)
-          .tabItem { Label("アプリ別の設定", systemImage: "app.badge") }
-          .tag(SettingsTab.apps)
-        PrivacySettingsTab(model: model)
-          .tabItem { Label("プライバシー", systemImage: "hand.raised") }
-          .tag(SettingsTab.privacy)
-        speechRecognitionTab
-          .tabItem { Label("認識モデルと省電力", systemImage: "waveform") }
-          .tag(SettingsTab.speechRecognition)
+      HStack(spacing: 0) {
+        sidebar
+        Divider()
+        detail
+          .scrollContentBackground(.hidden)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
       Divider()
       SettingsFooter(model: model)
         .padding()
     }
-    .frame(minWidth: 640, minHeight: 520)
+    .background(UtterTheme.pageBackground)
+    .tint(UtterTheme.accent)
+    .frame(minWidth: 860, minHeight: 600)
     .onAppear {
       model.reload()
       // メニューで変えた入力モード・文体・整形の実行先を、開いたままの画面にも反映する（#197）
       model.followStoreChanges()
       Task { await model.refreshCost() }
+    }
+  }
+
+  /// 左の区分の一覧
+  private var sidebar: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text("utter 設定")
+        .font(.headline)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 8)
+      ForEach(SettingsTab.allCases, id: \.self) { tab in
+        Button {
+          selection = tab
+        } label: {
+          Label(tab.title, systemImage: tab.systemImage)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .padding(.horizontal, 10)
+            .background(
+              selection == tab ? Color.white.opacity(0.7) : Color.clear,
+              in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fontWeight(selection == tab ? .bold : .regular)
+        .accessibilityAddTraits(selection == tab ? .isSelected : [])
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(16)
+    .frame(width: 230, alignment: .topLeading)
+  }
+
+  @ViewBuilder private var detail: some View {
+    switch selection {
+    case .recording:
+      RecordingSettingsTab(model: model)
+    case .styleAndDictionary:
+      StyleAndDictionarySettingsTab(model: model)
+    case .refinement:
+      RefinementSettingsTab(
+        model: model, chatGPTAccount: chatGPTAccount, apiKey: apiKeyModel,
+        openAIAPIKey: openAIAPIKeyModel)
+    case .apps:
+      AppSpecificSettingsTab(model: model)
+    case .privacy:
+      PrivacySettingsTab(model: model)
+    case .speechRecognition:
+      speechRecognitionTab
     }
   }
 
@@ -73,13 +108,35 @@ struct SettingsView: View {
 }
 
 /// 設定画面のタブ（設計の6タブ）
-private enum SettingsTab: Hashable {
+private enum SettingsTab: Hashable, CaseIterable {
   case recording
   case styleAndDictionary
   case refinement
   case apps
   case privacy
   case speechRecognition
+
+  var title: String {
+    switch self {
+    case .recording: "録音とショートカット"
+    case .styleAndDictionary: "文体と辞書"
+    case .refinement: "整形の実行先と費用"
+    case .apps: "アプリ別の設定"
+    case .privacy: "プライバシー"
+    case .speechRecognition: "認識モデルと省電力"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .recording: "mic"
+    case .styleAndDictionary: "character.book.closed"
+    case .refinement: "text.badge.checkmark"
+    case .apps: "app.badge"
+    case .privacy: "hand.raised"
+    case .speechRecognition: "waveform"
+    }
+  }
 }
 
 private struct SettingsFooter: View {
