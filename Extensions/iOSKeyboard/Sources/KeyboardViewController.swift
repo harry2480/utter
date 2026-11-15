@@ -403,8 +403,9 @@ final class KeyboardViewController: UIInputViewController {
   }
 
   /// 本体アプリを開く。URL スキームを設定していない・開けなかったときは、手動で切り替える案内を出す（iOS-03, iAC-05）
-  private func openHostApp() {
-    guard let url = configuration.hostAppURL else {
+  /// - Parameter startsStandby: 開いたら待機を始めてもらう（マイクの操作から開くとき, iOS-04, #267）
+  private func openHostApp(startsStandby: Bool = false) {
+    guard let url = startsStandby ? configuration.standbyStartURL : configuration.hostAppURL else {
       hostAppOpenFailed = true
       render()
       return
@@ -486,7 +487,8 @@ final class KeyboardViewController: UIInputViewController {
       return
     }
     guard let standby, standby.state != .unavailable else {
-      openHostApp()
+      // 待機していなければ、本体アプリを開いて待機を始めてもらう。利用者は元のアプリへ戻って、もう一度押す
+      openHostApp(startsStandby: true)
       return
     }
     statusMessage = nil
@@ -972,6 +974,9 @@ final class KeyboardViewController: UIInputViewController {
       // 待機していない: 本体アプリを開いて待機を始めてもらう
       micDotView.backgroundColor = UtterPalette.idleDot
       micTitleLabel.text = "まだ話せません"
+      // 開く URL を設定していないときは、開けると書かない（押すと手動で切り替える案内を出す）
+      micSubtitleLabel.text = KeyboardMessages.standbyStartHint
+      micSubtitleLabel.isHidden = configuration.standbyStartURL == nil
       Self.applyStyle(micButton, title: "utter を開いて待機を始める", style: .accent, symbol: nil)
     case .inserted:
       micCheckView.isHidden = false

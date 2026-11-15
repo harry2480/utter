@@ -3,7 +3,9 @@
 <!-- 自動生成する Info.plist（GENERATE_INFOPLIST_FILE）に足す独自のキーだけを置く。
      UtterAppGroupIdentifier: Config/Local.xcconfig で UTTER_APP_GROUP_ENABLED = YES のときの UTTER_APP_GROUP_ID。無効なら空で、結果はアプリ内にだけ保存し、本体アプリの状態も書かない（#56）
      UIBackgroundModes: audio。利用者が明示的に始めた待機セッション（iOS-04）のオーディオセッションを保つためにだけ使う（iOS-PERF-03）。INFOPLIST_KEY_ では指定できないためここに置く
-     UtterSpeechEngine: Config/Local.xcconfig の UTTER_IOS_STT_ENGINE。未設定なら空で、音声認識は使わない（#54） -->
+     UtterSpeechEngine: Config/Local.xcconfig の UTTER_IOS_STT_ENGINE。未設定なら空で、音声認識は使わない（#54）
+     CFBundleURLTypes / UtterHostAppURLScheme: Config/Local.xcconfig の UTTER_HOST_APP_URL_SCHEME。キーボードが本体アプリを開き、
+       待機を始めるための自アプリのスキーム（iOS-03・iOS-04, #267）。未設定なら空で、キーボードは手動で切り替える案内だけを出す -->
 <plist version="1.0">
 <dict>
 	<key>UtterAppGroupIdentifier</key>
@@ -14,5 +16,18 @@
 	</array>
 	<key>UtterSpeechEngine</key>
 	<string>$(UTTER_IOS_STT_ENGINE)</string>
+	<key>UtterHostAppURLScheme</key>
+	<string>$(UTTER_HOST_APP_URL_SCHEME)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(UTTER_HOST_APP_URL_SCHEME)</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

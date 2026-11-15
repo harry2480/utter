@@ -103,9 +103,32 @@ struct UtterApp: App {
         consentSettings: consentSettings,
         claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
         speechModel: speechModel, hostAppStatus: hostAppStatus, standby: standby, setup: setup,
-        signingExpiry: signingExpiry)
+        signingExpiry: signingExpiry
+      )
+      .onOpenURL { url in openedByURL(url) }
     }
   }
+
+  /// キーボードのマイクから開かれたら、待機を始める（iOS-03・iOS-04, #267）。
+  /// 本体アプリで録音中なら始めない（画面の「待機を始める」と同じ条件）。それ以外の URL では開くだけで何もしない
+  private func openedByURL(_ url: URL) {
+    guard HostAppLaunchRequest(url: url, scheme: Self.hostAppURLScheme) == .startStandby,
+      let standby, model.canStartRecording
+    else {
+      return
+    }
+    Task { await standby.start() }
+  }
+
+  /// 本体アプリが登録した URL スキーム（Config/Local.xcconfig の `UTTER_HOST_APP_URL_SCHEME`）。未設定なら `nil`
+  private static let hostAppURLScheme: String? = {
+    guard let scheme = Bundle.main.object(forInfoDictionaryKey: "UtterHostAppURLScheme") as? String,
+      !scheme.trimmingCharacters(in: .whitespaces).isEmpty
+    else {
+      return nil
+    }
+    return scheme
+  }()
 
   /// 待機セッションを組み立てる。App Group を使えないときは `nil`
   private static func makeStandby(

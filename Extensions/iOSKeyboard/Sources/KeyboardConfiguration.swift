@@ -1,4 +1,5 @@
 import Foundation
+import UtterPersistence
 
 /// ビルド設定（Info.plist）から読む、キーボード拡張の設定。
 ///
@@ -11,14 +12,17 @@ struct KeyboardConfiguration {
   let appGroupID: String?
   /// 本体アプリを開く URL。設定していなければ `nil`（手動で切り替える案内だけを出す）
   let hostAppURL: URL?
+  /// 本体アプリを開いて待機を始める URL（iOS-03・iOS-04, #267）。スキームを設定していなければ `nil`
+  let standbyStartURL: URL?
 
   static let appGroupIDKey = "UtterAppGroupID"
   static let hostAppURLSchemeKey = "UtterHostAppURLScheme"
 
   init(bundle: Bundle = .main) {
     appGroupID = Self.nonEmptyString(bundle.object(forInfoDictionaryKey: Self.appGroupIDKey))
-    hostAppURL = Self.nonEmptyString(bundle.object(forInfoDictionaryKey: Self.hostAppURLSchemeKey))
-      .flatMap { URL(string: "\($0)://") }
+    let scheme = Self.nonEmptyString(bundle.object(forInfoDictionaryKey: Self.hostAppURLSchemeKey))
+    hostAppURL = scheme.flatMap { URL(string: "\($0)://") }
+    standbyStartURL = scheme.flatMap(HostAppLaunchRequest.startStandbyURL(scheme:))
   }
 
   /// 空と、ビルド設定が展開されずに残った値（`$(...)`）は設定なしとして扱う
