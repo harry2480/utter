@@ -1023,7 +1023,7 @@ final class KeyboardViewController: UIInputViewController {
       bandProgressStack.isHidden = false
       renderProgressSteps()
       bandNoteLabel.isHidden = false
-      bandNoteLabel.text = "終わったら、カーソルの位置に入れます。結果は、キーボードを閉じても残ります。"
+      bandNoteLabel.text = "終わると、設定に合わせて入れるか、確かめてから入れる画面を出します。結果は、キーボードを閉じても残ります。"
       bandCaptionLabel.text = "終わるまで面を切り替えられません。"
     default:
       recordingStartedAt = nil
