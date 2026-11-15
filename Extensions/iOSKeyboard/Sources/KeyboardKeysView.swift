@@ -140,7 +140,8 @@ final class KeyboardKeysView: UIView {
     return row
   }
 
-  private static func makeKey(
+  /// キー1つ。音声入力の面の下の行（地球儀・1文字消す・改行）でも同じ見た目を使う
+  static func makeKey(
     title: String?, symbol: String? = nil, accessibilityLabel: String, isFunction: Bool = false
   ) -> UIButton {
     var configuration = UIButton.Configuration.plain()

@@ -113,20 +113,47 @@ final class KeyboardViewController: UIInputViewController {
   private let bandCard = UIView()
   private let scrollView = UIScrollView()
 
-  // 録音中・認識中の暗い帯（設計: キーボード 2・3）
-  private let darkBand = UIView()
-  private let bandTitleLabel = KeyboardViewController.makeBandLabel(size: 16, bold: true)
+  /// 音声入力の面とキーボードの面（設計: 上の切替か、横になぞって行き来する）
+  private enum Pane { case voice, keys }
+  private var pane = Pane.voice
+  /// 録音中のカードを出している間は、面を音声入力に留める（カードを出すかどうかと同じ条件）
+  private var paneLocked = false
+  /// 最後に画面へ反映した面と固定。変わったときだけ描き直す
+  private var appliedPane: (pane: Pane, locked: Bool)?
+  private let paneTrack = UIView()
+  private let paneVoiceButton = KeyboardViewController.makePaneButton(
+    title: "音声入力", symbol: "mic")
+  private let paneKeysButton = KeyboardViewController.makePaneButton(
+    title: "キーボード", symbol: "keyboard")
+  /// 面を重ねる場所。表示している面だけを出す
+  private let paneArea = UIView()
+  private let voicePane = UIStackView()
+  /// 音声入力の面の下の行（地球儀・1文字消す・改行。録音中・処理中は地球儀と注意書き）
+  private let voiceKeysRow = UIStackView()
+  private let voiceGlobeButton = KeyboardKeysView.makeKey(
+    title: nil, symbol: "globe", accessibilityLabel: "キーボードを切り替える", isFunction: true)
+  private let voiceDeleteButton = KeyboardKeysView.makeKey(
+    title: nil, symbol: "delete.left", accessibilityLabel: "1文字消す", isFunction: true)
+  private let voiceNewlineButton = KeyboardKeysView.makeKey(
+    title: "改行", accessibilityLabel: "改行", isFunction: true)
+
+  // 録音中・認識中のカード（設計: 音声入力の面 録音中・認識・整形中）
+  private let busyCard = UIView()
+  private let bandTitleLabel = KeyboardViewController.makeBandLabel(size: 14, bold: true)
   private let bandElapsedLabel = KeyboardViewController.makeBandLabel(
-    size: 15, color: UtterPalette.bandBodyText, monospaced: true)
+    size: 13, color: UtterPalette.secondaryText, monospaced: true)
   private let bandDotView = UIView()
+  /// カードの中の補足（処理中の案内）
+  private let bandNoteLabel = KeyboardViewController.makeBandLabel(
+    size: 12, color: UtterPalette.secondaryText)
+  /// 下の行の注意書き（録音中は面を切り替えられない・閉じると捨てる）
   private let bandCaptionLabel = KeyboardViewController.makeBandLabel(
-    size: 12, color: UtterPalette.bandSecondaryText)
+    size: 12, color: UtterPalette.secondaryText)
   private let bandProgressStack = UIStackView()
-  private let bandCancelButton = KeyboardViewController.makeBandButton(
-    title: "やめる", filled: false)
-  private let bandStopButton = KeyboardViewController.makeBandButton(
-    title: "止めて入れる", filled: true)
-  private let bandGlobeButton = KeyboardViewController.makeBandGlobeButton()
+  private let bandCancelButton = KeyboardViewController.makeActionButton(
+    title: "やめる", style: .outline)
+  private let bandStopButton = KeyboardViewController.makeActionButton(
+    title: "止めて入れる", style: .large)
   private let bandButtons = UIStackView()
   /// 録音中の経過時間の起点。録音が始まったときにキーボード側で控える（本体アプリの時間とは別）
   private var recordingStartedAt: Date?
@@ -143,6 +170,12 @@ final class KeyboardViewController: UIInputViewController {
     super.viewDidLoad()
     buildLayout()
     render()
+    // 文字の大きさの設定が変わったら、切替のボタンの文字を描き直す
+    registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+      (self: KeyboardViewController, _: UITraitCollection) in
+      self.appliedPane = nil
+      self.applyPane(animated: false)
+    }
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -150,6 +183,9 @@ final class KeyboardViewController: UIInputViewController {
     statusMessage = nil
     hostAppOpenFailed = false
     showsFullAccessSteps = false
+    // 表示のたびに、話せる入力欄なら音声入力の面から、制限のある入力欄ならキーボードの面から始める（iOS-09）
+    pane = currentInputField().restrictions.isEmpty ? .voice : .keys
+    applyPane(animated: false)
     startNetworkMonitor()
     startClock()
     startStandbyLoop()
@@ -167,6 +203,7 @@ final class KeyboardViewController: UIInputViewController {
   override func viewWillLayoutSubviews() {
     super.viewWillLayoutSubviews()
     keysView.setGlobeKeyVisible(needsInputModeSwitchKey)
+    voiceGlobeButton.isHidden = !needsInputModeSwitchKey
   }
 
   override func textDidChange(_ textInput: (any UITextInput)?) {
@@ -222,6 +259,8 @@ final class KeyboardViewController: UIInputViewController {
     guard restrictions.isEmpty else {
       // 制限のある入力欄では `KeyboardAvailability` が共有コンテナの状態を使わない
       snapshot = SharedSnapshot(container: .unavailable, preview: .cleared)
+      // 話せない入力欄へ移ったら、文字を打てるキーボードの面にする（iOS-09）
+      pane = .keys
       render()
       return
     }
@@ -574,7 +613,7 @@ final class KeyboardViewController: UIInputViewController {
     let standbyState = standby?.state ?? .unavailable
     let offersMic = showsSharedResult && standby != nil
     renderMicRow(standbyState, visible: offersMic)
-    renderDarkBand(standbyState, visible: offersMic)
+    renderBusyCard(standbyState, visible: offersMic)
     micButton.isEnabled = !isBusy
     let standbyMessage = KeyboardMessages.standbyStatus(standbyState)
     let message = [statusMessage, standbyMessage].compactMap { $0 }.joined(separator: "\n")
@@ -593,7 +632,7 @@ final class KeyboardViewController: UIInputViewController {
   private func buildLayout() {
     let root: UIView = inputView ?? view
     addHostAppOpener(to: root)
-    let height = root.heightAnchor.constraint(equalToConstant: 330)
+    let height = root.heightAnchor.constraint(equalToConstant: 332)
     height.priority = .defaultHigh
     height.isActive = true
 
@@ -656,7 +695,7 @@ final class KeyboardViewController: UIInputViewController {
       section.spacing = 4
     }
 
-    // マイクの行: 状態の文字（点・題・補足）とマイクのボタン
+    // マイクの行: 状態の文字（点・題・補足）とマイクのボタン（大きく、横いっぱい）
     micDotView.translatesAutoresizingMaskIntoConstraints = false
     micDotView.layer.cornerRadius = 4.5
     micCheckView.translatesAutoresizingMaskIntoConstraints = false
@@ -667,6 +706,7 @@ final class KeyboardViewController: UIInputViewController {
       micDotView.heightAnchor.constraint(equalToConstant: 9),
       micCheckView.widthAnchor.constraint(equalToConstant: 24),
       micCheckView.heightAnchor.constraint(equalToConstant: 24),
+      micButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
     ])
     micTitleLabel.font = .systemFont(ofSize: 14, weight: .bold)
     micTitleLabel.textColor = UtterPalette.text
@@ -679,13 +719,11 @@ final class KeyboardViewController: UIInputViewController {
     micTextStack.spacing = 2
     micTextStack.addArrangedSubview(titleRow)
     micTextStack.addArrangedSubview(micSubtitleLabel)
-    micRow.axis = .horizontal
-    micRow.alignment = .center
+    micRow.axis = .vertical
+    micRow.alignment = .fill
     micRow.spacing = 10
     micRow.addArrangedSubview(micTextStack)
     micRow.addArrangedSubview(micButton)
-    micButton.setContentHuggingPriority(.required, for: .horizontal)
-    micButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
     let panel = UIStackView(arrangedSubviews: [
       noticesLabel, fullAccessSection, micRow, statusLabel, sharedResultSection, hostAppSection,
@@ -698,55 +736,141 @@ final class KeyboardViewController: UIInputViewController {
 
     bandCard.backgroundColor = UtterPalette.card
     bandCard.layer.cornerRadius = 14
-    bandCard.translatesAutoresizingMaskIntoConstraints = false
     bandCard.addSubview(scrollView)
     root.backgroundColor = UtterPalette.keyboardBackground
 
-    keysView.translatesAutoresizingMaskIntoConstraints = false
-    root.addSubview(bandCard)
-    root.addSubview(keysView)
-    buildDarkBand(in: root)
+    buildBusyCard()
+    buildVoiceKeysRow()
+    voicePane.axis = .vertical
+    voicePane.spacing = 10
+    for view in [bandCard, busyCard, voiceKeysRow] {
+      voicePane.addArrangedSubview(view)
+    }
+    bandCard.setContentHuggingPriority(.defaultLow, for: .vertical)
+    busyCard.setContentHuggingPriority(.defaultLow, for: .vertical)
+    voiceKeysRow.setContentHuggingPriority(.required, for: .vertical)
 
-    // 内容の高さに合わせ、高くなりすぎたらスクロールにする
-    let fitContent = scrollView.heightAnchor.constraint(
-      equalTo: scrollView.contentLayoutGuide.heightAnchor)
-    fitContent.priority = .defaultHigh
+    buildPaneSwitcher(in: root)
+    paneArea.translatesAutoresizingMaskIntoConstraints = false
+    paneArea.clipsToBounds = true
+    root.addSubview(paneArea)
+    for view in [voicePane, keysView] as [UIView] {
+      view.translatesAutoresizingMaskIntoConstraints = false
+      paneArea.addSubview(view)
+    }
+    // 横になぞって面を切り替える（左へ: キーボードの面、右へ: 音声入力の面）
+    for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
+      let swipe = UISwipeGestureRecognizer(target: self, action: #selector(handlePaneSwipe(_:)))
+      swipe.direction = direction
+      // 状態のカードのスクロールと同時に認識し、カードの上でも横になぞれば面を切り替える
+      swipe.delegate = self
+      paneArea.addGestureRecognizer(swipe)
+    }
+
+    // 状態のカードは録音中に隠す。高さ0とぶつからないよう、縦の制約は必須にしない
+    let scrollTop = scrollView.topAnchor.constraint(equalTo: bandCard.topAnchor, constant: 12)
+    let scrollBottom = scrollView.bottomAnchor.constraint(
+      equalTo: bandCard.bottomAnchor, constant: -12)
+    scrollTop.priority = .almostRequired
+    scrollBottom.priority = .almostRequired
     NSLayoutConstraint.activate([
-      bandCard.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
-      bandCard.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
-      bandCard.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+      paneArea.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
+      paneArea.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
+      paneArea.topAnchor.constraint(equalTo: paneTrack.bottomAnchor, constant: 10),
+      paneArea.bottomAnchor.constraint(
+        equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+      voicePane.leadingAnchor.constraint(equalTo: paneArea.leadingAnchor, constant: 4),
+      voicePane.trailingAnchor.constraint(equalTo: paneArea.trailingAnchor, constant: -4),
+      voicePane.topAnchor.constraint(equalTo: paneArea.topAnchor),
+      voicePane.bottomAnchor.constraint(equalTo: paneArea.bottomAnchor),
+      keysView.leadingAnchor.constraint(equalTo: paneArea.leadingAnchor),
+      keysView.trailingAnchor.constraint(equalTo: paneArea.trailingAnchor),
+      keysView.topAnchor.constraint(equalTo: paneArea.topAnchor),
+      keysView.bottomAnchor.constraint(equalTo: paneArea.bottomAnchor),
       scrollView.leadingAnchor.constraint(equalTo: bandCard.leadingAnchor, constant: 12),
       scrollView.trailingAnchor.constraint(equalTo: bandCard.trailingAnchor, constant: -12),
-      scrollView.topAnchor.constraint(equalTo: bandCard.topAnchor, constant: 10),
-      scrollView.bottomAnchor.constraint(equalTo: bandCard.bottomAnchor, constant: -10),
-      fitContent,
-      scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 130),
+      scrollTop,
+      scrollBottom,
       panel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
       panel.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
       panel.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
       panel.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
-      keysView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
-      keysView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
-      keysView.topAnchor.constraint(equalTo: bandCard.bottomAnchor, constant: 10),
-      keysView.bottomAnchor.constraint(
-        equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
     ])
+    applyPane(animated: false)
   }
 
-  /// 録音中・認識中の暗い帯。キーの代わりに全面へ重ねる
-  private func buildDarkBand(in root: UIView) {
-    darkBand.backgroundColor = UtterPalette.band
-    darkBand.isHidden = true
-    darkBand.translatesAutoresizingMaskIntoConstraints = false
-    root.addSubview(darkBand)
+  /// 上の切替（音声入力・キーボード）
+  private func buildPaneSwitcher(in root: UIView) {
+    paneTrack.backgroundColor = UtterPalette.paneTrack
+    paneTrack.layer.cornerRadius = 12
+    paneTrack.translatesAutoresizingMaskIntoConstraints = false
+    let buttons = UIStackView(arrangedSubviews: [paneVoiceButton, paneKeysButton])
+    buttons.axis = .horizontal
+    buttons.spacing = 2
+    buttons.distribution = .fillEqually
+    buttons.translatesAutoresizingMaskIntoConstraints = false
+    paneTrack.addSubview(buttons)
+    root.addSubview(paneTrack)
+    NSLayoutConstraint.activate([
+      paneTrack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+      paneTrack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
+      paneTrack.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+      buttons.leadingAnchor.constraint(equalTo: paneTrack.leadingAnchor, constant: 2),
+      buttons.trailingAnchor.constraint(equalTo: paneTrack.trailingAnchor, constant: -2),
+      buttons.topAnchor.constraint(equalTo: paneTrack.topAnchor, constant: 2),
+      buttons.bottomAnchor.constraint(equalTo: paneTrack.bottomAnchor, constant: -2),
+    ])
+    paneVoiceButton.addAction(
+      UIAction { [weak self] _ in self?.switchPane(to: .voice) }, for: .touchUpInside)
+    paneKeysButton.addAction(
+      UIAction { [weak self] _ in self?.switchPane(to: .keys) }, for: .touchUpInside)
+  }
+
+  /// 音声入力の面の下の行。キーボードの面へ移らなくても、切り替え・削除・改行はできる
+  private func buildVoiceKeysRow() {
+    voiceKeysRow.axis = .horizontal
+    voiceKeysRow.alignment = .center
+    voiceKeysRow.spacing = 6
+    let spacer = UIView()
+    spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    bandCaptionLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    for view in [voiceGlobeButton, voiceDeleteButton, bandCaptionLabel, spacer, voiceNewlineButton]
+    {
+      voiceKeysRow.addArrangedSubview(view)
+    }
+    voiceKeysRow.setCustomSpacing(10, after: voiceGlobeButton)
+    // 隠すキー（録音中の削除・改行、地球儀）が幅0とぶつからないよう、大きさの制約は必須にしない
+    let sizes = [
+      voiceGlobeButton.widthAnchor.constraint(equalToConstant: 44),
+      voiceGlobeButton.heightAnchor.constraint(equalToConstant: 56),
+      voiceDeleteButton.widthAnchor.constraint(equalToConstant: 44),
+      voiceDeleteButton.heightAnchor.constraint(equalToConstant: 56),
+      voiceNewlineButton.widthAnchor.constraint(equalToConstant: 76),
+      voiceNewlineButton.heightAnchor.constraint(equalToConstant: 56),
+    ]
+    for constraint in sizes { constraint.priority = .almostRequired }
+    NSLayoutConstraint.activate(sizes + [voiceKeysRow.heightAnchor.constraint(equalToConstant: 56)])
+    voiceGlobeButton.addTarget(
+      self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+    voiceDeleteButton.addAction(
+      UIAction { [weak self] _ in self?.textDocumentProxy.deleteBackward() }, for: .touchUpInside)
+    voiceNewlineButton.addAction(
+      UIAction { [weak self] _ in self?.textDocumentProxy.insertText("\n") }, for: .touchUpInside)
+  }
+
+  /// 録音中・認識中のカード。音声入力の面の中で、状態のカードと入れ替える
+  private func buildBusyCard() {
+    busyCard.backgroundColor = UtterPalette.card
+    busyCard.layer.cornerRadius = 14
+    busyCard.isHidden = true
 
     bandDotView.translatesAutoresizingMaskIntoConstraints = false
-    bandDotView.layer.cornerRadius = 5.5
-    bandDotView.backgroundColor = UtterPalette.bandAccent
+    bandDotView.layer.cornerRadius = 4.5
+    bandDotView.backgroundColor = UtterPalette.accent
     NSLayoutConstraint.activate([
-      bandDotView.widthAnchor.constraint(equalToConstant: 11),
-      bandDotView.heightAnchor.constraint(equalToConstant: 11),
+      bandDotView.widthAnchor.constraint(equalToConstant: 9),
+      bandDotView.heightAnchor.constraint(equalToConstant: 9),
     ])
     let spacer = UIView()
     spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -755,44 +879,40 @@ final class KeyboardViewController: UIInputViewController {
     ])
     header.axis = .horizontal
     header.alignment = .center
-    header.spacing = 8
+    header.spacing = 6
 
     bandProgressStack.axis = .horizontal
     bandProgressStack.distribution = .fillEqually
     bandProgressStack.spacing = 8
 
     bandButtons.axis = .horizontal
-    bandButtons.spacing = 12
+    bandButtons.spacing = 8
     bandButtons.addArrangedSubview(bandCancelButton)
     bandButtons.addArrangedSubview(bandStopButton)
     bandCancelButton.setContentHuggingPriority(.required, for: .horizontal)
     bandStopButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-    bandCaptionLabel.numberOfLines = 0
-    let footer = UIStackView(arrangedSubviews: [bandCaptionLabel, bandGlobeButton])
-    footer.axis = .horizontal
-    footer.alignment = .center
-    footer.spacing = 12
-
-    let content = UIStackView(arrangedSubviews: [header, bandProgressStack, bandButtons, footer])
+    let content = UIStackView(arrangedSubviews: [
+      header, bandProgressStack, bandNoteLabel, bandButtons,
+    ])
     content.axis = .vertical
     content.distribution = .equalSpacing
-    content.spacing = 12
+    content.spacing = 10
     content.translatesAutoresizingMaskIntoConstraints = false
-    darkBand.addSubview(content)
-    NSLayoutConstraint.activate([
-      darkBand.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-      darkBand.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-      darkBand.topAnchor.constraint(equalTo: root.topAnchor),
-      darkBand.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-      content.leadingAnchor.constraint(equalTo: darkBand.leadingAnchor, constant: 16),
-      content.trailingAnchor.constraint(equalTo: darkBand.trailingAnchor, constant: -16),
-      content.topAnchor.constraint(equalTo: darkBand.topAnchor, constant: 16),
-      content.bottomAnchor.constraint(
-        equalTo: darkBand.safeAreaLayoutGuide.bottomAnchor, constant: -8),
-      bandStopButton.heightAnchor.constraint(equalToConstant: 56),
-      bandCancelButton.heightAnchor.constraint(equalToConstant: 56),
-    ])
+    busyCard.addSubview(content)
+    // 隠したとき（スタックが高さ0にする）とぶつからないよう、縦の制約は必須にしない
+    let vertical = [
+      content.topAnchor.constraint(equalTo: busyCard.topAnchor, constant: 12),
+      content.bottomAnchor.constraint(equalTo: busyCard.bottomAnchor, constant: -12),
+      bandStopButton.heightAnchor.constraint(equalToConstant: 48),
+      bandCancelButton.heightAnchor.constraint(equalToConstant: 48),
+    ]
+    for constraint in vertical { constraint.priority = .almostRequired }
+    NSLayoutConstraint.activate(
+      vertical + [
+        content.leadingAnchor.constraint(equalTo: busyCard.leadingAnchor, constant: 12),
+        content.trailingAnchor.constraint(equalTo: busyCard.trailingAnchor, constant: -12),
+      ])
     bandCancelButton.addAction(
       UIAction { [weak self] _ in
         guard let self, let standby else { return }
@@ -800,20 +920,49 @@ final class KeyboardViewController: UIInputViewController {
       }, for: .touchUpInside)
     bandStopButton.addAction(
       UIAction { [weak self] _ in self?.tapMic() }, for: .touchUpInside)
-    bandGlobeButton.addTarget(
-      self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
   }
 
-  // MARK: マイクの行と暗い帯
+  // MARK: 面の切り替え
 
-  /// マイクの行（話せる状態・待機していない・入れた直後）。録音中・認識中は暗い帯が代わる
+  @objc private func handlePaneSwipe(_ gesture: UISwipeGestureRecognizer) {
+    switchPane(to: gesture.direction == .left ? .keys : .voice)
+  }
+
+  /// 録音中・処理中は面を切り替えない（キーボードを閉じると録音を捨てるため、操作を音声入力の面に留める）
+  private func switchPane(to target: Pane) {
+    guard target != pane, !paneLocked else { return }
+    pane = target
+    applyPane(animated: true)
+  }
+
+  private func applyPane(animated: Bool) {
+    if let appliedPane, appliedPane.pane == pane, appliedPane.locked == paneLocked { return }
+    appliedPane = (pane, paneLocked)
+    if animated {
+      let transition = CATransition()
+      transition.type = .push
+      transition.subtype = pane == .keys ? .fromRight : .fromLeft
+      transition.duration = 0.25
+      transition.timingFunction = CAMediaTimingFunction(name: .easeOut)
+      paneArea.layer.add(transition, forKey: "pane")
+    }
+    voicePane.isHidden = pane != .voice
+    keysView.isHidden = pane != .keys
+    Self.stylePaneButton(paneVoiceButton, selected: pane == .voice)
+    Self.stylePaneButton(paneKeysButton, selected: pane == .keys)
+    paneKeysButton.isEnabled = !paneLocked
+  }
+
+  // MARK: マイクの行と録音中のカード
+
+  /// マイクの行（話せる状態・待機していない・入れた直後）。録音中・認識中は録音中のカードが代わる
   private func renderMicRow(_ state: KeyboardStandbyState, visible: Bool) {
-    var isDarkState = false
+    var isBusyState = false
     switch state {
-    case .starting, .recording, .processing: isDarkState = true
+    case .starting, .recording, .processing: isBusyState = true
     default: break
     }
-    micRow.isHidden = !visible || isDarkState
+    micRow.isHidden = !visible || isBusyState
     guard visible else { return }
     micCheckView.isHidden = true
     micDotView.isHidden = false
@@ -824,67 +973,73 @@ final class KeyboardViewController: UIInputViewController {
       micDotView.backgroundColor = UtterPalette.idleDot
       micTitleLabel.text = "まだ話せません"
       Self.applyStyle(micButton, title: "utter を開いて待機を始める", style: .accent, symbol: nil)
-      micRow.axis = .vertical
-      micRow.alignment = .fill
     case .inserted:
       micCheckView.isHidden = false
       micDotView.isHidden = true
       micTitleLabel.text = "入れました"
       micSubtitleLabel.text = "続けて話せます"
       micSubtitleLabel.isHidden = false
-      Self.applyStyle(micButton, title: "続けて話す", style: .strong, symbol: "mic")
-      micRow.axis = .horizontal
-      micRow.alignment = .center
+      Self.applyStyle(micButton, title: "続けて話す", style: .large, symbol: "mic")
     default:
       micDotView.backgroundColor = UtterPalette.accent
       micTitleLabel.text = "話せます"
-      Self.applyStyle(micButton, title: "話す", style: .strong, symbol: "mic")
-      micRow.axis = .horizontal
-      micRow.alignment = .center
+      Self.applyStyle(micButton, title: "話す", style: .large, symbol: "mic")
     }
   }
 
-  /// 暗い帯（録音中・認識中）。表示している間はキーと明るい帯を隠す
-  private func renderDarkBand(_ state: KeyboardStandbyState, visible: Bool) {
-    var showsBand = false
+  /// 録音中・認識中のカード。表示している間は状態のカードを隠し、面をキーボードへ切り替えない
+  private func renderBusyCard(_ state: KeyboardStandbyState, visible: Bool) {
+    var showsCard = false
     switch state {
     case .starting:
-      showsBand = visible
+      showsCard = visible
       bandTitleLabel.text = "開始しています…"
       bandElapsedLabel.isHidden = true
       bandProgressStack.isHidden = true
+      bandNoteLabel.isHidden = true
       bandButtons.isHidden = false
       bandStopButton.isEnabled = false
       bandStopButton.alpha = 0.4
-      bandCaptionLabel.text = "キーボードを閉じると、この録音は捨てます。"
+      bandCaptionLabel.text = "録音中は面を切り替えられません。キーボードを閉じると、この録音は捨てます。"
       recordingStartedAt = nil
     case .recording:
-      showsBand = visible
+      showsCard = visible
       if recordingStartedAt == nil { recordingStartedAt = Date() }
       bandTitleLabel.text = "録音中"
       bandElapsedLabel.isHidden = false
       bandProgressStack.isHidden = true
+      bandNoteLabel.isHidden = true
       bandButtons.isHidden = false
       bandStopButton.isEnabled = !isBusy
       bandStopButton.alpha = 1
-      bandCaptionLabel.text = "キーボードを閉じると、この録音は捨てます。"
+      bandCaptionLabel.text = "録音中は面を切り替えられません。キーボードを閉じると、この録音は捨てます。"
       updateBandElapsed()
     case .processing:
-      showsBand = visible
+      showsCard = visible
       recordingStartedAt = nil
       bandTitleLabel.text = "文字にしています"
       bandElapsedLabel.isHidden = true
       bandButtons.isHidden = true
       bandProgressStack.isHidden = false
       renderProgressSteps()
-      bandCaptionLabel.text = "終わるまでお待ちください。結果は、キーボードを閉じても残ります。"
+      bandNoteLabel.isHidden = false
+      bandNoteLabel.text = "終わると、設定に合わせて入れるか、確かめてから入れる画面を出します。結果は、キーボードを閉じても残ります。"
+      bandCaptionLabel.text = "終わるまで面を切り替えられません。"
     default:
       recordingStartedAt = nil
     }
-    darkBand.isHidden = !showsBand
-    bandCard.isHidden = showsBand
-    keysView.isHidden = showsBand
-    bandDotView.isHidden = state != .unavailable && !isRecordingState(state)
+    paneLocked = showsCard
+    if showsCard, pane != .voice {
+      pane = .voice
+    }
+    busyCard.isHidden = !showsCard
+    bandCard.isHidden = showsCard
+    // 録音中・処理中の下の行は、地球儀と注意書きだけにする
+    voiceDeleteButton.isHidden = showsCard
+    voiceNewlineButton.isHidden = showsCard
+    bandCaptionLabel.isHidden = !showsCard
+    bandDotView.isHidden = !isRecordingState(state)
+    applyPane(animated: false)
   }
 
   private func isRecordingState(_ state: KeyboardStandbyState) -> Bool {
@@ -896,9 +1051,9 @@ final class KeyboardViewController: UIInputViewController {
   private func renderProgressSteps() {
     guard bandProgressStack.arrangedSubviews.isEmpty else { return }
     let steps: [(String, UIColor, Bool)] = [
-      ("録音", UtterPalette.bandAccent, false),
-      ("認識・整形", UtterPalette.bandText, true),
-      ("挿入", UtterPalette.bandTrack, false),
+      ("録音", UtterPalette.accent, false),
+      ("認識・整形", UtterPalette.text, true),
+      ("挿入", UtterPalette.paneTrack, false),
     ]
     for (title, color, isCurrent) in steps {
       let bar = UIView()
@@ -907,12 +1062,12 @@ final class KeyboardViewController: UIInputViewController {
       bar.translatesAutoresizingMaskIntoConstraints = false
       bar.heightAnchor.constraint(equalToConstant: 4).isActive = true
       let label = Self.makeBandLabel(
-        size: 13, bold: isCurrent,
-        color: isCurrent ? UtterPalette.bandText : UtterPalette.bandSecondaryText)
+        size: 12, bold: isCurrent,
+        color: isCurrent ? UtterPalette.text : UtterPalette.secondaryText)
       label.text = title
       let column = UIStackView(arrangedSubviews: [bar, label])
       column.axis = .vertical
-      column.spacing = 6
+      column.spacing = 4
       bandProgressStack.addArrangedSubview(column)
     }
   }
@@ -950,9 +1105,9 @@ final class KeyboardViewController: UIInputViewController {
     return label
   }
 
-  /// 暗い帯の上の文字
+  /// 録音中のカードと下の行の文字
   private static func makeBandLabel(
-    size: CGFloat, bold: Bool = false, color: UIColor = UtterPalette.bandText,
+    size: CGFloat, bold: Bool = false, color: UIColor = UtterPalette.text,
     monospaced: Bool = false
   ) -> UILabel {
     let label = UILabel()
@@ -965,7 +1120,7 @@ final class KeyboardViewController: UIInputViewController {
     return label
   }
 
-  private enum ButtonStyle { case accent, strong, outline }
+  private enum ButtonStyle { case accent, strong, large, outline }
 
   private static func makeActionButton(title: String, style: ButtonStyle) -> UIButton {
     let button = UIButton(configuration: .plain())
@@ -974,7 +1129,7 @@ final class KeyboardViewController: UIInputViewController {
     return button
   }
 
-  /// ボタンの見た目（青・濃い色・枠だけ）。タップ領域は 44pt 以上
+  /// ボタンの見た目（青・濃い色・大きな濃い色・枠だけ）。タップ領域は 44pt 以上
   private static func applyStyle(
     _ button: UIButton, title: String, style: ButtonStyle, symbol: String?
   ) {
@@ -983,11 +1138,12 @@ final class KeyboardViewController: UIInputViewController {
     configuration.image = symbol.flatMap { UIImage(systemName: $0) }
     configuration.imagePadding = 8
     configuration.cornerStyle = .fixed
-    configuration.background.cornerRadius = style == .strong ? 12 : 10
+    configuration.background.cornerRadius = style == .outline || style == .accent ? 10 : 14
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 10, leading: 16, bottom: 10, trailing: 16)
     let font = UIFont.systemFont(
-      ofSize: style == .strong ? 17 : 15, weight: style == .outline ? .regular : .bold)
+      ofSize: style == .large ? 20 : style == .strong ? 17 : 15,
+      weight: style == .outline ? .regular : .bold)
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       var attributes = $0
       attributes.font = font
@@ -997,7 +1153,7 @@ final class KeyboardViewController: UIInputViewController {
     case .accent:
       configuration.baseBackgroundColor = UtterPalette.accent
       configuration.baseForegroundColor = UtterPalette.onAccent
-    case .strong:
+    case .strong, .large:
       configuration.baseBackgroundColor = UtterPalette.strongFill
       configuration.baseForegroundColor = UtterPalette.onStrongFill
     case .outline:
@@ -1009,48 +1165,50 @@ final class KeyboardViewController: UIInputViewController {
     button.configuration = configuration
   }
 
-  /// 暗い帯のボタン。`filled` は明るい塗り（止めて入れる）、そうでなければ枠だけ（やめる）
-  private static func makeBandButton(title: String, filled: Bool) -> UIButton {
-    var configuration = UIButton.Configuration.filled()
-    configuration.title = title
-    configuration.cornerStyle = .fixed
-    configuration.background.cornerRadius = 14
-    configuration.contentInsets = NSDirectionalEdgeInsets(
-      top: 12, leading: 16, bottom: 12, trailing: 16)
-    if filled {
-      configuration.baseBackgroundColor = UtterPalette.bandText
-      configuration.baseForegroundColor = UtterPalette.band
-      configuration.image = UIImage(systemName: "stop.fill")
-      configuration.imagePadding = 10
-    } else {
-      configuration.baseBackgroundColor = .clear
-      configuration.baseForegroundColor = UtterPalette.bandText
-      configuration.background.strokeColor = UtterPalette.bandLine
-      configuration.background.strokeWidth = 1
-    }
-    let size: CGFloat = filled ? 18 : 15
-    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
-      var attributes = $0
-      attributes.font = UIFont.systemFont(ofSize: size, weight: filled ? .bold : .regular)
-      return attributes
-    }
-    return UIButton(configuration: configuration)
-  }
-
-  private static func makeBandGlobeButton() -> UIButton {
-    var configuration = UIButton.Configuration.filled()
-    configuration.image = UIImage(systemName: "globe")
-    configuration.baseBackgroundColor = UtterPalette.bandRaised
-    configuration.baseForegroundColor = UtterPalette.bandText
-    configuration.cornerStyle = .fixed
-    configuration.background.cornerRadius = 8
-    let button = UIButton(configuration: configuration)
-    button.accessibilityLabel = "キーボードを切り替える"
-    button.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      button.widthAnchor.constraint(equalToConstant: 44),
-      button.heightAnchor.constraint(equalToConstant: 44),
-    ])
+  /// 上の切替のボタン（音声入力・キーボード）
+  private static func makePaneButton(title: String, symbol: String) -> UIButton {
+    let button = UIButton(configuration: .plain())
+    button.configuration?.title = title
+    button.configuration?.image = UIImage(
+      systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15))
+    button.configuration?.imagePadding = 6
+    button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+    stylePaneButton(button, selected: false)
     return button
   }
+
+  /// 選んでいる面は白い面に太字、選んでいない面は背景のまま
+  private static func stylePaneButton(_ button: UIButton, selected: Bool) {
+    guard var configuration = button.configuration else { return }
+    configuration.baseForegroundColor = UtterPalette.text
+    configuration.background.backgroundColor = selected ? UtterPalette.card : .clear
+    configuration.background.cornerRadius = 10
+    configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+      var attributes = $0
+      attributes.font = UIFontMetrics(forTextStyle: .body).scaledFont(
+        for: UIFont.systemFont(ofSize: 15, weight: selected ? .bold : .regular))
+      return attributes
+    }
+    button.configuration = configuration
+    // 使えない（録音中）ことは isEnabled が伝える。選んでいるかだけを足し引きする
+    if selected {
+      button.accessibilityTraits.insert(.selected)
+    } else {
+      button.accessibilityTraits.remove(.selected)
+    }
+  }
+}
+
+extension KeyboardViewController: UIGestureRecognizerDelegate {
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    gestureRecognizer is UISwipeGestureRecognizer
+  }
+}
+
+extension UILayoutPriority {
+  /// 必須より1つ低い。隠したビューの中身が、スタックの付ける0の大きさとぶつからないようにする
+  fileprivate static let almostRequired = UILayoutPriority(999)
 }
