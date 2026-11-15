@@ -310,6 +310,24 @@ struct RecordingSessionModelTests {
     #expect(model.phase == .recording)
   }
 
+  @Test("iOS-04, #267: 録音の準備中（マイクの許可の確認待ち）・録音中は待機を始めない。終われば始められる")
+  func canStartStandbyExcludesPreparing() async {
+    recorder.holdsPermission = true
+    let model = model(recognizer: speaking)
+    #expect(model.canStartStandby)
+
+    let start = Task { await model.startRecording() }
+    #expect(await waitUntil { recorder.isAwaitingPermission })
+    #expect(model.canStartRecording)
+    #expect(!model.canStartStandby)
+    recorder.grantPermission()
+    await start.value
+    #expect(!model.canStartStandby)
+
+    model.cancel()
+    #expect(model.canStartStandby)
+  }
+
   @Test("iOS-PERF-03: 前のセッションの録音の失敗は、次のセッションを止めない")
   func staleRecorderFailureIsIgnored() async {
     let model = model(recognizer: speaking)

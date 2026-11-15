@@ -19,6 +19,7 @@ final class StandbyDriver {
   @ObservationIgnored private let audio: StandbyAudioSessionAdapter
   @ObservationIgnored private let preferences: StandbyPreferences
   @ObservationIgnored private let groupIdentifier: String
+  @ObservationIgnored private let store: StandbySessionStore
   @ObservationIgnored private var pollTask: Task<Void, Never>?
   @ObservationIgnored private var commandObservation: StandbyDarwinObservation?
   @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
@@ -28,12 +29,13 @@ final class StandbyDriver {
 
   init(
     coordinator: StandbySessionCoordinator, audio: StandbyAudioSessionAdapter,
-    preferences: StandbyPreferences, groupIdentifier: String
+    preferences: StandbyPreferences, groupIdentifier: String, store: StandbySessionStore
   ) {
     self.coordinator = coordinator
     self.audio = audio
     self.preferences = preferences
     self.groupIdentifier = groupIdentifier
+    self.store = store
   }
 
   var isStandingBy: Bool { coordinator.isStandingBy }
@@ -50,6 +52,15 @@ final class StandbyDriver {
     // 始める途中に終える操作を受けていたら、すでに終わっている
     guard coordinator.isStandingBy else { return }
     beginObserving()
+  }
+
+  /// キーボードのマイクの操作で開かれたときに待機を始める（iOS-03・iOS-04, #267）。
+  ///
+  /// URL は他のアプリからも開けるため、キーボードが App Group に書いた同じ ID の要求を消費できたときだけ始める。
+  /// 要求を読んだ後にも `canStart`（本体アプリで録音中・録音の準備中でない）を確かめる
+  func startRequestedByKeyboard(requestID: UUID, canStart: () -> Bool) async {
+    guard await store.consumeStartRequest(requestID, at: Date()), canStart() else { return }
+    await start()
   }
 
   /// 利用者が待機を終える

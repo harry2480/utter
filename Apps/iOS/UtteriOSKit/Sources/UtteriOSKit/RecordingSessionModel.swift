@@ -154,6 +154,11 @@ public final class RecordingSessionModel {
   public var activeSessionID: SessionID? { stateMachine.activeSession?.id }
 
   /// 新しい録音を始められるか（待機中か、失敗の表示中）
+  /// 待機を始めてよいか。録音の準備中（マイクの許可の確認待ち）も録音中と同じく始めない（#267）
+  public var canStartStandby: Bool {
+    canStartRecording && !isPreparing
+  }
+
   public var canStartRecording: Bool {
     switch phase {
     case .idle, .error: true

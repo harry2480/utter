@@ -110,25 +110,17 @@ struct UtterApp: App {
   }
 
   /// キーボードのマイクから開かれたら、待機を始める（iOS-03・iOS-04, #267）。
-  /// 本体アプリで録音中なら始めない（画面の「待機を始める」と同じ条件）。それ以外の URL では開くだけで何もしない
+  /// キーボードが書いた要求があり、本体アプリで録音中・録音の準備中でなければ始める。それ以外の URL では開くだけで何もしない
   private func openedByURL(_ url: URL) {
-    guard HostAppLaunchRequest(url: url, scheme: Self.hostAppURLScheme) == .startStandby,
-      let standby, model.canStartRecording
+    let scheme = Bundle.main.object(forInfoDictionaryKey: "UtterHostAppURLScheme") as? String
+    guard case .startStandby(let requestID) = HostAppLaunchRequest(url: url, scheme: scheme),
+      let standby
     else {
       return
     }
-    Task { await standby.start() }
+    let model = model
+    Task { await standby.startRequestedByKeyboard(requestID: requestID) { model.canStartStandby } }
   }
-
-  /// 本体アプリが登録した URL スキーム（Config/Local.xcconfig の `UTTER_HOST_APP_URL_SCHEME`）。未設定なら `nil`
-  private static let hostAppURLScheme: String? = {
-    guard let scheme = Bundle.main.object(forInfoDictionaryKey: "UtterHostAppURLScheme") as? String,
-      !scheme.trimmingCharacters(in: .whitespaces).isEmpty
-    else {
-      return nil
-    }
-    return scheme
-  }()
 
   /// 待機セッションを組み立てる。App Group を使えないときは `nil`
   private static func makeStandby(
@@ -146,7 +138,8 @@ struct UtterApp: App {
       configuration: preferences.sessionConfiguration,
       insertionMode: { preferences.insertionMode })
     return StandbyDriver(
-      coordinator: coordinator, audio: audio, preferences: preferences, groupIdentifier: appGroupID)
+      coordinator: coordinator, audio: audio, preferences: preferences, groupIdentifier: appGroupID,
+      store: store)
   }
 
   /// アプリに埋め込まれたプロビジョニングプロファイルから個人署名の期限を読む（12.6節）。

@@ -13,6 +13,7 @@ public actor StandbySessionStore {
   private static let commandFileName = "command.json"
   private static let hostStateFileName = "host.json"
   private static let heartbeatFileName = "keyboard-heartbeat.json"
+  private static let startRequestFileName = "start-request.json"
 
   /// App Group 経由のディレクトリを使用して初期化する。コンテナを取得できなければ `nil`
   public init?(
@@ -77,6 +78,21 @@ public actor StandbySessionStore {
 
   public func loadHeartbeat() throws -> KeyboardHeartbeat? {
     try read(KeyboardHeartbeat.self, from: Self.heartbeatFileName)
+  }
+
+  // MARK: 待機の開始の要求（キーボードが書き、本体アプリが1回だけ消費する, #267）
+
+  public func saveStartRequest(_ request: StandbyStartRequest) throws {
+    try write(request, to: Self.startRequestFileName)
+  }
+
+  /// `requestID` の開始の要求が有効なら消費して `true` を返す。ない・ID が違う・期限切れ・壊れていれば `false`。
+  /// 有効かどうかにかかわらず、読んだ要求は消す（同じ要求で2回始めない）
+  public func consumeStartRequest(_ requestID: UUID, at now: Date) -> Bool {
+    let request = try? read(StandbyStartRequest.self, from: Self.startRequestFileName)
+    try? FileManager.default.removeItem(
+      at: directory.appendingPathComponent(Self.startRequestFileName))
+    return request?.accepts(requestID, at: now) ?? false
   }
 
   // MARK: ファイル
