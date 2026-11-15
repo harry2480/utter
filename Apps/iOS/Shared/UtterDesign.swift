@@ -4,7 +4,6 @@ import UIKit
 /// iOS の本体アプリとキーボード拡張で共有する、見た目の色（設計: 背景・カード・文字・アクセント・警告）。
 ///
 /// 色の値だけを持つ。ライト/ダークで切り替わる色は `UIColor` の動的な色にし、SwiftUI からは `Color(uiColor:)` で使う。
-/// キーボードの録音中・認識中の帯は、どちらのモードでも暗い帯にする（`band…` の色は固定）。
 enum UtterPalette {
   private static func hex(_ value: UInt32) -> UIColor {
     UIColor(
@@ -42,18 +41,9 @@ enum UtterPalette {
   static let functionKey = dynamic(light: 0xAEB3BD, dark: 0x2C2F38)
   static let keyShadow = dynamic(light: 0x8E94A3, dark: 0x101114)
   static let segmentTrack = dynamic(light: 0xECEEF1, dark: 0x2C2F38)
+  /// 面の切替（音声入力・キーボード）の下地と、進み具合のまだの段
+  static let paneTrack = dynamic(light: 0xC3C7CE, dark: 0x101114)
 
-  // 暗い帯（録音中・認識中）。どちらのモードでも同じ
-  static let band = hex(0x1B1D23)
-  static let bandRaised = hex(0x2C2F38)
-  static let bandText = hex(0xF2F3F5)
-  static let bandSecondaryText = hex(0xA9AEBA)
-  static let bandBodyText = hex(0xD5D8DF)
-  static let bandAccent = hex(0x8FB4FF)
-  static let bandTrack = hex(0x3A3E48)
-  static let bandLine = hex(0x4A4F5A)
-  static let bandWarningFill = hex(0x4A2A14)
-  static let bandWarningText = hex(0xFFB68A)
 }
 
 extension Color {
