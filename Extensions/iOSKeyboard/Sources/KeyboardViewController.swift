@@ -116,6 +116,10 @@ final class KeyboardViewController: UIInputViewController {
   /// 音声入力の面とキーボードの面（設計: 上の切替か、横になぞって行き来する）
   private enum Pane { case voice, keys }
   private var pane = Pane.voice
+  /// 録音中のカードを出している間は、面を音声入力に留める（カードを出すかどうかと同じ条件）
+  private var paneLocked = false
+  /// 最後に画面へ反映した面と固定。変わったときだけ描き直す
+  private var appliedPane: (pane: Pane, locked: Bool)?
   private let paneTrack = UIView()
   private let paneVoiceButton = KeyboardViewController.makePaneButton(
     title: "音声入力", symbol: "mic")
@@ -166,6 +170,12 @@ final class KeyboardViewController: UIInputViewController {
     super.viewDidLoad()
     buildLayout()
     render()
+    // 文字の大きさの設定が変わったら、切替のボタンの文字を描き直す
+    registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+      (self: KeyboardViewController, _: UITraitCollection) in
+      self.appliedPane = nil
+      self.applyPane(animated: false)
+    }
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -249,6 +259,8 @@ final class KeyboardViewController: UIInputViewController {
     guard restrictions.isEmpty else {
       // 制限のある入力欄では `KeyboardAvailability` が共有コンテナの状態を使わない
       snapshot = SharedSnapshot(container: .unavailable, preview: .cleared)
+      // 話せない入力欄へ移ったら、文字を打てるキーボードの面にする（iOS-09）
+      pane = .keys
       render()
       return
     }
@@ -750,9 +762,17 @@ final class KeyboardViewController: UIInputViewController {
     for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
       let swipe = UISwipeGestureRecognizer(target: self, action: #selector(handlePaneSwipe(_:)))
       swipe.direction = direction
+      // 状態のカードのスクロールと同時に認識し、カードの上でも横になぞれば面を切り替える
+      swipe.delegate = self
       paneArea.addGestureRecognizer(swipe)
     }
 
+    // 状態のカードは録音中に隠す。高さ0とぶつからないよう、縦の制約は必須にしない
+    let scrollTop = scrollView.topAnchor.constraint(equalTo: bandCard.topAnchor, constant: 12)
+    let scrollBottom = scrollView.bottomAnchor.constraint(
+      equalTo: bandCard.bottomAnchor, constant: -12)
+    scrollTop.priority = .almostRequired
+    scrollBottom.priority = .almostRequired
     NSLayoutConstraint.activate([
       paneArea.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
       paneArea.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
@@ -769,8 +789,8 @@ final class KeyboardViewController: UIInputViewController {
       keysView.bottomAnchor.constraint(equalTo: paneArea.bottomAnchor),
       scrollView.leadingAnchor.constraint(equalTo: bandCard.leadingAnchor, constant: 12),
       scrollView.trailingAnchor.constraint(equalTo: bandCard.trailingAnchor, constant: -12),
-      scrollView.topAnchor.constraint(equalTo: bandCard.topAnchor, constant: 12),
-      scrollView.bottomAnchor.constraint(equalTo: bandCard.bottomAnchor, constant: -12),
+      scrollTop,
+      scrollBottom,
       panel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
       panel.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
@@ -820,15 +840,17 @@ final class KeyboardViewController: UIInputViewController {
       voiceKeysRow.addArrangedSubview(view)
     }
     voiceKeysRow.setCustomSpacing(10, after: voiceGlobeButton)
-    NSLayoutConstraint.activate([
-      voiceKeysRow.heightAnchor.constraint(equalToConstant: 56),
+    // 隠すキー（録音中の削除・改行、地球儀）が幅0とぶつからないよう、大きさの制約は必須にしない
+    let sizes = [
       voiceGlobeButton.widthAnchor.constraint(equalToConstant: 44),
       voiceGlobeButton.heightAnchor.constraint(equalToConstant: 56),
       voiceDeleteButton.widthAnchor.constraint(equalToConstant: 44),
       voiceDeleteButton.heightAnchor.constraint(equalToConstant: 56),
       voiceNewlineButton.widthAnchor.constraint(equalToConstant: 76),
       voiceNewlineButton.heightAnchor.constraint(equalToConstant: 56),
-    ])
+    ]
+    for constraint in sizes { constraint.priority = .almostRequired }
+    NSLayoutConstraint.activate(sizes + [voiceKeysRow.heightAnchor.constraint(equalToConstant: 56)])
     voiceGlobeButton.addTarget(
       self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
     voiceDeleteButton.addAction(
@@ -878,14 +900,19 @@ final class KeyboardViewController: UIInputViewController {
     content.spacing = 10
     content.translatesAutoresizingMaskIntoConstraints = false
     busyCard.addSubview(content)
-    NSLayoutConstraint.activate([
-      content.leadingAnchor.constraint(equalTo: busyCard.leadingAnchor, constant: 12),
-      content.trailingAnchor.constraint(equalTo: busyCard.trailingAnchor, constant: -12),
+    // 隠したとき（スタックが高さ0にする）とぶつからないよう、縦の制約は必須にしない
+    let vertical = [
       content.topAnchor.constraint(equalTo: busyCard.topAnchor, constant: 12),
       content.bottomAnchor.constraint(equalTo: busyCard.bottomAnchor, constant: -12),
       bandStopButton.heightAnchor.constraint(equalToConstant: 48),
       bandCancelButton.heightAnchor.constraint(equalToConstant: 48),
-    ])
+    ]
+    for constraint in vertical { constraint.priority = .almostRequired }
+    NSLayoutConstraint.activate(
+      vertical + [
+        content.leadingAnchor.constraint(equalTo: busyCard.leadingAnchor, constant: 12),
+        content.trailingAnchor.constraint(equalTo: busyCard.trailingAnchor, constant: -12),
+      ])
     bandCancelButton.addAction(
       UIAction { [weak self] _ in
         guard let self, let standby else { return }
@@ -903,19 +930,14 @@ final class KeyboardViewController: UIInputViewController {
 
   /// 録音中・処理中は面を切り替えない（キーボードを閉じると録音を捨てるため、操作を音声入力の面に留める）
   private func switchPane(to target: Pane) {
-    guard target != pane, !isStandbyBusy else { return }
+    guard target != pane, !paneLocked else { return }
     pane = target
     applyPane(animated: true)
   }
 
-  private var isStandbyBusy: Bool {
-    switch standby?.state {
-    case .starting, .recording, .processing: true
-    default: false
-    }
-  }
-
   private func applyPane(animated: Bool) {
+    if let appliedPane, appliedPane.pane == pane, appliedPane.locked == paneLocked { return }
+    appliedPane = (pane, paneLocked)
     if animated {
       let transition = CATransition()
       transition.type = .push
@@ -928,16 +950,19 @@ final class KeyboardViewController: UIInputViewController {
     keysView.isHidden = pane != .keys
     Self.stylePaneButton(paneVoiceButton, selected: pane == .voice)
     Self.stylePaneButton(paneKeysButton, selected: pane == .keys)
-    let locked = isStandbyBusy
-    paneKeysButton.isEnabled = !locked
-    paneKeysButton.alpha = locked ? 0.45 : 1
+    paneKeysButton.isEnabled = !paneLocked
   }
 
   // MARK: マイクの行と録音中のカード
 
   /// マイクの行（話せる状態・待機していない・入れた直後）。録音中・認識中は録音中のカードが代わる
   private func renderMicRow(_ state: KeyboardStandbyState, visible: Bool) {
-    micRow.isHidden = !visible || isStandbyBusy
+    var isBusyState = false
+    switch state {
+    case .starting, .recording, .processing: isBusyState = true
+    default: break
+    }
+    micRow.isHidden = !visible || isBusyState
     guard visible else { return }
     micCheckView.isHidden = true
     micDotView.isHidden = false
@@ -1003,6 +1028,7 @@ final class KeyboardViewController: UIInputViewController {
     default:
       recordingStartedAt = nil
     }
+    paneLocked = showsCard
     if showsCard, pane != .voice {
       pane = .voice
     }
@@ -1159,10 +1185,30 @@ final class KeyboardViewController: UIInputViewController {
     configuration.background.cornerRadius = 10
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       var attributes = $0
-      attributes.font = UIFont.systemFont(ofSize: 15, weight: selected ? .bold : .regular)
+      attributes.font = UIFontMetrics(forTextStyle: .body).scaledFont(
+        for: UIFont.systemFont(ofSize: 15, weight: selected ? .bold : .regular))
       return attributes
     }
     button.configuration = configuration
-    button.accessibilityTraits = selected ? [.button, .selected] : .button
+    // 使えない（録音中）ことは isEnabled が伝える。選んでいるかだけを足し引きする
+    if selected {
+      button.accessibilityTraits.insert(.selected)
+    } else {
+      button.accessibilityTraits.remove(.selected)
+    }
   }
+}
+
+extension KeyboardViewController: UIGestureRecognizerDelegate {
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    gestureRecognizer is UISwipeGestureRecognizer
+  }
+}
+
+extension UILayoutPriority {
+  /// 必須より1つ低い。隠したビューの中身が、スタックの付ける0の大きさとぶつからないようにする
+  fileprivate static let almostRequired = UILayoutPriority(999)
 }
