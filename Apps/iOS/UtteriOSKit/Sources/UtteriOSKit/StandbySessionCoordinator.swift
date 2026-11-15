@@ -152,9 +152,10 @@ public final class StandbySessionCoordinator {
   public func poll() async {
     guard machine.phase != .off else { return }
     // 読み込みを先に終え、状態の変更から効果の実行まで待ちを挟まない（別の poll に追い越されないため）
+    // 時刻は読み込みの前に取る。読み込みが遅れても、読んだ生存の印が古く見えて録音を捨てないため
+    let now = date()
     let command = try? await signals.loadCommand()
     let heartbeat = try? await signals.loadHeartbeat()
-    let now = date()
     var effects: [StandbySessionEffect] = []
     if let command {
       effects += machine.receive(command, at: now)

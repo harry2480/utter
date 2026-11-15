@@ -43,9 +43,7 @@ struct StandbySection: View {
         driver.isStandingBy
           ? (driver.coordinator.hostPhase == .standby
             ? "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
-            : (driver.coordinator.hostPhase == .recording
-              ? "キーボードの操作で録音の途中です。終わると、また待機に戻ります。"
-              : "認識と整形を行っています。結果は、キーボードの操作で確かめてください。"))
+            : Self.busyDescription(driver.coordinator.hostPhase))
           : "待機を始めると、ほかのアプリを使いながら、キーボードのマイクで話して文章を入れられます。アプリの切り替えは要りません。"
       )
       .font(.system(size: 15))
@@ -141,6 +139,17 @@ struct StandbySection: View {
         .font(.system(size: 13))
         .foregroundStyle(Color.utterSecondary)
         .padding(.horizontal, 4)
+    }
+  }
+
+  /// 待機のほかのフェーズ（録音の途中・処理中・済んだあと）の説明
+  private static func busyDescription(_ phase: StandbyHostState.Phase) -> String {
+    switch phase {
+    case .recording: "キーボードの操作で録音の途中です。終わると、また待機に戻ります。"
+    case .processing: "認識と整形を行っています。終わると、また待機に戻ります。"
+    case .done: "結果をキーボードへ渡しました。入力欄を確かめてください。"
+    case .failed: "録音は入っていません。もう一度、キーボードのマイクで話せます。"
+    case .off, .standby: "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
     }
   }
 
