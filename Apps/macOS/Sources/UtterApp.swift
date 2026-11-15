@@ -40,6 +40,7 @@ struct UtterApp: App {
         .environment(menuBar)
         .environment(updater)
     }
+    .menuBarExtraStyle(.window)
     // 機能ごとの画面。1機能1行で、関係する機能の近くに足す
     SettingsScene(
       claudeAPIKeyStore: Self.claudeAPIKeyStore, openAIAPIKeyStore: Self.openAIAPIKeyStore,

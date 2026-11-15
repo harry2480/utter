@@ -36,6 +36,7 @@ struct SettingsView: View {
           )
         }
       }
+      .utterListStyle()
       .navigationTitle("設定")
       .toolbar {
         ToolbarItem(placement: .confirmationAction) {

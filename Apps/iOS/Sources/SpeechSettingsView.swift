@@ -25,6 +25,7 @@ struct SpeechSettingsView: View {
         SpeechModelSection(model: model)
       }
     }
+    .utterListStyle()
     .navigationTitle("音声認識の設定")
   }
 }

@@ -25,7 +25,7 @@ struct HUDView: View {
           ForEach(Array(presentation.messages.enumerated()), id: \.offset) { _, message in
             Text(message)
               .font(.subheadline)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(UtterTheme.hudBody)
               .fixedSize(horizontal: false, vertical: true)
           }
         }
@@ -50,7 +50,8 @@ struct HUDView: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
     .frame(width: 320, alignment: .leading)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .foregroundStyle(UtterTheme.hudText)
+    .background(UtterTheme.hudSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(presentation.accessibilityLabel)
   }
@@ -67,15 +68,15 @@ struct HUDView: View {
       if let time = presentation.recordingTimeText {
         Text(time)
           .font(.caption.monospacedDigit())
-          .foregroundStyle(.secondary)
+          .foregroundStyle(UtterTheme.hudSecondary)
       }
       if let destination = presentation.destination {
         Text(destination)
           .font(.caption)
-          .foregroundStyle(.orange)
+          .foregroundStyle(UtterTheme.hudWarning)
           .padding(.horizontal, 8)
           .padding(.vertical, 2)
-          .background(Color.orange.opacity(0.15), in: Capsule())
+          .background(UtterTheme.hudWarningFill, in: Capsule())
       }
       Spacer(minLength: 0)
       if let bars = presentation.inputLevelBars {
@@ -97,7 +98,7 @@ struct HUDView: View {
           Text(stage.label)
             .font(.caption2)
             .fontWeight(index == currentIndex ? Font.Weight.bold : .regular)
-            .foregroundStyle(index == currentIndex ? HierarchicalShapeStyle.primary : .secondary)
+            .foregroundStyle(index == currentIndex ? UtterTheme.hudText : UtterTheme.hudSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -105,9 +106,9 @@ struct HUDView: View {
   }
 
   private func stageColor(index: Int, currentIndex: Int) -> Color {
-    if index < currentIndex { return .accentColor }
-    if index == currentIndex { return .primary }
-    return Color.secondary.opacity(0.3)
+    if index < currentIndex { return UtterTheme.hudAccent }
+    if index == currentIndex { return UtterTheme.hudText }
+    return UtterTheme.hudTrack
   }
 
   /// 録音中のチップ（整形モード・アプリ別スタイル・音声認識の種別）
@@ -119,7 +120,8 @@ struct HUDView: View {
           .lineLimit(1)
           .padding(.horizontal, 8)
           .padding(.vertical, 2)
-          .background(Color.secondary.opacity(0.15), in: Capsule())
+          .foregroundStyle(UtterTheme.hudBody)
+          .background(UtterTheme.hudRaised, in: Capsule())
       }
     }
   }
@@ -135,12 +137,12 @@ struct HUDView: View {
             .padding(.vertical, 1)
             .overlay {
               RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                .stroke(UtterTheme.hudStroke, lineWidth: 1)
             }
           Text(hint.action)
             .font(.caption2)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(UtterTheme.hudSecondary)
       }
     }
   }
@@ -150,7 +152,7 @@ struct HUDView: View {
     HStack(alignment: .bottom, spacing: 2) {
       ForEach(Array(Self.levelBarHeights.enumerated()), id: \.offset) { index, height in
         RoundedRectangle(cornerRadius: 1.5)
-          .fill(index < bars ? Color.red : Color.secondary.opacity(0.3))
+          .fill(index < bars ? UtterTheme.hudAccent : UtterTheme.hudTrack)
           .frame(width: 3, height: height)
       }
     }
@@ -161,7 +163,7 @@ struct HUDView: View {
   private func transcriptText(_ transcript: HUDTranscript) -> Text {
     let confirmed = Text(transcript.confirmedText)
     let provisional = Text(transcript.provisionalText)
-      .foregroundStyle(.secondary)
+      .foregroundStyle(UtterTheme.hudSecondary)
       .underline(pattern: .dot)
     return Text("\(confirmed)\(provisional)")
   }
@@ -171,20 +173,21 @@ struct HUDView: View {
     switch presentation.indicator {
     case .recording:
       Image(systemName: "mic.fill")
-        .foregroundStyle(.red)
+        .foregroundStyle(UtterTheme.hudAccent)
         .symbolEffect(.pulse)
     case .processing:
       ProgressView()
         .controlSize(.small)
+        .tint(UtterTheme.hudText)
     case .failure:
       Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.yellow)
+        .foregroundStyle(UtterTheme.hudWarning)
     case .notice:
       Image(systemName: "info.circle.fill")
-        .foregroundStyle(.blue)
+        .foregroundStyle(UtterTheme.hudAccent)
     case .completed:
       Image(systemName: "checkmark.circle.fill")
-        .foregroundStyle(.blue)
+        .foregroundStyle(UtterTheme.hudAccent)
     }
   }
 }

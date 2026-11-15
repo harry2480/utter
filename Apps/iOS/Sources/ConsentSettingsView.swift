@@ -37,6 +37,7 @@ struct ConsentSettingsView: View {
         }
       }
     }
+    .utterListStyle()
     .navigationTitle("クラウド送信の同意")
     .onAppear { model.reload() }
   }
