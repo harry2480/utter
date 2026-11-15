@@ -117,6 +117,20 @@ struct HostAppLaunchRequestTests {
     #expect(await store.consumeStartRequest(Self.requestID, at: now.addingTimeInterval(elapsed)))
   }
 
+  @Test("iOS-04: 要求を消せなければ始めず、残った要求をもう一度使っても始めない")
+  func notConsumedWhenRemovalFails() async throws {
+    let store = StandbySessionStore(directory: directory.url)
+    try await store.saveStartRequest(StandbyStartRequest(id: Self.requestID, at: now))
+    let folder = directory.url.path
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder)
+    defer {
+      try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder)
+    }
+
+    #expect(await !store.consumeStartRequest(Self.requestID, at: now))
+    #expect(await !store.consumeStartRequest(Self.requestID, at: now))
+  }
+
   @Test("iOS-04: 壊れた要求では始めない")
   func corrupted() async throws {
     let store = StandbySessionStore(directory: directory.url)

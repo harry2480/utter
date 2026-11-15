@@ -87,11 +87,16 @@ public actor StandbySessionStore {
   }
 
   /// `requestID` の開始の要求が有効なら消費して `true` を返す。ない・ID が違う・期限切れ・壊れていれば `false`。
-  /// 有効かどうかにかかわらず、読んだ要求は消す（同じ要求で2回始めない）
+  /// 有効かどうかにかかわらず、読んだ要求は消す（同じ要求で2回始めない）。消せなければ、残った要求を
+  /// もう一度使えてしまうため `false` を返す
   public func consumeStartRequest(_ requestID: UUID, at now: Date) -> Bool {
     let request = try? read(StandbyStartRequest.self, from: Self.startRequestFileName)
-    try? FileManager.default.removeItem(
-      at: directory.appendingPathComponent(Self.startRequestFileName))
+    do {
+      try FileManager.default.removeItem(
+        at: directory.appendingPathComponent(Self.startRequestFileName))
+    } catch {
+      return false
+    }
     return request?.accepts(requestID, at: now) ?? false
   }
 
