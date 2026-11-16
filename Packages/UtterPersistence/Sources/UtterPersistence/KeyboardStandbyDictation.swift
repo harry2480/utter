@@ -361,8 +361,8 @@ public final class KeyboardStandbyDictation {
       return
     }
     let standing = host.map { Self.isStandingBy($0, at: current) } ?? false
-    // 閉じている間に、離れた録音が捨てられた（上限・ロック・割り込みなど）。戻ってきた利用者に一度だけ知らせる
-    if case .unavailable = state, standing, let host, host.phase == .failed, host.isDetached,
+    // 閉じている間に、続けていた録音が捨てられた（上限・ロック・割り込みなど）。戻ってきた利用者に一度だけ知らせる
+    if case .unavailable = state, standing, let host, Self.isDiscardedWhileAway(host),
       let id = host.sessionID, !relinquishedSessions.contains(id),
       reportedDetachedFailures.insert(id).inserted
     {
@@ -388,6 +388,17 @@ public final class KeyboardStandbyDictation {
     switch state {
     case .starting, .recording, .processing: return nil
     default: return id
+    }
+  }
+
+  /// 閉じても録音を続ける設定で、キーボードの外で捨てられた録音か。離れたと判定する前に
+  /// ロック・割り込み・上限で捨てられた録音も含める（閉じてすぐロックしたときなど）
+  private static func isDiscardedWhileAway(_ host: StandbyHostState) -> Bool {
+    guard host.phase == .failed, host.keepsRecordingWhenKeyboardCloses else { return false }
+    if host.isDetached { return true }
+    switch host.failure {
+    case .deviceLocked, .interrupted, .captureLimitExceeded: return true
+    default: return false
     }
   }
 
@@ -446,6 +457,8 @@ public final class KeyboardStandbyDictation {
     case .done:
       await finish(id, mode: host.insertionMode, startEpoch: startEpoch)
     case .failed:
+      // 知らせた理由を、閉じて戻ったときにもう一度出さない
+      reportedDetachedFailures.insert(id)
       set(.failed(.host(host.failure ?? .processingFailed)))
     case .standby, .off:
       break

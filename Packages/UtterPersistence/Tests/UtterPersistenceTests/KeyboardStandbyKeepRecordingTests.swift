@@ -392,4 +392,35 @@ struct KeyboardStandbyKeepRecordingTests {
     await dictation.tick()
     #expect(dictation.state == .ready)
   }
+
+  @Test("#267: 離れたと判定する前にロックで捨てられた録音も、戻ったときに理由を出す")
+  func reportsLockBeforeDetach() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    try await store.saveHostState(
+      StandbyHostState(
+        phase: .failed, sessionID: SessionID(), updatedAt: clock.now, failure: .deviceLocked,
+        keepsRecordingWhenKeyboardCloses: true))
+
+    await dictation.tick()
+
+    #expect(dictation.state == .failed(.host(.deviceLocked)))
+  }
+
+  @Test("#267: 録音を追っている間に出した理由は、閉じて戻ったときにもう一度出さない")
+  func followedFailureIsNotRepeated() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = try await record(dictation, store, clock)
+    try await store.saveHostState(
+      StandbyHostState(
+        phase: .failed, sessionID: id, updatedAt: clock.now, failure: .captureLimitExceeded,
+        keepsRecordingWhenKeyboardCloses: true, isDetached: true))
+    await dictation.tick()
+    #expect(dictation.state == .failed(.host(.captureLimitExceeded)))
+
+    await dictation.keyboardClosed(reason: .dismissed)
+    await dictation.tick()
+    #expect(dictation.state == .ready)
+  }
 }
