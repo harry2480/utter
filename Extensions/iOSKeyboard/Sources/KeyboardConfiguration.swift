@@ -11,14 +11,17 @@ struct KeyboardConfiguration {
   let appGroupID: String?
   /// 本体アプリを開く URL。設定していなければ `nil`（手動で切り替える案内だけを出す）
   let hostAppURL: URL?
+  /// 本体アプリが登録した URL スキーム。待機を始める URL（iOS-03・iOS-04, #267）を作るのに使う。設定していなければ `nil`
+  let hostAppURLScheme: String?
 
   static let appGroupIDKey = "UtterAppGroupID"
   static let hostAppURLSchemeKey = "UtterHostAppURLScheme"
 
   init(bundle: Bundle = .main) {
     appGroupID = Self.nonEmptyString(bundle.object(forInfoDictionaryKey: Self.appGroupIDKey))
-    hostAppURL = Self.nonEmptyString(bundle.object(forInfoDictionaryKey: Self.hostAppURLSchemeKey))
-      .flatMap { URL(string: "\($0)://") }
+    hostAppURLScheme = Self.nonEmptyString(
+      bundle.object(forInfoDictionaryKey: Self.hostAppURLSchemeKey))
+    hostAppURL = hostAppURLScheme.flatMap { URL(string: "\($0)://") }
   }
 
   /// 空と、ビルド設定が展開されずに残った値（`$(...)`）は設定なしとして扱う

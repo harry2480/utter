@@ -103,8 +103,23 @@ struct UtterApp: App {
         consentSettings: consentSettings,
         claudeAPIKeySettings: claudeAPIKeySettings, speechEngine: speechEngine,
         speechModel: speechModel, hostAppStatus: hostAppStatus, standby: standby, setup: setup,
-        signingExpiry: signingExpiry)
+        signingExpiry: signingExpiry
+      )
+      .onOpenURL { url in openedByURL(url) }
     }
+  }
+
+  /// キーボードのマイクから開かれたら、待機を始める（iOS-03・iOS-04, #267）。
+  /// キーボードが書いた要求があり、本体アプリで録音中・録音の準備中でなければ始める。それ以外の URL では開くだけで何もしない
+  private func openedByURL(_ url: URL) {
+    let scheme = Bundle.main.object(forInfoDictionaryKey: "UtterHostAppURLScheme") as? String
+    guard case .startStandby(let requestID) = HostAppLaunchRequest(url: url, scheme: scheme),
+      let standby
+    else {
+      return
+    }
+    let model = model
+    Task { await standby.startRequestedByKeyboard(requestID: requestID) { model.canStartStandby } }
   }
 
   /// 待機セッションを組み立てる。App Group を使えないときは `nil`
@@ -123,7 +138,8 @@ struct UtterApp: App {
       configuration: preferences.sessionConfiguration,
       insertionMode: { preferences.insertionMode })
     return StandbyDriver(
-      coordinator: coordinator, audio: audio, preferences: preferences, groupIdentifier: appGroupID)
+      coordinator: coordinator, audio: audio, preferences: preferences, groupIdentifier: appGroupID,
+      store: store)
   }
 
   /// アプリに埋め込まれたプロビジョニングプロファイルから個人署名の期限を読む（12.6節）。

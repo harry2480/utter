@@ -82,6 +82,9 @@ enum KeyboardMessages {
 
   // MARK: 待機セッションの録音（iOS-03〜06）
 
+  /// 待機していないときの、マイクのボタンの下の案内（iOS-03・iOS-04, #267）
+  static let standbyStartHint = "押すと utter が開いて待機が始まります。このアプリに戻って、もう一度押すと話せます。"
+
   /// マイクのボタンの表示。待機していないときは本体アプリを開く
   static func micTitle(_ state: KeyboardStandbyState) -> String {
     switch state {
