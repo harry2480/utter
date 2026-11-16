@@ -100,7 +100,7 @@ struct KeyboardStandbyKeepRecordingTests {
     return id
   }
 
-  @Test("#267: 続ける設定で録音中に閉じたら、取り消しを書かない")
+  @Test("iOS-06・#267: 続ける設定で録音中に閉じたら、取り消しを書かない")
   func closingDoesNotCancelWhenKept() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -159,7 +159,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(command?.sessionID == id)
   }
 
-  @Test("#267: 停止を書いている途中に閉じても、停止を上書きしない")
+  @Test("iOS-06・#267: 停止を書いている途中に閉じても、停止を上書きしない")
   func closingWhileStoppingKeepsStop() async throws {
     let clock = Clock(base)
     let gate = StopGate()
@@ -180,7 +180,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(command?.sessionID == id)
   }
 
-  @Test("#267: 再表示したとき、本体アプリが録音中なら引き継ぎ、印を書き、本体アプリの開始時刻を返す")
+  @Test("iOS-06・#267: 再表示したとき、本体アプリが録音中なら引き継ぎ、印を書き、本体アプリの開始時刻を返す")
   func resumesRecordingOnReappear() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -200,7 +200,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(heartbeat?.at == clock.now)
   }
 
-  @Test("#267: 続けない設定・途絶えた状態・取り消したセッションは引き継がない")
+  @Test("iOS-06・#267: 続けない設定・途絶えた状態・取り消したセッションは引き継がない")
   func doesNotResumeOtherwise() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -224,7 +224,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.state == .unavailable)
   }
 
-  @Test("#267: 引き継いだ録音の結果は、設定が自動挿入でも自動で入れない")
+  @Test("iOS-06・#267: 引き継いだ録音の結果は、設定が自動挿入でも自動で入れない")
   func resumedResultIsNotInsertedAutomatically() async throws {
     let clock = Clock(base)
     let inserter = CountingInserter()
@@ -245,7 +245,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(inserter.insertedSessions.isEmpty)
   }
 
-  @Test("#267: 引き継いだ後にまた閉じても、取り消さずに続ける")
+  @Test("iOS-06・#267: 引き継いだ後にまた閉じても、取り消さずに続ける")
   func resumedThenClosedAgainKeepsRecording() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -263,7 +263,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.state == .recording(id))
   }
 
-  @Test("#267: 古い状態のファイル（新しい項目がない）は、続けない設定として読む。差し替えても新しい項目を保つ")
+  @Test("iOS-06・#267: 古い状態のファイル（新しい項目がない）は、続けない設定として読む。差し替えても新しい項目を保つ")
   func hostStateCompatibility() throws {
     let json = #"{"phase":"recording","updatedAt":0}"#
     let state = try JSONDecoder().decode(StandbyHostState.self, from: Data(json.utf8))
@@ -297,7 +297,7 @@ struct KeyboardStandbyKeepRecordingTests {
     func loadHostState() async throws -> StandbyHostState? { try await base.loadHostState() }
   }
 
-  @Test("#267: 開始の合図を書いている間に取り消した録音も、本体アプリが録音中と知らせていても引き継がない")
+  @Test("iOS-06・#267: 開始の合図を書いている間に取り消した録音も、本体アプリが録音中と知らせていても引き継がない")
   func cancelledWhileStartingIsNotResumed() async throws {
     let clock = Clock(base)
     let gate = StopGate()
@@ -324,7 +324,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.state == .unavailable)
   }
 
-  @Test("#267: 同じキーボードで閉じてすぐ戻り（本体アプリはまだ離れたと判定していない）、止めても自動では入れない")
+  @Test("iOS-06・#267: 同じキーボードで閉じてすぐ戻り（本体アプリはまだ離れたと判定していない）、止めても自動では入れない")
   func sameInstanceReopenDoesNotAutoInsert() async throws {
     let clock = Clock(base)
     let inserter = CountingInserter()
@@ -347,7 +347,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(inserter.insertedSessions.isEmpty)
   }
 
-  @Test("#267: 引き継いだ録音の開始時刻は、次に自分で始めた録音には使わない")
+  @Test("iOS-06・#267: 引き継いだ録音の開始時刻は、次に自分で始めた録音には使わない")
   func resumedStartTimeDoesNotLeak() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -375,7 +375,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.resumedCaptureStartedAt == nil)
   }
 
-  @Test("#267: 閉じている間に離れた録音が捨てられたら、戻ったときに一度だけ理由を出す")
+  @Test("iOS-06・#267: 閉じている間に離れた録音が捨てられたら、戻ったときに一度だけ理由を出す")
   func reportsDetachedFailureOnce() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -393,7 +393,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.state == .ready)
   }
 
-  @Test("#267: 離れたと判定する前にロックで捨てられた録音も、戻ったときに理由を出す")
+  @Test("iOS-06・#267: 離れたと判定する前にロックで捨てられた録音も、戻ったときに理由を出す")
   func reportsLockBeforeDetach() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -407,7 +407,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.state == .failed(.host(.deviceLocked)))
   }
 
-  @Test("#267: 録音を追っている間に出した理由は、閉じて戻ったときにもう一度出さない")
+  @Test("iOS-06・#267: 録音を追っている間に出した理由は、閉じて戻ったときにもう一度出さない")
   func followedFailureIsNotRepeated() async throws {
     let clock = Clock(base)
     let (dictation, store) = make(clock: clock)
@@ -552,7 +552,7 @@ struct KeyboardStandbyKeepRecordingTests {
     func loadHostState() async throws -> StandbyHostState? { try await base.loadHostState() }
   }
 
-  @Test("#267: 書けなかった取り消しは、本体アプリがもうそのセッションを録音していなければ送らずに外す（別の合図を上書きしない）")
+  @Test("iOS-06・#267: 書けなかった取り消しは、本体アプリがもうそのセッションを録音していなければ送らずに外す（別の合図を上書きしない）")
   func pendingCancelDroppedWhenHostMovedOn() async throws {
     let clock = Clock(base)
     let store = StandbySessionStore(directory: directory.url)
@@ -615,7 +615,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(command?.sessionID == started.sessionID)
   }
 
-  @Test("停止の合図を書いている間に読み直しが挿入まで進めても、処理中に戻さない")
+  @Test("iOS-05: 停止の合図を書いている間に読み直しが挿入まで進めても、処理中に戻さない")
   func stopCompletionDoesNotRevertInserted() async throws {
     let clock = Clock(base)
     let gate = StopGate()
@@ -638,7 +638,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(inserter.insertedSessions == [id])
   }
 
-  @Test("#267: 開始を待つ時間を過ぎても本体アプリが録音を始めなければ、送り直しの待ちから外す")
+  @Test("iOS-06・#267: 開始を待つ時間を過ぎても本体アプリが録音を始めなければ、送り直しの待ちから外す")
   func pendingCancelExpiresAfterStartTimeout() async throws {
     let clock = Clock(base)
     let gate = StopGate()
