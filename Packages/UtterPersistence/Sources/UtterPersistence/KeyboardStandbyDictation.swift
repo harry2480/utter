@@ -261,7 +261,13 @@ public final class KeyboardStandbyDictation {
     }
     if let id = cancelling {
       relinquishedSessions.insert(id)
-      _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())
+      do {
+        _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
+      } catch {
+        // 制限のある入力欄での取り消しを書けなければ、次にその欄で表示されたときに送り直せるよう除外を解く。
+        // ほかの取り消しは、書けなくても生存の印の途絶・上限で捨てるため、除外したままにする（引き継がない）
+        if reason == .restricted { relinquishedSessions.remove(id) }
+      }
     }
   }
 

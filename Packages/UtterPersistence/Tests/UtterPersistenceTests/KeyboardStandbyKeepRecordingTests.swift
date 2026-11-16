@@ -442,4 +442,52 @@ struct KeyboardStandbyKeepRecordingTests {
     await dictation.keyboardClosed(reason: .restricted)
     #expect(try await store.loadCommand() == command)
   }
+
+  /// 取り消しの書き込みを、決めた回数だけ失敗させる
+  final class FailingCancelSignals: KeyboardStandbySignals {
+    struct WriteFailed: Error {}
+    let base: StandbySessionStore
+    private let failures: Mutex<Int>
+    init(base: StandbySessionStore, failures: Int) {
+      self.base = base
+      self.failures = Mutex(failures)
+    }
+    func issueCommand(_ action: StandbyCommand.Action, sessionID: SessionID, at now: Date)
+      async throws -> StandbyCommand
+    {
+      if action == .cancel {
+        let fails = failures.withLock { count -> Bool in
+          guard count > 0 else { return false }
+          count -= 1
+          return true
+        }
+        if fails { throw WriteFailed() }
+      }
+      return try await base.issueCommand(action, sessionID: sessionID, at: now)
+    }
+    func saveHeartbeat(_ heartbeat: KeyboardHeartbeat) async throws {
+      try await base.saveHeartbeat(heartbeat)
+    }
+    func loadHostState() async throws -> StandbyHostState? { try await base.loadHostState() }
+  }
+
+  @Test("iOS-09・#267: 制限のある入力欄での取り消しを書けなければ、次にその欄で表示されたときに送り直す")
+  func restrictedCancelRetriesAfterWriteFailure() async throws {
+    let clock = Clock(base)
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: FailingCancelSignals(base: store, failures: 1), inserter: CountingInserter(),
+      now: { clock.now })
+    let id = SessionID()
+    try await store.saveHostState(host(.recording, session: id, detached: true, at: clock.now))
+
+    await dictation.keyboardClosed(reason: .restricted)
+    #expect(try await store.loadCommand() == nil)
+
+    clock.advance(1)
+    await dictation.keyboardClosed(reason: .restricted)
+    let command = try await store.loadCommand()
+    #expect(command?.action == .cancel)
+    #expect(command?.sessionID == id)
+  }
 }
