@@ -69,7 +69,8 @@ public struct StandbyHostState: Hashable, Sendable, Codable {
   /// 録音中にキーボードが閉じても録音を続ける設定か（本体アプリの設定, iOS-06, #267）。
   /// 続けるなら、キーボードは閉じたときに取り消しを書かない
   public let keepsRecordingWhenKeyboardCloses: Bool
-  /// 録音中で、キーボードの生存の印が途絶えた（キーボードが離れた）。続ける設定のときだけ真になる
+  /// 録音中で、キーボードの生存の印が途絶えた（キーボードが離れた）。失敗のときは、離れたことのある録音を捨てた。
+  /// 続ける設定のときだけ真になる
   public let isDetached: Bool
   /// 録音中のとき、本体アプリが録音を始めた時刻（引き継いだキーボードが経過時間を出すのに使う）
   public let captureStartedAt: Date?

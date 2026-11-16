@@ -265,6 +265,10 @@ struct StandbySessionMachineTests {
     #expect(
       machine.tick(heartbeat: nil, at: at(121)) == [.abandonCapture(session, .captureLimitExceeded)]
     )
+    // 離れたまま捨てたことを状態に載せる（戻ってきたキーボードが理由を出す）
+    let state = machine.hostState(at: at(121))
+    #expect(state.phase == .failed)
+    #expect(state.isDetached)
   }
 
   @Test("#267: 離れた後の新しい印で付き直し、また途絶えたら離れる。離れる前の古い印では付き直さない")
@@ -337,6 +341,7 @@ struct StandbySessionMachineTests {
   func deviceLockAbandons() {
     var machine = standby(keeping)
     #expect(machine.deviceLocked(at: at(0)).isEmpty)
+    machine.deviceUnlocked()
     _ = machine.receive(command(1, .start), at: at(0))
     #expect(machine.deviceLocked(at: at(1)) == [.abandonCapture(session, .deviceLocked)])
     #expect(machine.hostState(at: at(1)).failure == .deviceLocked)
@@ -349,5 +354,25 @@ struct StandbySessionMachineTests {
     _ = machine.receive(command(1, .start), at: at(0))
     #expect(
       machine.tick(heartbeat: nil, at: at(6)) == [.abandonCapture(session, .keyboardHeartbeatLost)])
+  }
+
+  @Test("#267: ロックの間は開始の合図を受け付けない（ロックの前に読み始めた合図も）。解けたら、また受け付ける")
+  func lockedRejectsStart() {
+    var machine = standby(keeping)
+    _ = machine.deviceLocked(at: at(0))
+    #expect(machine.receive(command(1, .start, at: 0.5), at: at(0.5)).isEmpty)
+    #expect(machine.hostState(at: at(0.5)).phase == .standby)
+
+    machine.deviceUnlocked()
+    #expect(machine.receive(command(2, .start, at: 1), at: at(1)) == [.beginCapture(session)])
+  }
+
+  @Test("#267: ロックのまま待機が終わっても、次に待機を始めたら開始を受け付ける")
+  func lockClearedOnNextStandby() {
+    var machine = standby(keeping)
+    _ = machine.deviceLocked(at: at(0))
+    _ = machine.endStandby(at: at(1))
+    machine.startStandby(pendingCommand: nil, at: at(2))
+    #expect(machine.receive(command(1, .start, at: 3), at: at(3)) == [.beginCapture(session)])
   }
 }

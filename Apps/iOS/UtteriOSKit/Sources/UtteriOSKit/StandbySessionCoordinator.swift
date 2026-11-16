@@ -177,6 +177,11 @@ public final class StandbySessionCoordinator {
     await apply(machine.deviceLocked(at: date()))
   }
 
+  /// 端末のロックが解けた。また録音を始められる
+  public func deviceUnlocked() {
+    machine.deviceUnlocked()
+  }
+
   /// 状態機械が決めた処理を行い、最後に状態を書く。
   /// 処理がなくても書くのは、本体アプリが待機を続けていることをキーボードに知らせるため
   private func apply(_ effects: [StandbySessionEffect]) async {

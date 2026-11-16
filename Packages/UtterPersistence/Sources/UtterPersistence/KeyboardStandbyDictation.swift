@@ -116,8 +116,20 @@ public final class KeyboardStandbyDictation {
   private var resumedSessions: Set<SessionID> = []
   /// 取り消した・止めたセッション。本体アプリの状態がまだ録音中でも引き継がない
   private var relinquishedSessions: Set<SessionID> = []
-  /// 引き継いだ録音を本体アプリが始めた時刻（経過時間を出すのに使う）
-  public private(set) var resumedCaptureStartedAt: Date?
+  /// このキーボードが始めたセッション（引き継いでも「閉じる前からの録音」とは案内しない）
+  private var ownSessions: Set<SessionID> = []
+  /// 引き継いだ録音と、本体アプリがそれを始めた時刻
+  private var resumedCapture: (id: SessionID, startedAt: Date)?
+  /// 離れたまま捨てられた理由を知らせたセッション（同じ理由を何度も出さない）
+  private var reportedDetachedFailures: Set<SessionID> = []
+
+  /// 今の録音を本体アプリが始めた時刻。引き継いだ録音のときだけ（経過時間を出すのに使う）
+  public var resumedCaptureStartedAt: Date? {
+    guard case .recording(let id) = state, let resumedCapture, resumedCapture.id == id else {
+      return nil
+    }
+    return resumedCapture.startedAt
+  }
 
   /// - Parameters:
   ///   - heartbeatInterval: 生存の印を書く間隔。本体アプリの途絶の判定（既定5秒）より十分短くする
@@ -151,7 +163,9 @@ public final class KeyboardStandbyDictation {
 
   /// 今の録音が、キーボードが閉じる前から続いているもの（引き継いだもの）か
   public var isResumedRecording: Bool {
-    if case .recording(let id) = state { return resumedSessions.contains(id) }
+    if case .recording(let id) = state {
+      return resumedSessions.contains(id) && !ownSessions.contains(id)
+    }
     return false
   }
 
@@ -237,7 +251,6 @@ public final class KeyboardStandbyDictation {
     set(.unavailable)
     startedAt = nil
     lastHeartbeat = nil
-    resumedCaptureStartedAt = nil
     if let id = cancelling {
       relinquishedSessions.insert(id)
       _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())
@@ -256,6 +269,7 @@ public final class KeyboardStandbyDictation {
     let id = SessionID()
     let current = now()
     let startEpoch = epoch
+    ownSessions.insert(id)
     do {
       _ = try await signals.issueCommand(.start, sessionID: id, at: current)
     } catch {
@@ -264,6 +278,7 @@ public final class KeyboardStandbyDictation {
     }
     // 合図を書いている間に閉じられたら、追跡せず、書いた開始を取り消す（iOS-06）
     guard startEpoch == epoch else {
+      relinquishedSessions.insert(id)
       _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())
       return
     }
@@ -282,6 +297,8 @@ public final class KeyboardStandbyDictation {
       default:
         return
       }
+      // 取り消した録音は、本体アプリの状態がまだ録音中でも引き継がない
+      relinquishedSessions.insert(id)
       do {
         _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
       } catch {
@@ -336,7 +353,7 @@ public final class KeyboardStandbyDictation {
     if let host, let id = resumableSession(host, at: current) {
       // 閉じる前から続いている録音を引き継ぐ。印を書き直すと、本体アプリは途絶の判定に戻る
       resumedSessions.insert(id)
-      resumedCaptureStartedAt = host.captureStartedAt
+      resumedCapture = host.captureStartedAt.map { (id, $0) }
       startedAt = current
       lastHeartbeat = nil
       set(.recording(id))
@@ -344,6 +361,14 @@ public final class KeyboardStandbyDictation {
       return
     }
     let standing = host.map { Self.isStandingBy($0, at: current) } ?? false
+    // 閉じている間に、離れた録音が捨てられた（上限・ロック・割り込みなど）。戻ってきた利用者に一度だけ知らせる
+    if case .unavailable = state, standing, let host, host.phase == .failed, host.isDetached,
+      let id = host.sessionID, !relinquishedSessions.contains(id),
+      reportedDetachedFailures.insert(id).inserted
+    {
+      set(.failed(.host(host.failure ?? .processingFailed)))
+      return
+    }
     switch state {
     case .unavailable where standing: set(.ready)
     // 完了・失敗の後でも、本体アプリが待機を終えたら本体アプリを開く案内に戻す
@@ -406,6 +431,7 @@ public final class KeyboardStandbyDictation {
       if case .starting = state, let startedAt, current.timeIntervalSince(startedAt) > startTimeout
       {
         // 開始の合図に応えない。遅れて録音が始まる場合に備えて取り消しを書く
+        relinquishedSessions.insert(id)
         _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())
         set(.failed(.startTimedOut))
       }

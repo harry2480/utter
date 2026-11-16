@@ -1039,7 +1039,8 @@ final class KeyboardViewController: UIInputViewController {
       bandButtons.isHidden = false
       bandStopButton.isEnabled = false
       bandStopButton.alpha = 0.4
-      bandCaptionLabel.text = "録音中は面を切り替えられません。キーボードを閉じると、この録音は捨てます。"
+      // 開始の待ちのうちに閉じたら、設定によらず取り消す
+      bandCaptionLabel.text = KeyboardMessages.recordingCaption(keepsRecordingWhenClosed: false)
       recordingStartedAt = nil
     case .recording:
       showsCard = visible

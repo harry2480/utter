@@ -221,7 +221,7 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(dictation.state == .ready)
     try await store.saveHostState(host(.recording, session: id, at: clock.now))
     await dictation.tick()
-    #expect(dictation.state != .recording(id))
+    #expect(dictation.state == .unavailable)
   }
 
   @Test("#267: 引き継いだ録音の結果は、設定が自動挿入でも自動で入れない")
@@ -281,5 +281,115 @@ struct KeyboardStandbyKeepRecordingTests {
     let decoded = try JSONDecoder().decode(
       StandbyHostState.self, from: JSONEncoder().encode(replaced))
     #expect(decoded == replaced)
+  }
+
+  /// 生存の印の書き込みを、開くまで止める（開始の合図を書いている間の操作を試す）
+  struct GatedHeartbeatSignals: KeyboardStandbySignals {
+    let base: StandbySessionStore
+    let gate: StopGate
+    func issueCommand(_ action: StandbyCommand.Action, sessionID: SessionID, at now: Date)
+      async throws -> StandbyCommand
+    { try await base.issueCommand(action, sessionID: sessionID, at: now) }
+    func saveHeartbeat(_ heartbeat: KeyboardHeartbeat) async throws {
+      await gate.wait()
+      try await base.saveHeartbeat(heartbeat)
+    }
+    func loadHostState() async throws -> StandbyHostState? { try await base.loadHostState() }
+  }
+
+  @Test("#267: 開始の合図を書いている間に取り消した録音も、本体アプリが録音中と知らせていても引き継がない")
+  func cancelledWhileStartingIsNotResumed() async throws {
+    let clock = Clock(base)
+    let gate = StopGate()
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: GatedHeartbeatSignals(base: store, gate: gate), inserter: CountingInserter(),
+      now: { clock.now })
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+
+    let starting = Task { await dictation.toggle() }
+    while !gate.hasEntered { await Task.yield() }
+    await dictation.cancel()
+    gate.open()
+    await starting.value
+    #expect(dictation.state == .ready)
+    let cancelled = try await store.loadCommand()
+    #expect(cancelled?.action == .cancel)
+    let id = try #require(cancelled?.sessionID)
+
+    // 本体アプリはまだ取り消しを読んでおらず、録音中と知らせている
+    try await store.saveHostState(host(.recording, session: id, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .unavailable)
+  }
+
+  @Test("#267: 同じキーボードで閉じてすぐ戻り（本体アプリはまだ離れたと判定していない）、止めても自動では入れない")
+  func sameInstanceReopenDoesNotAutoInsert() async throws {
+    let clock = Clock(base)
+    let inserter = CountingInserter()
+    let (dictation, store) = make(inserter: inserter, clock: clock)
+    let id = try await record(dictation, store, clock)
+
+    await dictation.keyboardClosed(reason: .dismissed)
+    clock.advance(1)
+    try await store.saveHostState(host(.recording, session: id, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .recording(id))
+    // 自分で始めた録音なので「閉じる前からの録音」とは案内しない
+    #expect(dictation.isResumedRecording == false)
+
+    await dictation.toggle()
+    try await store.saveHostState(host(.done, session: id, mode: .automatic, at: clock.now))
+    await dictation.tick()
+
+    #expect(dictation.state == .resultReady(id))
+    #expect(inserter.insertedSessions.isEmpty)
+  }
+
+  @Test("#267: 引き継いだ録音の開始時刻は、次に自分で始めた録音には使わない")
+  func resumedStartTimeDoesNotLeak() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let resumed = SessionID()
+    try await store.saveHostState(
+      host(.recording, session: resumed, detached: true, captureStartedAt: base, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.resumedCaptureStartedAt == base)
+
+    await dictation.toggle()
+    try await store.saveHostState(host(.done, session: resumed, at: clock.now))
+    await dictation.tick()
+    dictation.resultHandled()
+    #expect(dictation.state == .ready)
+
+    clock.advance(30)
+    await dictation.toggle()
+    guard case .starting(let next) = dictation.state else {
+      Issue.record("開始の待ちになっていない: \(dictation.state)")
+      return
+    }
+    try await store.saveHostState(host(.recording, session: next, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .recording(next))
+    #expect(dictation.resumedCaptureStartedAt == nil)
+  }
+
+  @Test("#267: 閉じている間に離れた録音が捨てられたら、戻ったときに一度だけ理由を出す")
+  func reportsDetachedFailureOnce() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = SessionID()
+    let failed = StandbyHostState(
+      phase: .failed, sessionID: id, updatedAt: clock.now, failure: .captureLimitExceeded,
+      keepsRecordingWhenKeyboardCloses: true, isDetached: true)
+    try await store.saveHostState(failed)
+
+    await dictation.tick()
+    #expect(dictation.state == .failed(.host(.captureLimitExceeded)))
+
+    await dictation.keyboardClosed(reason: .dismissed)
+    await dictation.tick()
+    #expect(dictation.state == .ready)
   }
 }

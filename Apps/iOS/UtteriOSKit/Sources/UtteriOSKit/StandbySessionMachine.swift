@@ -82,6 +82,8 @@ public struct StandbySessionMachine: Sendable {
   private var lastActivity: Date?
   /// 録音中に、キーボードの生存の印が途絶えた時刻（続ける設定のとき）。付き直したら `nil`
   private var detachedAt: Date?
+  /// 端末がロックされている。この間は開始の合図を受け付けない（ロックの前に読み始めた合図も含む, #267）
+  public private(set) var isDeviceLocked = false
   /// キーボードが一度でも離れたセッション。結果は自動で挿入させず、確かめてから入れる（iOS-06, #267）
   public private(set) var detachedSession: SessionID?
 
@@ -94,6 +96,8 @@ public struct StandbySessionMachine: Sendable {
     guard phase == .off else { return }
     lastSequence = max(lastSequence, pendingCommand?.sequence ?? 0)
     lastActivity = now
+    // 待機は本体アプリの操作で始める（ロックは解けている）。待機の外で解けた通知を取りこぼしても開始を拒み続けない
+    isDeviceLocked = false
     phase = .standby
   }
 
@@ -110,7 +114,8 @@ public struct StandbySessionMachine: Sendable {
 
     switch command.action {
     case .start:
-      guard now.timeIntervalSince(command.issuedAt) <= configuration.startCommandMaxAge.secondsValue
+      guard !isDeviceLocked,
+        now.timeIntervalSince(command.issuedAt) <= configuration.startCommandMaxAge.secondsValue
       else { return [] }
       var effects: [StandbySessionEffect] = []
       switch phase {
@@ -185,8 +190,14 @@ public struct StandbySessionMachine: Sendable {
 
   /// 端末がロックされた。録音中なら捨てる（閉じても録音を続ける設定でも、ロックの後は続けない, #267）
   public mutating func deviceLocked(at now: Date) -> [StandbySessionEffect] {
+    isDeviceLocked = true
     guard case .recording(let active, _) = phase else { return [] }
     return abandon(active, .deviceLocked)
+  }
+
+  /// 端末のロックが解けた。また開始の合図を受け付ける
+  public mutating func deviceUnlocked() {
+    isDeviceLocked = false
   }
 
   /// 今の録音・処理・結果のセッションが、キーボードが一度離れたものか（結果を確かめてから入れる, #267）
@@ -228,7 +239,10 @@ public struct StandbySessionMachine: Sendable {
     case .processing(let id): StandbyHostState(phase: .processing, sessionID: id, updatedAt: now)
     case .done(let id): StandbyHostState(phase: .done, sessionID: id, updatedAt: now)
     case .failed(let id, let failure):
-      StandbyHostState(phase: .failed, sessionID: id, updatedAt: now, failure: failure)
+      // 離れたまま捨てた録音なら、そのことを載せる（戻ってきたキーボードが理由を出す, #267）
+      StandbyHostState(
+        phase: .failed, sessionID: id, updatedAt: now, failure: failure,
+        isDetached: id != nil && id == detachedSession)
     }
   }
 

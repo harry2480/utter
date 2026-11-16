@@ -24,6 +24,7 @@ final class StandbyDriver {
   @ObservationIgnored private var commandObservation: StandbyDarwinObservation?
   @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
   @ObservationIgnored private var lockObserver: (any NSObjectProtocol)?
+  @ObservationIgnored private var unlockObserver: (any NSObjectProtocol)?
 
   /// 状態を読み直す間隔。本体アプリの更新が途絶えた判定（8秒）より十分短くする
   private static let pollInterval: Duration = .seconds(1)
@@ -94,6 +95,12 @@ final class StandbyDriver {
         Task { await self.coordinator.deviceLocked() }
       }
     }
+    unlockObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.coordinator.deviceUnlocked() }
+    }
     // 通知の欠落に備えて、通知がなくても読み直す。録音の上限・生存の印の途絶・無操作もこれで確かめる
     pollTask = Task { [weak self] in
       while !Task.isCancelled {
@@ -133,6 +140,10 @@ final class StandbyDriver {
     if let lockObserver {
       NotificationCenter.default.removeObserver(lockObserver)
       self.lockObserver = nil
+    }
+    if let unlockObserver {
+      NotificationCenter.default.removeObserver(unlockObserver)
+      self.unlockObserver = nil
     }
   }
 }
