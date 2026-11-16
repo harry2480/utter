@@ -120,6 +120,8 @@ public final class KeyboardStandbyDictation {
   private var ownSessions: Set<SessionID> = []
   /// 引き継いだ録音と、本体アプリがそれを始めた時刻
   private var resumedCapture: (id: SessionID, startedAt: Date)?
+  /// 制限のある入力欄で取り消そうとして書けなかったセッション。引き継がず、取り消しを送り直す
+  private var pendingCancels: Set<SessionID> = []
   /// 離れたまま捨てられた理由を知らせたセッション（同じ理由を何度も出さない）
   private var reportedDetachedFailures: Set<SessionID> = []
 
@@ -219,6 +221,7 @@ public final class KeyboardStandbyDictation {
     guard !isTicking else { return }
     isTicking = true
     defer { isTicking = false }
+    await retryPendingCancels()
     let startEpoch = epoch
     let current = now()
     switch state {
@@ -238,6 +241,7 @@ public final class KeyboardStandbyDictation {
   /// 停止の合図を書いている途中でも、停止を上書きしない。開始の待ち・制限のある入力欄では今どおり取り消す
   public func keyboardClosed(reason: KeyboardCloseReason = .dismissed) async {
     epoch += 1
+    await retryPendingCancels()
     var cancelling: SessionID?
     switch state {
     case .starting(let sessionID):
@@ -264,9 +268,18 @@ public final class KeyboardStandbyDictation {
       do {
         _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
       } catch {
-        // 制限のある入力欄での取り消しを書けなければ、次にその欄で表示されたときに送り直せるよう除外を解く。
-        // ほかの取り消しは、書けなくても生存の印の途絶・上限で捨てるため、除外したままにする（引き継がない）
-        if reason == .restricted { relinquishedSessions.remove(id) }
+        // 制限のある入力欄での取り消しを書けなければ、引き継がないまま、次の表示・読み直しで送り直す。
+        // ほかの取り消しは、書けなくても生存の印の途絶・上限で捨てる
+        if reason == .restricted { pendingCancels.insert(id) }
+      }
+    }
+  }
+
+  /// 書けなかった取り消しを送り直す。送れたものだけ待ちから外す
+  private func retryPendingCancels() async {
+    for id in pendingCancels {
+      if (try? await signals.issueCommand(.cancel, sessionID: id, at: now())) != nil {
+        pendingCancels.remove(id)
       }
     }
   }

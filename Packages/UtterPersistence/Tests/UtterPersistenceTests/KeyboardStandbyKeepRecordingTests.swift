@@ -490,4 +490,29 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(command?.action == .cancel)
     #expect(command?.sessionID == id)
   }
+
+  @Test("iOS-09・#267: 制限のある入力欄での取り消しを書けなくても、普通の入力欄に戻ったときに引き継がず、送り直す")
+  func restrictedCancelFailureDoesNotResume() async throws {
+    let clock = Clock(base)
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: FailingCancelSignals(base: store, failures: 1), inserter: CountingInserter(),
+      now: { clock.now })
+    let id = SessionID()
+    try await store.saveHostState(host(.recording, session: id, detached: true, at: clock.now))
+
+    await dictation.keyboardClosed(reason: .restricted)
+    #expect(try await store.loadCommand() == nil)
+
+    // 普通の入力欄に戻った。本体アプリはまだ録音中と知らせている
+    clock.advance(1)
+    try await store.saveHostState(host(.recording, session: id, detached: true, at: clock.now))
+    await dictation.tick()
+
+    #expect(dictation.state == .unavailable)
+    #expect(try await store.loadHeartbeat() == nil)
+    let command = try await store.loadCommand()
+    #expect(command?.action == .cancel)
+    #expect(command?.sessionID == id)
+  }
 }
