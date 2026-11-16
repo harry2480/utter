@@ -23,6 +23,7 @@ final class StandbyDriver {
   @ObservationIgnored private var pollTask: Task<Void, Never>?
   @ObservationIgnored private var commandObservation: StandbyDarwinObservation?
   @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
+  @ObservationIgnored private var lockObserver: (any NSObjectProtocol)?
 
   /// 状態を読み直す間隔。本体アプリの更新が途絶えた判定（8秒）より十分短くする
   private static let pollInterval: Duration = .seconds(1)
@@ -83,6 +84,16 @@ final class StandbyDriver {
       let type = rawValue.flatMap(AVAudioSession.InterruptionType.init(rawValue:))
       MainActor.assumeIsolated { self?.handleInterruption(type) }
     }
+    // 端末がロックされたら録音を捨てる（閉じても録音を続ける設定でも、ロックの後は続けない, #267）
+    lockObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        Task { await self.coordinator.deviceLocked() }
+      }
+    }
     // 通知の欠落に備えて、通知がなくても読み直す。録音の上限・生存の印の途絶・無操作もこれで確かめる
     pollTask = Task { [weak self] in
       while !Task.isCancelled {
@@ -118,6 +129,10 @@ final class StandbyDriver {
     if let interruptionObserver {
       NotificationCenter.default.removeObserver(interruptionObserver)
       self.interruptionObserver = nil
+    }
+    if let lockObserver {
+      NotificationCenter.default.removeObserver(lockObserver)
+      self.lockObserver = nil
     }
   }
 }

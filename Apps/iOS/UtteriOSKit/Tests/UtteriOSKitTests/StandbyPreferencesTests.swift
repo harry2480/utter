@@ -70,4 +70,13 @@ struct StandbyPreferencesTests {
     #expect(StandbyPreferences(defaults: defaults).idleTimeoutMinutes == 15)
     defaults.removePersistentDomain(forName: suite)
   }
+
+  @Test("#267: 閉じても録音を続ける設定は既定でオフ。オンにすると状態機械の設定に載る")
+  func keepsRecordingPreference() {
+    let preferences = preferences()
+    #expect(preferences.keepsRecordingWhenKeyboardCloses == false)
+    #expect(preferences.sessionConfiguration.keepsRecordingWhenKeyboardCloses == false)
+    preferences.keepsRecordingWhenKeyboardCloses = true
+    #expect(preferences.sessionConfiguration.keepsRecordingWhenKeyboardCloses)
+  }
 }

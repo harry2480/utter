@@ -58,6 +58,8 @@ public final class StandbySessionCoordinator {
   public private(set) var hostPhase: StandbyHostState.Phase = .off
   /// 直近で録音を捨てた・処理に失敗した理由
   public private(set) var failure: StandbyFailure?
+  /// 録音中で、キーボードが離れている（閉じても録音を続ける設定のとき, #267）
+  public private(set) var isRecordingDetached = false
 
   @ObservationIgnored private var machine: StandbySessionMachine
   @ObservationIgnored private let signals: any StandbySessionSignals
@@ -169,6 +171,12 @@ public final class StandbySessionCoordinator {
     await apply(machine.interruptionBegan(at: date()))
   }
 
+  /// 端末がロックされた。録音中なら捨てる（#267）
+  public func deviceLocked() async {
+    guard machine.phase != .off else { return }
+    await apply(machine.deviceLocked(at: date()))
+  }
+
   /// 状態機械が決めた処理を行い、最後に状態を書く。
   /// 処理がなくても書くのは、本体アプリが待機を続けていることをキーボードに知らせるため
   private func apply(_ effects: [StandbySessionEffect]) async {
@@ -203,8 +211,11 @@ public final class StandbySessionCoordinator {
   /// 順序が入れ替わって古い状態（`standby`）が最後に残りうるため（#247 のレビュー）。
   /// 書けなくても（端末のロック中など）待機は続ける。キーボードは更新が途絶えたことで気づく
   private func writeHostState() async {
-    let state = machine.hostState(at: date()).with(insertionMode: insertionMode())
+    // キーボードが一度離れたセッションの結果は、設定が自動挿入でも確かめてから入れる（iOS-06, #267）
+    let mode = machine.currentSessionWasDetached ? .preview : insertionMode()
+    let state = machine.hostState(at: date()).with(insertionMode: mode)
     hostPhase = state.phase
+    isRecordingDetached = state.isDetached
     let previous = writing
     let signals = signals
     let task = Task { @MainActor in

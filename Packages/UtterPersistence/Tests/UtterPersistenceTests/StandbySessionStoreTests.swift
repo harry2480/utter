@@ -84,7 +84,12 @@ struct StandbySessionStoreTests {
         phase: .failed, sessionID: SessionID(), updatedAt: now, failure: .processingFailed))
     let data = try Data(contentsOf: directory.url.appendingPathComponent("host.json"))
     let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-    #expect(Set(object.keys) == ["phase", "sessionID", "updatedAt", "failure", "insertionMode"])
+    // 足した欄（#267）も、真偽値と時刻だけ
+    #expect(
+      Set(object.keys) == [
+        "phase", "sessionID", "updatedAt", "failure", "insertionMode",
+        "keepsRecordingWhenKeyboardCloses", "isDetached",
+      ])
   }
 
   @Test("挿入のしかたを持たない古い状態のファイルは、自動挿入として読める")

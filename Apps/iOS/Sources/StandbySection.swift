@@ -12,7 +12,11 @@ struct StandbySection: View {
   let isRecording: Bool
   @State private var insertionMode: StandbyInsertionMode
   @State private var idleTimeoutMinutes: Int
+  @State private var keepsRecording: Bool
   private let preferences = StandbyPreferences()
+  /// 閉じた後も続く録音の上限（分）。録音の上限の既定から求める
+  private static let maxCaptureMinutes = Int(
+    StandbySessionConfiguration.defaultMaxCaptureDuration.components.seconds / 60)
 
   init(driver: StandbyDriver, isRecording: Bool) {
     self.driver = driver
@@ -20,6 +24,7 @@ struct StandbySection: View {
     let preferences = StandbyPreferences()
     _insertionMode = State(initialValue: preferences.insertionMode)
     _idleTimeoutMinutes = State(initialValue: preferences.idleTimeoutMinutes)
+    _keepsRecording = State(initialValue: preferences.keepsRecordingWhenKeyboardCloses)
   }
 
   var body: some View {
@@ -43,7 +48,8 @@ struct StandbySection: View {
         driver.isStandingBy
           ? (driver.coordinator.hostPhase == .standby
             ? "マイクは止めています。キーボードのマイクを押すまで、音は拾いません。"
-            : Self.busyDescription(driver.coordinator.hostPhase))
+            : Self.busyDescription(
+              driver.coordinator.hostPhase, detached: driver.coordinator.isRecordingDetached))
           : "待機を始めると、ほかのアプリを使いながら、キーボードのマイクで話して文章を入れられます。アプリの切り替えは要りません。"
       )
       .font(.system(size: 15))
@@ -132,6 +138,17 @@ struct StandbySection: View {
         }
         .frame(minHeight: 44)
         .padding(.horizontal, 16)
+        Divider().overlay(Color.utterLine)
+        // 待機の途中では状態機械の設定を変えないため、待機中は変えられない（無操作で終える時間と同じ）
+        Toggle("閉じても録音を続ける", isOn: $keepsRecording)
+          .foregroundStyle(Color.utterText)
+          .tint(Color.utterAccent)
+          .disabled(driver.isStandingBy)
+          .onChange(of: keepsRecording) { _, keeps in
+            preferences.keepsRecordingWhenKeyboardCloses = keeps
+          }
+          .frame(minHeight: 44)
+          .padding(.horizontal, 16)
       }
       .font(.system(size: 15))
       .background(Color.utterCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -139,12 +156,21 @@ struct StandbySection: View {
         .font(.system(size: 13))
         .foregroundStyle(Color.utterSecondary)
         .padding(.horizontal, 4)
+      Text(
+        "「閉じても録音を続ける」をオンにすると、録音中にアプリを切り替えても、録音は最大\(Self.maxCaptureMinutes)分続きます。キーボードに戻ってマイクを押すと止まり、結果は確かめてから入れます。パスワード欄などへ移ったときも止まりません。画面をロックすると捨てます。"
+      )
+      .font(.system(size: 13))
+      .lineSpacing(3)
+      .foregroundStyle(Color.utterSecondary)
+      .padding(.horizontal, 4)
     }
   }
 
   /// 待機のほかのフェーズ（録音の途中・処理中・済んだあと）の説明
-  private static func busyDescription(_ phase: StandbyHostState.Phase) -> String {
+  private static func busyDescription(_ phase: StandbyHostState.Phase, detached: Bool) -> String {
     switch phase {
+    case .recording where detached:
+      "キーボードが閉じた後も録音を続けています。キーボードに戻ってマイクを押すと止まります。最大\(Self.maxCaptureMinutes)分で捨てます。"
     case .recording: "キーボードの操作で録音の途中です。終わると、また待機に戻ります。"
     case .processing: "認識と整形を行っています。終わると、また待機に戻ります。"
     case .done: "結果をキーボードへ渡しました。入力欄を確かめてください。"
@@ -174,6 +200,7 @@ struct StandbySection: View {
     case .interrupted: "着信などで途切れたため、録音を捨てました。"
     case .supersededBySession: "別の録音が始まったため、前の録音を捨てました。"
     case .standbyEnded: "待機を終えたため、録音を捨てました。"
+    case .deviceLocked: "画面がロックされたため、録音を捨てました。"
     case .noSpeech: "話した内容を認識できませんでした。"
     case .processingFailed: "文字にできませんでした。"
     }

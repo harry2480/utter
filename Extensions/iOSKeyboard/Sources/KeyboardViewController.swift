@@ -476,7 +476,7 @@ final class KeyboardViewController: UIInputViewController {
         if currentInputField().restrictions.isEmpty {
           await standby.tick()
         } else {
-          await standby.keyboardClosed()
+          await standby.keyboardClosed(reason: .restricted)
         }
         updateBandElapsed()
         // 録音の途中は細かく、そうでなければ間を空けて読み直す
@@ -491,7 +491,7 @@ final class KeyboardViewController: UIInputViewController {
     standbyTask = nil
     standbyObservation = nil
     guard let standby else { return }
-    Task { await standby.keyboardClosed() }
+    Task { await standby.keyboardClosed(reason: .dismissed) }
   }
 
   private func standbyStateChanged() {
@@ -650,7 +650,8 @@ final class KeyboardViewController: UIInputViewController {
     renderMicRow(standbyState, visible: offersMic)
     renderBusyCard(standbyState, visible: offersMic)
     micButton.isEnabled = !isBusy
-    let standbyMessage = KeyboardMessages.standbyStatus(standbyState)
+    let standbyMessage = KeyboardMessages.standbyStatus(
+      standbyState, resumed: standby?.isResumedRecording ?? false)
     let message = [statusMessage, standbyMessage].compactMap { $0 }.joined(separator: "\n")
     statusLabel.text = message
     statusLabel.isHidden = message.isEmpty
@@ -1042,7 +1043,10 @@ final class KeyboardViewController: UIInputViewController {
       recordingStartedAt = nil
     case .recording:
       showsCard = visible
-      if recordingStartedAt == nil { recordingStartedAt = Date() }
+      // 引き継いだ録音は、本体アプリが録音を始めた時刻から数える（上限までの残りを正しく出す）
+      if recordingStartedAt == nil {
+        recordingStartedAt = standby?.resumedCaptureStartedAt ?? Date()
+      }
       bandTitleLabel.text = "録音中"
       bandElapsedLabel.isHidden = false
       bandProgressStack.isHidden = true
@@ -1050,7 +1054,8 @@ final class KeyboardViewController: UIInputViewController {
       bandButtons.isHidden = false
       bandStopButton.isEnabled = !isBusy
       bandStopButton.alpha = 1
-      bandCaptionLabel.text = "録音中は面を切り替えられません。キーボードを閉じると、この録音は捨てます。"
+      bandCaptionLabel.text = KeyboardMessages.recordingCaption(
+        keepsRecordingWhenClosed: standby?.keepsRecordingWhenClosed ?? false)
       updateBandElapsed()
     case .processing:
       showsCard = visible

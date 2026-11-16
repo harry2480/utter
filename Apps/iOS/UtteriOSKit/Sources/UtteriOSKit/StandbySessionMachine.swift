@@ -19,17 +19,22 @@ public struct StandbySessionConfiguration: Hashable, Sendable {
   public var maxCaptureDuration: Duration
   public var keyboardHeartbeatTimeout: Duration
   public var startCommandMaxAge: Duration
+  /// 録音中にキーボードが閉じても（生存の印が途絶えても）録音を続けるか（iOS-06, #267。既定は続けない）。
+  /// 続けても、録音の上限・取り消し・割り込み・端末のロック・待機の終了では捨てる
+  public var keepsRecordingWhenKeyboardCloses: Bool
 
   public init(
     idleTimeout: Duration? = defaultIdleTimeout,
     maxCaptureDuration: Duration = defaultMaxCaptureDuration,
     keyboardHeartbeatTimeout: Duration = defaultKeyboardHeartbeatTimeout,
-    startCommandMaxAge: Duration = defaultStartCommandMaxAge
+    startCommandMaxAge: Duration = defaultStartCommandMaxAge,
+    keepsRecordingWhenKeyboardCloses: Bool = false
   ) {
     self.idleTimeout = idleTimeout
     self.maxCaptureDuration = maxCaptureDuration
     self.keyboardHeartbeatTimeout = keyboardHeartbeatTimeout
     self.startCommandMaxAge = startCommandMaxAge
+    self.keepsRecordingWhenKeyboardCloses = keepsRecordingWhenKeyboardCloses
   }
 }
 
@@ -75,6 +80,10 @@ public struct StandbySessionMachine: Sendable {
   /// 処理済みの合図の番号
   public private(set) var lastSequence: Int64 = 0
   private var lastActivity: Date?
+  /// 録音中に、キーボードの生存の印が途絶えた時刻（続ける設定のとき）。付き直したら `nil`
+  private var detachedAt: Date?
+  /// キーボードが一度でも離れたセッション。結果は自動で挿入させず、確かめてから入れる（iOS-06, #267）
+  public private(set) var detachedSession: SessionID?
 
   public init(configuration: StandbySessionConfiguration = StandbySessionConfiguration()) {
     self.configuration = configuration
@@ -115,6 +124,8 @@ public struct StandbySessionMachine: Sendable {
         break
       }
       phase = .recording(command.sessionID, startedAt: now)
+      detachedAt = nil
+      detachedSession = nil
       effects.append(.beginCapture(command.sessionID))
       return effects
 
@@ -139,9 +150,19 @@ public struct StandbySessionMachine: Sendable {
       }
       // 印がまだ届いていなければ、録音を始めた時刻から数える
       let lastSign = heartbeat.flatMap { $0.sessionID == active ? $0.at : nil }
+      if let detached = detachedAt {
+        // 離れた後に書かれた同じセッションの印が届いたら、キーボードが引き継いだ。途絶の判定に戻る
+        if let lastSign, lastSign > detached { detachedAt = nil }
+        return []
+      }
       let since = max(lastSign ?? startedAt, startedAt)
       if now.timeIntervalSince(since) > configuration.keyboardHeartbeatTimeout.secondsValue {
-        return abandon(active, .keyboardHeartbeatLost)
+        guard configuration.keepsRecordingWhenKeyboardCloses else {
+          return abandon(active, .keyboardHeartbeatLost)
+        }
+        // キーボードが閉じた。録音は続け、次に表示したキーボードが引き継ぐ（上限では捨てる）
+        detachedAt = now
+        detachedSession = active
       }
       return []
     case .standby, .done, .failed:
@@ -162,6 +183,22 @@ public struct StandbySessionMachine: Sendable {
     return abandon(active, .interrupted)
   }
 
+  /// 端末がロックされた。録音中なら捨てる（閉じても録音を続ける設定でも、ロックの後は続けない, #267）
+  public mutating func deviceLocked(at now: Date) -> [StandbySessionEffect] {
+    guard case .recording(let active, _) = phase else { return [] }
+    return abandon(active, .deviceLocked)
+  }
+
+  /// 今の録音・処理・結果のセッションが、キーボードが一度離れたものか（結果を確かめてから入れる, #267）
+  public var currentSessionWasDetached: Bool {
+    guard let detachedSession else { return false }
+    switch phase {
+    case .recording(let id, _), .processing(let id), .done(let id): return id == detachedSession
+    case .failed(let id, _): return id == detachedSession
+    case .off, .standby: return false
+    }
+  }
+
   /// 認識・整形・保存が終わった
   /// - Parameter failure: 失敗したときの理由。保存できたなら `nil`
   public mutating func finishProcessing(
@@ -174,10 +211,20 @@ public struct StandbySessionMachine: Sendable {
 
   /// キーボードに知らせる状態
   public func hostState(at now: Date) -> StandbyHostState {
+    hostPhaseState(at: now).with(
+      insertionMode: .automatic,
+      keepsRecordingWhenKeyboardCloses: configuration.keepsRecordingWhenKeyboardCloses)
+  }
+
+  private func hostPhaseState(at now: Date) -> StandbyHostState {
     switch phase {
     case .off: StandbyHostState(phase: .off, sessionID: nil, updatedAt: now)
     case .standby: StandbyHostState(phase: .standby, sessionID: nil, updatedAt: now)
-    case .recording(let id, _): StandbyHostState(phase: .recording, sessionID: id, updatedAt: now)
+    case .recording(let id, let startedAt):
+      StandbyHostState(
+        phase: .recording, sessionID: id, updatedAt: now,
+        keepsRecordingWhenKeyboardCloses: configuration.keepsRecordingWhenKeyboardCloses,
+        isDetached: detachedAt != nil, captureStartedAt: startedAt)
     case .processing(let id): StandbyHostState(phase: .processing, sessionID: id, updatedAt: now)
     case .done(let id): StandbyHostState(phase: .done, sessionID: id, updatedAt: now)
     case .failed(let id, let failure):
@@ -189,6 +236,7 @@ public struct StandbySessionMachine: Sendable {
     _ sessionID: SessionID, _ failure: StandbyFailure
   ) -> [StandbySessionEffect] {
     phase = .failed(sessionID, failure)
+    detachedAt = nil
     return [.abandonCapture(sessionID, failure)]
   }
 
@@ -200,6 +248,8 @@ public struct StandbySessionMachine: Sendable {
     }
     phase = .off
     lastActivity = nil
+    detachedAt = nil
+    detachedSession = nil
     effects.append(.endStandby(reason))
     return effects
   }

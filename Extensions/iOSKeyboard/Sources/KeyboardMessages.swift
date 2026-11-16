@@ -97,9 +97,12 @@ enum KeyboardMessages {
   }
 
   /// 録音の状態の案内。案内が要らない状態は `nil`
-  static func standbyStatus(_ state: KeyboardStandbyState) -> String? {
+  /// - Parameter resumed: キーボードが閉じる前から続いている録音を引き継いだか（#267）
+  static func standbyStatus(_ state: KeyboardStandbyState, resumed: Bool = false) -> String? {
     switch state {
     case .unavailable, .ready, .starting: nil
+    case .recording where resumed:
+      "閉じる前からの録音を続けています。話し終えたら押してください。結果は、確かめてから入れます。"
     case .recording: "録音中です。話し終えたらもう一度押してください。"
     case .processing: "文字にしています。"
     case .resultReady: "結果ができました。内容を確かめて「挿入」を押してください。"
@@ -107,6 +110,13 @@ enum KeyboardMessages {
     case .insertionUnknown: "挿入できたか確認できません。下で確かめてください。"
     case .failed(let failure): standbyFailure(failure)
     }
+  }
+
+  /// 録音中の注意書き。閉じても録音を続ける設定なら、閉じても捨てないことを伝える（#267）
+  static func recordingCaption(keepsRecordingWhenClosed: Bool) -> String {
+    keepsRecordingWhenClosed
+      ? "録音中は面を切り替えられません。閉じても録音は続きます。戻ってマイクを押すと止まります。"
+      : "録音中は面を切り替えられません。キーボードを閉じると、この録音は捨てます。"
   }
 
   static func standbyFailure(_ failure: KeyboardStandbyFailure) -> String {
@@ -118,6 +128,7 @@ enum KeyboardMessages {
       case .interrupted: "着信などで途切れたため、録音を捨てました。"
       case .supersededBySession: "別の録音が始まったため、録音を捨てました。"
       case .standbyEnded: "本体アプリの待機が終わったため、録音を捨てました。"
+      case .deviceLocked: "画面がロックされたため、録音を捨てました。"
       case .noSpeech: "話した内容を認識できませんでした。"
       case .processingFailed: "文字にできませんでした。本体アプリで確かめてください。"
       }
