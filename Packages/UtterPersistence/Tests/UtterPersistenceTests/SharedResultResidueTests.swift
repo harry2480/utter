@@ -19,7 +19,9 @@ struct SharedResultResidueTests {
 
   /// 本文の挿入を常に確認できたことにする
   struct ConfirmingInserter: SharedResultTextInserter {
-    func insert(_ text: String) async -> SharedResultInsertionConfirmation { .confirmed }
+    func insert(
+      _ text: String, isStillTarget: @escaping SharedResultInsertionTargetCheck
+    ) async -> SharedResultInsertionConfirmation { .confirmed }
   }
 
   /// 結果を削除する経路

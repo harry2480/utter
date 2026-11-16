@@ -1,10 +1,20 @@
 import Foundation
 import UtterCore
 
+/// 挿入を始めたときのキーボードの表示が、まだ続いているか（iOS-06, #271）。
+///
+/// 挿入の口は、結果の確保（共有結果の読み書き）を待った後、入力欄へ入れる直前に、待たずにこれを確かめる。
+/// 待つ間にキーボードが閉じられ、別の入力欄で表示し直されていたら false を返し、挿入しない
+public typealias SharedResultInsertionTargetCheck = @MainActor @Sendable () -> Bool
+
 /// キーボード拡張が入力欄へ本文を挿入する口（iOS-05）。`UITextDocumentProxy` を使う実装はキーボード拡張側に置く
 public protocol SharedResultTextInserter: Sendable {
-  /// 本文を挿入する。挿入できたことを確認できなければ `.unknown` を返す
-  func insert(_ text: String) async -> SharedResultInsertionConfirmation
+  /// 本文を挿入する。挿入できたことを確認できなければ `.unknown` を返す。
+  ///
+  /// 入力欄へ入れる直前に `isStillTarget` を確かめ、false なら挿入せず `.unknown` を返す（自動では再挿入しない, #271）
+  func insert(
+    _ text: String, isStillTarget: @escaping SharedResultInsertionTargetCheck
+  ) async -> SharedResultInsertionConfirmation
 }
 
 /// 挿入を確認できたか
@@ -162,9 +172,13 @@ public actor SharedResultInsertionCoordinator {
   ///
   /// 投げるのは挿入する前の読み書きに失敗した場合だけで、そのときは挿入していない。
   /// 挿入した後に記録できなくても、投げずに挿入の確認結果に応じた値を返す。
-  /// - Parameter confirmedReinsertion: 挿入結果が不明な結果を、利用者が確認したうえで挿入し直す場合に `true`
+  /// - Parameters:
+  ///   - confirmedReinsertion: 挿入結果が不明な結果を、利用者が確認したうえで挿入し直す場合に `true`
+  ///   - isStillTarget: 挿入を始めたときのキーボードの表示が続いているか。確保を待った後、入れる直前に確かめる
+  ///     （iOS-06, #271）。既定の値は置かない（渡し忘れて別の入力欄へ入れないため）
   public func insert(
-    sessionID: SessionID, confirmedReinsertion: Bool = false
+    sessionID: SessionID, confirmedReinsertion: Bool = false,
+    isStillTarget: @escaping SharedResultInsertionTargetCheck
   ) async throws -> SharedResultInsertionOutcome {
     let now = now()
     guard let loaded = try await store.load(sessionID: sessionID) else {
@@ -196,7 +210,7 @@ public actor SharedResultInsertionCoordinator {
       return current.map { .notInserted($0.insertability(for: sessionID, at: now)) } ?? .notFound
     }
 
-    let confirmation = await inserter.insert(claimed.text)
+    let confirmation = await inserter.insert(claimed.text, isStillTarget: isStillTarget)
     return await record(confirmation, for: claimed)
   }
 

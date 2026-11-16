@@ -90,6 +90,8 @@ final class KeyboardViewController: UIInputViewController {
   private var loadedRestrictions: Set<KeyboardFieldRestriction>?
   /// 古い読み込みの結果で上書きしないための番号
   private var loadGeneration = 0
+  /// キーボードを閉じた回数。閉じる前に始めた挿入を、表示し直した入力欄へ入れないための番号（iOS-06, #271）
+  private var displayGeneration = 0
   /// 挿入・消す・挿入済みにする操作の途中。終わるまで次の操作を受けない
   private var isBusy = false
   private var statusMessage: String?
@@ -203,6 +205,9 @@ final class KeyboardViewController: UIInputViewController {
 
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
+    // 閉じたことを、待たずに記録する。閉じる前に始めた挿入を、表示し直した入力欄へ入れない（iOS-06, #271）
+    displayGeneration += 1
+    standby?.invalidatePendingInsertion()
     stopNetworkMonitor()
     stopClock()
     stopStandbyLoop()
@@ -368,9 +373,11 @@ final class KeyboardViewController: UIInputViewController {
     isBusy = true
     render()
     let generation = loadGeneration
+    let display = displayGeneration
     Task {
       let (message, finished) = await Self.run(
-        action, sessionID: sessionID, coordinator: coordinator)
+        action, sessionID: sessionID, coordinator: coordinator
+      ) { self.displayGeneration == display }
       isBusy = false
       // 操作の間に読み直した（「更新」・キーボードの再表示・入力欄の移動）なら、古い操作の結果で表示を上書きしない
       guard generation == loadGeneration, snapshot.sessionID == sessionID else {
@@ -394,12 +401,14 @@ final class KeyboardViewController: UIInputViewController {
   /// 共有結果への操作を行い、表示する文言と、結果を使い終えたか（挿入済み・消した）を返す
   private static func run(
     _ action: SharedResultKeyboardAction, sessionID: SessionID,
-    coordinator: SharedResultInsertionCoordinator
+    coordinator: SharedResultInsertionCoordinator,
+    isStillTarget: @escaping SharedResultInsertionTargetCheck
   ) async -> (message: String, finished: Bool) {
     switch action {
     case .insert, .reinsert:
       let outcome = try? await coordinator.insert(
-        sessionID: sessionID, confirmedReinsertion: action == .reinsert)
+        sessionID: sessionID, confirmedReinsertion: action == .reinsert,
+        isStillTarget: isStillTarget)
       return (KeyboardMessages.outcome(outcome), outcome == .inserted)
     case .confirmInserted:
       let outcome = try? await coordinator.confirmInserted(sessionID: sessionID)

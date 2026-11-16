@@ -21,7 +21,9 @@ struct KeyboardStandbyKeepRecordingTests {
   final class CountingInserter: KeyboardStandbyInserting {
     private let calls = Mutex<[SessionID]>([])
     var insertedSessions: [SessionID] { calls.withLock { $0 } }
-    func insertResult(sessionID: SessionID) async throws -> SharedResultInsertionOutcome {
+    func insertResult(
+      sessionID: SessionID, isStillTarget: @escaping SharedResultInsertionTargetCheck
+    ) async throws -> SharedResultInsertionOutcome {
       calls.withLock { $0.append(sessionID) }
       return .inserted
     }

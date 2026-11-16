@@ -14,13 +14,18 @@ extension StandbySessionStore: KeyboardStandbySignals {}
 
 /// 録音の結果を入力欄へ挿入する口。本番は `SharedResultInsertionCoordinator`。
 public protocol KeyboardStandbyInserting: Sendable {
-  /// 結果を1回だけ挿入する（挿入の確保は共有結果の比較交換で行うため、重ねて呼んでも二重に入らない, iAC-04）
-  func insertResult(sessionID: SessionID) async throws -> SharedResultInsertionOutcome
+  /// 結果を1回だけ挿入する（挿入の確保は共有結果の比較交換で行うため、重ねて呼んでも二重に入らない, iAC-04）。
+  /// 入力欄へ入れる直前に `isStillTarget` を確かめ、false なら挿入しない（iOS-06, #271）
+  func insertResult(
+    sessionID: SessionID, isStillTarget: @escaping SharedResultInsertionTargetCheck
+  ) async throws -> SharedResultInsertionOutcome
 }
 
 extension SharedResultInsertionCoordinator: KeyboardStandbyInserting {
-  public func insertResult(sessionID: SessionID) async throws -> SharedResultInsertionOutcome {
-    try await insert(sessionID: sessionID)
+  public func insertResult(
+    sessionID: SessionID, isStillTarget: @escaping SharedResultInsertionTargetCheck
+  ) async throws -> SharedResultInsertionOutcome {
+    try await insert(sessionID: sessionID, isStillTarget: isStillTarget)
   }
 }
 
@@ -243,6 +248,12 @@ public final class KeyboardStandbyDictation {
     case .unavailable, .ready, .inserted, .failed, .resultReady, .insertionUnknown:
       await refreshAvailability(startEpoch: startEpoch, at: current)
     }
+  }
+
+  /// キーボードが閉じられたことを、待たずに記録する。閉じる前に始めた自動挿入を、表示し直した入力欄へ入れない
+  /// （iOS-06, #271）。取り消しなどは、続けて呼ぶ `keyboardClosed(reason:)` が行う
+  public func invalidatePendingInsertion() {
+    epoch += 1
   }
 
   /// キーボードが閉じられた（表示が終わった・入力欄が制限された）。録音中なら取り消しを送る（iOS-06）。
@@ -555,9 +566,13 @@ public final class KeyboardStandbyDictation {
       }
       // 1つのセッションにつき1回だけ試みる。結果不明でも自動では重ねて試みない
       guard insertionAttempted.insert(id).inserted else { return }
-      let outcome = try? await inserter.insertResult(sessionID: id)
-      // 挿入の前の判定（`follow` の epoch の確認）から、ここまでは待たずに進む。閉じられた後に済んだ挿入の結果は、
-      // 閉じた後の画面に出さない
+      // 結果の確保を待つ間に閉じられ、別の入力欄で表示し直されることがある。入れる直前にも、閉じられていないか
+      // （epoch が変わっていないか）を確かめる（iOS-06, #271）
+      let outcome = try? await inserter.insertResult(sessionID: id) { [weak self] in
+        self?.epoch == startEpoch
+      }
+      // 閉じられた後に済んだ（または入れずに終えた）挿入の結果は、閉じた後の画面に出さない。挿入しなかった結果は
+      // 挿入結果不明として残り、次の表示で確かめてもらう
       guard startEpoch == epoch else { return }
       switch outcome {
       case .inserted: set(.inserted)
