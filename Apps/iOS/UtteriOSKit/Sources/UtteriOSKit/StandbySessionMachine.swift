@@ -4,8 +4,8 @@ import UtterPersistence
 
 /// 待機セッションの時間の設定（iOS-04, iOS-06）。
 public struct StandbySessionConfiguration: Hashable, Sendable {
-  /// 無操作で待機を終えるまでの時間の既定値（iOS-04: 既定5分）
-  public static let defaultIdleTimeout: Duration = .seconds(300)
+  /// 無操作で待機を終えるまでの時間の既定値（iOS-04: 既定15分。`StandbyPreferences.defaultIdleTimeoutMinutes` とそろえる）
+  public static let defaultIdleTimeout: Duration = .seconds(900)
   /// 停止の合図が届かない録音を捨てるまでの時間の既定値（iOS-06: 既定120秒）
   public static let defaultMaxCaptureDuration: Duration = .seconds(120)
   /// キーボードの生存の印が途絶えたとみなす時間の既定値（暫定。キーボードは1秒ごとに書く想定）

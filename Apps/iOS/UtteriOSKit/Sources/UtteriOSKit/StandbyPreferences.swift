@@ -5,8 +5,10 @@ import UtterPersistence
 /// 挿入のしかたはキーボードが従うため、本体アプリが状態に載せて知らせる（`StandbyHostState.insertionMode`）。
 public struct StandbyPreferences {
   /// 無操作で待機を終えるまでの選択肢（分）。無期限にはしない（iOS-04, iOS-PERF-03: バックグラウンドの audio は、無操作で終わる待機のためにだけ使う）
-  public static let idleTimeoutChoices: [Int] = [1, 5, 15, 30]
-  public static let defaultIdleTimeoutMinutes = 5
+  public static let idleTimeoutChoices: [Int] = [1, 5, 15, 30, 60]
+  /// 既定は15分（#267）。待機中のマイクの入力はミュートで、STT・推論は合図の間だけ動くため、長くしても待機中に使うのは
+  /// オーディオセッションを保つ分だけ。電池の減り方は実機で測る（iOS-PERF-04）
+  public static let defaultIdleTimeoutMinutes = 15
 
   private static let insertionModeKey = "standby.insertionMode"
   private static let idleTimeoutKey = "standby.idleTimeoutMinutes"
