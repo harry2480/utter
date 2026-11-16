@@ -166,20 +166,20 @@ struct StandbySessionMachineTests {
         == [.abandonCapture(session, .captureLimitExceeded)])
   }
 
-  @Test("iOS-04: 無操作が続いたら待機を終える（既定5分）。合図を受けると数え直す")
+  @Test("iOS-04: 無操作が続いたら待機を終える（既定15分）。合図を受けると数え直す")
   func idleTimeout() {
     var machine = standby()
 
-    #expect(machine.tick(heartbeat: nil, at: at(299)).isEmpty)
-    _ = machine.receive(command(1, .start, at: 299), at: at(299))
-    _ = machine.receive(command(2, .stop, at: 300), at: at(300))
-    machine.finishProcessing(session, failure: nil, at: at(301))
+    #expect(machine.tick(heartbeat: nil, at: at(899)).isEmpty)
+    _ = machine.receive(command(1, .start, at: 899), at: at(899))
+    _ = machine.receive(command(2, .stop, at: 900), at: at(900))
+    machine.finishProcessing(session, failure: nil, at: at(901))
 
-    #expect(machine.tick(heartbeat: nil, at: at(600)).isEmpty)
-    #expect(machine.tick(heartbeat: nil, at: at(602)) == [.endStandby(.idleTimeout)])
-    #expect(machine.hostState(at: at(602)).phase == .off)
+    #expect(machine.tick(heartbeat: nil, at: at(1_800)).isEmpty)
+    #expect(machine.tick(heartbeat: nil, at: at(1_802)) == [.endStandby(.idleTimeout)])
+    #expect(machine.hostState(at: at(1_802)).phase == .off)
     // 待機を終えた後の合図は扱わない
-    #expect(machine.receive(command(3, .start, at: 602), at: at(602)).isEmpty)
+    #expect(machine.receive(command(3, .start, at: 1_802), at: at(1_802)).isEmpty)
   }
 
   @Test("iOS-04: 認識・整形中は無操作で待機を終えない")
