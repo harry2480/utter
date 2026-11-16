@@ -564,7 +564,12 @@ struct KeyboardStandbyKeepRecordingTests {
     await dictation.keyboardClosed(reason: .restricted)
     #expect(try await store.loadCommand() == nil)
 
-    // 本体アプリはその録音を捨てて待機に戻った。送り直さず、待ちから外す
+    // 本体アプリはその録音を捨てた。送り直さず、待ちから外す
+    try await store.saveHostState(
+      StandbyHostState(
+        phase: .failed, sessionID: old, updatedAt: clock.now, failure: .keyboardDismissed,
+        keepsRecordingWhenKeyboardCloses: true))
+    await dictation.tick()
     try await store.saveHostState(host(.standby, at: clock.now))
     await dictation.tick()
     #expect(try await store.loadCommand() == nil)
@@ -595,7 +600,14 @@ struct KeyboardStandbyKeepRecordingTests {
     let started = try #require(try await store.loadCommand())
     #expect(started.action == .start)
 
+    // 本体アプリはまだ開始を読んでいない（待機中）。この間に読み直しても、送り直しの待ちは残る
+    clock.advance(2)
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    #expect(try await store.loadCommand()?.action == .start)
+
     // 本体アプリが開始を読んで録音を始めた。次の表示で取り消しを送り直す
+    clock.advance(1)
     try await store.saveHostState(host(.recording, session: started.sessionID, at: clock.now))
     await dictation.keyboardClosed(reason: .restricted)
     let command = try await store.loadCommand()
@@ -624,5 +636,31 @@ struct KeyboardStandbyKeepRecordingTests {
 
     #expect(dictation.state == .inserted)
     #expect(inserter.insertedSessions == [id])
+  }
+
+  @Test("#267: 開始を待つ時間を過ぎても本体アプリが録音を始めなければ、送り直しの待ちから外す")
+  func pendingCancelExpiresAfterStartTimeout() async throws {
+    let clock = Clock(base)
+    let gate = StopGate()
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: ScriptedSignals(base: store, gate: gate, gatedAction: .start, cancelFailures: 1),
+      inserter: CountingInserter(), now: { clock.now })
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    let starting = Task { await dictation.toggle() }
+    while !gate.hasEntered { await Task.yield() }
+    await dictation.keyboardClosed(reason: .restricted)
+    gate.open()
+    await starting.value
+    let started = try #require(try await store.loadCommand())
+
+    clock.advance(9)
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    // 待ちから外れたので、その後に録音中と読めても送らない
+    try await store.saveHostState(host(.recording, session: started.sessionID, at: clock.now))
+    await dictation.keyboardClosed(reason: .dismissed)
+    #expect(try await store.loadCommand()?.action == .start)
   }
 }

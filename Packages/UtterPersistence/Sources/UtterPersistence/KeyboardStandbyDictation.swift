@@ -121,7 +121,8 @@ public final class KeyboardStandbyDictation {
   /// 引き継いだ録音と、本体アプリがそれを始めた時刻
   private var resumedCapture: (id: SessionID, startedAt: Date)?
   /// 制限のある入力欄で取り消そうとして書けなかったセッション。引き継がず、取り消しを送り直す
-  private var pendingCancels: Set<SessionID> = []
+  /// 値は待ちに入れた時刻（本体アプリがまだ開始を読んでいない間は、録音中でなくても待ちに残す）
+  private var pendingCancels: [SessionID: Date] = [:]
   /// 離れたまま捨てられた理由を知らせたセッション（同じ理由を何度も出さない）
   private var reportedDetachedFailures: Set<SessionID> = []
 
@@ -279,7 +280,7 @@ public final class KeyboardStandbyDictation {
         _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
       } catch {
         // 取り消しを書けなければ、引き継がないまま、本体アプリがまだ録音しているうちに送り直す
-        pendingCancels.insert(id)
+        pendingCancels[id] = now()
       }
     }
   }
@@ -291,15 +292,19 @@ public final class KeyboardStandbyDictation {
   private func retryPendingCancels() async {
     guard !pendingCancels.isEmpty, !isIssuing, !isFollowingAny else { return }
     let host = try? await signals.loadHostState()
-    guard !isIssuing, !isFollowingAny else { return }
-    for id in pendingCancels {
-      guard let host, host.phase == .recording, host.sessionID == id else {
-        // 本体アプリが録音していない（捨てた・別の録音・待機を終えた）。読めないときは次に回す
-        if host != nil { pendingCancels.remove(id) }
-        continue
-      }
-      if (try? await signals.issueCommand(.cancel, sessionID: id, at: now())) != nil {
-        pendingCancels.remove(id)
+    for (id, since) in pendingCancels {
+      // 送るたびに確かめ直す（前の書き込みを待つ間に、別の録音の合図を書き始めていることがある）
+      guard !isIssuing, !isFollowingAny else { return }
+      // 読めないときは次に回す
+      guard let host else { continue }
+      if host.phase == .recording, host.sessionID == id {
+        if (try? await signals.issueCommand(.cancel, sessionID: id, at: now())) != nil {
+          pendingCancels[id] = nil
+        }
+      } else if host.sessionID == id || now().timeIntervalSince(since) > startTimeout {
+        // 本体アプリがそのセッションを済ませた（捨てた・処理した）か、開始を待つ時間を過ぎて、もう始まらない。
+        // それまでは、本体アプリがまだ開始を読んでいない（待機中）ことがあるため待ちに残す
+        pendingCancels[id] = nil
       }
     }
   }
@@ -336,7 +341,7 @@ public final class KeyboardStandbyDictation {
       relinquishedSessions.insert(id)
       if (try? await signals.issueCommand(.cancel, sessionID: id, at: now())) == nil {
         // 書けなければ、本体アプリが録音を始めていたときに送り直す
-        pendingCancels.insert(id)
+        pendingCancels[id] = now()
       }
       return
     }
