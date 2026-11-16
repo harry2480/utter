@@ -515,4 +515,76 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(command?.action == .cancel)
     #expect(command?.sessionID == id)
   }
+
+  /// 取り消しの書き込みを、決めた回数だけ失敗させ、その次の1回を開くまで止める
+  final class FailThenGateCancelSignals: KeyboardStandbySignals {
+    struct WriteFailed: Error {}
+    let base: StandbySessionStore
+    let gate: StopGate
+    let failures: Int
+    private let cancels = Mutex(0)
+    init(base: StandbySessionStore, gate: StopGate, failures: Int) {
+      self.base = base
+      self.gate = gate
+      self.failures = failures
+    }
+    func issueCommand(_ action: StandbyCommand.Action, sessionID: SessionID, at now: Date)
+      async throws -> StandbyCommand
+    {
+      if action == .cancel {
+        let count = cancels.withLock { value -> Int in
+          value += 1
+          return value
+        }
+        if count <= failures { throw WriteFailed() }
+        if count == failures + 1 { await gate.wait() }
+      }
+      return try await base.issueCommand(action, sessionID: sessionID, at: now)
+    }
+    func saveHeartbeat(_ heartbeat: KeyboardHeartbeat) async throws {
+      try await base.saveHeartbeat(heartbeat)
+    }
+    func loadHostState() async throws -> StandbyHostState? { try await base.loadHostState() }
+  }
+
+  @Test("#267: 取り消しの送り直しを待つ間に制限のある入力欄で閉じたら、録音中だった結果を自動で入れない")
+  func closingDuringRetryDoesNotInsert() async throws {
+    let clock = Clock(base)
+    let gate = StopGate()
+    let inserter = CountingInserter()
+    let store = StandbySessionStore(directory: directory.url)
+    // 取り消しの書き込みは3回失敗し、4回目（B を録音中の送り直し）で止まる
+    let dictation = KeyboardStandbyDictation(
+      signals: FailThenGateCancelSignals(base: store, gate: gate, failures: 3),
+      inserter: inserter, now: { clock.now })
+
+    // 古い録音 A の取り消しを書けず、送り直しの待ちに残す（1回目）
+    let old = SessionID()
+    try await store.saveHostState(host(.recording, session: old, detached: true, at: clock.now))
+    await dictation.keyboardClosed(reason: .restricted)
+
+    // 普通の入力欄で、自分で録音 B を始める（送り直しの2・3回目も失敗する）
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .ready)
+    await dictation.toggle()
+    guard case .starting(let recording) = dictation.state else {
+      Issue.record("開始の待ちになっていない: \(dictation.state)")
+      return
+    }
+    try await store.saveHostState(host(.recording, session: recording, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .recording(recording))
+
+    // 本体アプリは B を仕上げた。読み直しが送り直し（4回目）で止まっている間に、制限のある入力欄で閉じる
+    try await store.saveHostState(host(.done, session: recording, mode: .automatic, at: clock.now))
+    let ticking = Task { await dictation.tick() }
+    while !gate.hasEntered { await Task.yield() }
+    await dictation.keyboardClosed(reason: .restricted)
+    gate.open()
+    await ticking.value
+
+    #expect(dictation.state == .unavailable)
+    #expect(inserter.insertedSessions.isEmpty)
+  }
 }

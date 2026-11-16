@@ -221,8 +221,10 @@ public final class KeyboardStandbyDictation {
     guard !isTicking else { return }
     isTicking = true
     defer { isTicking = false }
-    await retryPendingCancels()
     let startEpoch = epoch
+    await retryPendingCancels()
+    // 送り直しを待つ間に閉じられたら、古い状態のまま進まない（閉じた後に結果を挿入しない）
+    guard startEpoch == epoch else { return }
     let current = now()
     switch state {
     case .starting(let id), .recording(let id):
@@ -241,7 +243,6 @@ public final class KeyboardStandbyDictation {
   /// 停止の合図を書いている途中でも、停止を上書きしない。開始の待ち・制限のある入力欄では今どおり取り消す
   public func keyboardClosed(reason: KeyboardCloseReason = .dismissed) async {
     epoch += 1
-    await retryPendingCancels()
     var cancelling: SessionID?
     switch state {
     case .starting(let sessionID):
@@ -255,6 +256,8 @@ public final class KeyboardStandbyDictation {
     set(.unavailable)
     startedAt = nil
     lastHeartbeat = nil
+    // 状態を閉じたものにしてから、書けなかった取り消しを送り直す（待つ間に古い状態で進ませない）
+    await retryPendingCancels()
     // 閉じた後も続いている録音があるときに、制限のある入力欄で表示された。本体アプリの状態から録音を
     // 見つけて取り消す（iOS-09。制限のある入力欄では録音しない, #267）
     if cancelling == nil, reason == .restricted,
