@@ -251,6 +251,14 @@ public final class KeyboardStandbyDictation {
     set(.unavailable)
     startedAt = nil
     lastHeartbeat = nil
+    // 閉じた後も続いている録音があるときに、制限のある入力欄で表示された。本体アプリの状態から録音を
+    // 見つけて取り消す（iOS-09。制限のある入力欄では録音しない, #267）
+    if cancelling == nil, reason == .restricted,
+      let host = try? await signals.loadHostState(), host.isAlive(at: now()),
+      host.phase == .recording, let id = host.sessionID, !relinquishedSessions.contains(id)
+    {
+      cancelling = id
+    }
     if let id = cancelling {
       relinquishedSessions.insert(id)
       _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())

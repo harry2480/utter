@@ -242,7 +242,8 @@ public struct StandbySessionMachine: Sendable {
       // 離れたまま捨てた録音なら、そのことを載せる（戻ってきたキーボードが理由を出す, #267）
       StandbyHostState(
         phase: .failed, sessionID: id, updatedAt: now, failure: failure,
-        isDetached: id != nil && id == detachedSession)
+        // 取り消し（利用者の操作・制限のある入力欄）で捨てたときは知らせない
+        isDetached: id != nil && id == detachedSession && failure != .keyboardDismissed)
     }
   }
 

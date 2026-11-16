@@ -423,4 +423,23 @@ struct KeyboardStandbyKeepRecordingTests {
     await dictation.tick()
     #expect(dictation.state == .ready)
   }
+
+  @Test("iOS-09・#267: 閉じた後も続いている録音は、制限のある入力欄で表示されたら取り消す（一度だけ）")
+  func restrictedAfterDetachCancels() async throws {
+    let clock = Clock(base)
+    let (dictation, store) = make(clock: clock)
+    let id = SessionID()
+    try await store.saveHostState(host(.recording, session: id, detached: true, at: clock.now))
+
+    await dictation.keyboardClosed(reason: .restricted)
+
+    let command = try await store.loadCommand()
+    #expect(command?.action == .cancel)
+    #expect(command?.sessionID == id)
+
+    // 本体アプリがまだ読んでいなくても、取り消しを重ねて書かない
+    clock.advance(1)
+    await dictation.keyboardClosed(reason: .restricted)
+    #expect(try await store.loadCommand() == command)
+  }
 }

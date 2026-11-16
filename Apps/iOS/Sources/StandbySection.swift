@@ -157,7 +157,7 @@ struct StandbySection: View {
         .foregroundStyle(Color.utterSecondary)
         .padding(.horizontal, 4)
       Text(
-        "「閉じても録音を続ける」をオンにすると、録音中にアプリを切り替えても、録音は最大\(Self.maxCaptureMinutes)分続きます。キーボードに戻ってマイクを押すと止まり、結果は確かめてから入れます。パスワード欄などへ移ったときも止まりません。画面をロックすると捨てます。"
+        "「閉じても録音を続ける」をオンにすると、録音中にアプリを切り替えても、録音は最大\(Self.maxCaptureMinutes)分続きます。キーボードに戻ってマイクを押すと止まり、結果は確かめてから入れます。パスワード欄などへ移ったときも止まりません。画面をロックすると捨てます（パスコードを設定していない端末では、ロックしても止まりません）。"
       )
       .font(.system(size: 13))
       .lineSpacing(3)

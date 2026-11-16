@@ -375,4 +375,17 @@ struct StandbySessionMachineTests {
     machine.startStandby(pendingCommand: nil, at: at(2))
     #expect(machine.receive(command(1, .start, at: 3), at: at(3)) == [.beginCapture(session)])
   }
+
+  @Test("#267: 離れた録音を取り消しで捨てたときは、離れたまま捨てたとは知らせない")
+  func cancelledDetachedIsNotReported() {
+    var machine = standby(keeping)
+    _ = machine.receive(command(1, .start), at: at(0))
+    _ = machine.tick(heartbeat: nil, at: at(6))
+    _ = machine.receive(command(2, .cancel, at: 7), at: at(7))
+
+    let state = machine.hostState(at: at(7))
+    #expect(state.phase == .failed)
+    #expect(state.failure == .keyboardDismissed)
+    #expect(state.isDetached == false)
+  }
 }
