@@ -12,6 +12,7 @@ public struct StandbyPreferences {
 
   private static let insertionModeKey = "standby.insertionMode"
   private static let idleTimeoutKey = "standby.idleTimeoutMinutes"
+  private static let keepsRecordingKey = "standby.keepsRecordingWhenKeyboardCloses"
   private let defaults: UserDefaults
 
   public init(defaults: UserDefaults = .standard) {
@@ -36,8 +37,16 @@ public struct StandbyPreferences {
     nonmutating set { defaults.set(newValue, forKey: Self.idleTimeoutKey) }
   }
 
+  /// 録音中にキーボードが閉じても録音を続けるか（iOS-06, #267）。既定は続けない
+  public var keepsRecordingWhenKeyboardCloses: Bool {
+    get { defaults.bool(forKey: Self.keepsRecordingKey) }
+    nonmutating set { defaults.set(newValue, forKey: Self.keepsRecordingKey) }
+  }
+
   /// 状態機械に渡す設定
   public var sessionConfiguration: StandbySessionConfiguration {
-    StandbySessionConfiguration(idleTimeout: .seconds(idleTimeoutMinutes * 60))
+    StandbySessionConfiguration(
+      idleTimeout: .seconds(idleTimeoutMinutes * 60),
+      keepsRecordingWhenKeyboardCloses: keepsRecordingWhenKeyboardCloses)
   }
 }

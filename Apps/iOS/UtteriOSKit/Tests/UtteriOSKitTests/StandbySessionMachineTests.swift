@@ -232,4 +232,160 @@ struct StandbySessionMachineTests {
     machine.finishProcessing(session, failure: .noSpeech, at: at(2))
     #expect(machine.hostState(at: at(2)).failure == .noSpeech)
   }
+
+  // MARK: 閉じても録音を続ける設定（iOS-06, #267）
+
+  private var keeping: StandbySessionConfiguration {
+    StandbySessionConfiguration(keepsRecordingWhenKeyboardCloses: true)
+  }
+
+  @Test("#267: 続ける設定では、生存の印が途絶えても捨てずに離れた印を付け、状態に載せる")
+  func detachesInsteadOfAbandoning() {
+    var machine = standby(keeping)
+    _ = machine.receive(command(1, .start), at: at(0))
+
+    #expect(
+      machine.tick(heartbeat: KeyboardHeartbeat(sessionID: session, at: at(1)), at: at(7)).isEmpty)
+    let state = machine.hostState(at: at(7))
+    #expect(state.phase == .recording)
+    #expect(state.isDetached)
+    #expect(state.keepsRecordingWhenKeyboardCloses)
+    #expect(state.captureStartedAt == at(0))
+    #expect(machine.currentSessionWasDetached)
+    // 離れている間は、印がなくても捨てない
+    #expect(machine.tick(heartbeat: nil, at: at(60)).isEmpty)
+  }
+
+  @Test("#267: 離れている間も、録音の上限で捨てる")
+  func detachedCaptureLimit() {
+    var machine = standby(keeping)
+    _ = machine.receive(command(1, .start), at: at(0))
+    _ = machine.tick(heartbeat: nil, at: at(6))
+
+    #expect(
+      machine.tick(heartbeat: nil, at: at(121)) == [.abandonCapture(session, .captureLimitExceeded)]
+    )
+    // 離れたまま捨てたことを状態に載せる（戻ってきたキーボードが理由を出す）
+    let state = machine.hostState(at: at(121))
+    #expect(state.phase == .failed)
+    #expect(state.isDetached)
+  }
+
+  @Test("#267: 離れた後の新しい印で付き直し、また途絶えたら離れる。離れる前の古い印では付き直さない")
+  func reattachesOnNewerHeartbeat() {
+    var machine = standby(keeping)
+    _ = machine.receive(command(1, .start), at: at(0))
+    _ = machine.tick(heartbeat: KeyboardHeartbeat(sessionID: session, at: at(1)), at: at(7))
+    #expect(machine.hostState(at: at(7)).isDetached)
+
+    // 離れる前に書かれた印では付き直さない
+    _ = machine.tick(heartbeat: KeyboardHeartbeat(sessionID: session, at: at(6)), at: at(8))
+    #expect(machine.hostState(at: at(8)).isDetached)
+
+    _ = machine.tick(heartbeat: KeyboardHeartbeat(sessionID: session, at: at(20)), at: at(20))
+    #expect(machine.hostState(at: at(20)).isDetached == false)
+    // 一度離れたセッションであることは覚えている（結果を確かめてから入れる）
+    #expect(machine.currentSessionWasDetached)
+
+    _ = machine.tick(heartbeat: KeyboardHeartbeat(sessionID: session, at: at(20)), at: at(26))
+    #expect(machine.hostState(at: at(26)).isDetached)
+  }
+
+  @Test("#267: 離れた録音も停止の合図で処理し、結果まで離れたセッションとして扱う。次の録音では外れる")
+  func detachedSessionStopsAndIsRemembered() {
+    var machine = standby(keeping)
+    _ = machine.receive(command(1, .start), at: at(0))
+    _ = machine.tick(heartbeat: nil, at: at(6))
+
+    #expect(machine.receive(command(2, .stop, at: 30), at: at(30)) == [.finishCapture(session)])
+    #expect(machine.currentSessionWasDetached)
+    machine.finishProcessing(session, failure: nil, at: at(31))
+    #expect(machine.currentSessionWasDetached)
+
+    let next = SessionID()
+    _ = machine.receive(command(3, .start, next, at: 40), at: at(40))
+    #expect(machine.currentSessionWasDetached == false)
+  }
+
+  @Test("#267: 離れている間も、取り消し・割り込み・別のセッション・待機の終了で捨てる")
+  func detachedStillAbandons() {
+    var cancel = standby(keeping)
+    _ = cancel.receive(command(1, .start), at: at(0))
+    _ = cancel.tick(heartbeat: nil, at: at(6))
+    #expect(
+      cancel.receive(command(2, .cancel, at: 7), at: at(7))
+        == [.abandonCapture(session, .keyboardDismissed)])
+
+    var interrupted = standby(keeping)
+    _ = interrupted.receive(command(1, .start), at: at(0))
+    _ = interrupted.tick(heartbeat: nil, at: at(6))
+    #expect(interrupted.interruptionBegan(at: at(7)) == [.abandonCapture(session, .interrupted)])
+
+    var superseded = standby(keeping)
+    _ = superseded.receive(command(1, .start), at: at(0))
+    _ = superseded.tick(heartbeat: nil, at: at(6))
+    #expect(
+      superseded.receive(command(2, .start, SessionID(), at: 7), at: at(7)).first
+        == .abandonCapture(session, .supersededBySession))
+
+    var ended = standby(keeping)
+    _ = ended.receive(command(1, .start), at: at(0))
+    _ = ended.tick(heartbeat: nil, at: at(6))
+    #expect(
+      ended.endStandby(at: at(7)) == [
+        .abandonCapture(session, .standbyEnded), .endStandby(.userRequested),
+      ])
+  }
+
+  @Test("#267: 端末がロックされたら、録音中なら捨てる。録音中でなければ何もしない")
+  func deviceLockAbandons() {
+    var machine = standby(keeping)
+    #expect(machine.deviceLocked(at: at(0)).isEmpty)
+    machine.deviceUnlocked()
+    _ = machine.receive(command(1, .start), at: at(0))
+    #expect(machine.deviceLocked(at: at(1)) == [.abandonCapture(session, .deviceLocked)])
+    #expect(machine.hostState(at: at(1)).failure == .deviceLocked)
+  }
+
+  @Test("iOS-06: 続けない設定（既定）では、今どおり印の途絶で捨て、状態は続けない設定を知らせる")
+  func defaultStillAbandons() {
+    var machine = standby()
+    #expect(machine.hostState(at: at(0)).keepsRecordingWhenKeyboardCloses == false)
+    _ = machine.receive(command(1, .start), at: at(0))
+    #expect(
+      machine.tick(heartbeat: nil, at: at(6)) == [.abandonCapture(session, .keyboardHeartbeatLost)])
+  }
+
+  @Test("#267: ロックの間は開始の合図を受け付けない（ロックの前に読み始めた合図も）。解けたら、また受け付ける")
+  func lockedRejectsStart() {
+    var machine = standby(keeping)
+    _ = machine.deviceLocked(at: at(0))
+    #expect(machine.receive(command(1, .start, at: 0.5), at: at(0.5)).isEmpty)
+    #expect(machine.hostState(at: at(0.5)).phase == .standby)
+
+    machine.deviceUnlocked()
+    #expect(machine.receive(command(2, .start, at: 1), at: at(1)) == [.beginCapture(session)])
+  }
+
+  @Test("#267: ロックのまま待機が終わっても、次に待機を始めたら開始を受け付ける")
+  func lockClearedOnNextStandby() {
+    var machine = standby(keeping)
+    _ = machine.deviceLocked(at: at(0))
+    _ = machine.endStandby(at: at(1))
+    machine.startStandby(pendingCommand: nil, at: at(2))
+    #expect(machine.receive(command(1, .start, at: 3), at: at(3)) == [.beginCapture(session)])
+  }
+
+  @Test("#267: 離れた録音を取り消しで捨てたときは、離れたまま捨てたとは知らせない")
+  func cancelledDetachedIsNotReported() {
+    var machine = standby(keeping)
+    _ = machine.receive(command(1, .start), at: at(0))
+    _ = machine.tick(heartbeat: nil, at: at(6))
+    _ = machine.receive(command(2, .cancel, at: 7), at: at(7))
+
+    let state = machine.hostState(at: at(7))
+    #expect(state.phase == .failed)
+    #expect(state.failure == .keyboardDismissed)
+    #expect(state.isDetached == false)
+  }
 }

@@ -85,6 +85,54 @@ struct StandbySessionCoordinatorTests {
     #expect(coordinator.isStandingBy == false)  // 10秒の設定が効いている（1秒でも60秒でもない）
   }
 
+  @Test("#267: 離れたことは書いた状態に残り、離れたセッションの結果は設定が自動でもプレビューとして知らせる")
+  func detachedSessionPublishesPreview() async {
+    let clock = clock
+    let coordinator = StandbySessionCoordinator(
+      signals: signals, audio: audio, capture: capture,
+      configuration: StandbySessionConfiguration(keepsRecordingWhenKeyboardCloses: true),
+      insertionMode: { .automatic }, date: { clock.now })
+    #expect(await coordinator.startStandby())
+    #expect(await signals.savedStates().last?.keepsRecordingWhenKeyboardCloses == true)
+
+    await signals.setCommand(command(1, .start))
+    advance(to: 0.1)
+    await coordinator.poll()
+    advance(to: 7)
+    await coordinator.poll()
+
+    #expect(capture.abandoned.isEmpty)
+    #expect(coordinator.isRecordingDetached)
+    let detached = await signals.savedStates().last
+    #expect(detached?.phase == .recording)
+    #expect(detached?.isDetached == true)
+    #expect(detached?.insertionMode == .preview)
+
+    await signals.setCommand(command(2, .stop, at: 8))
+    advance(to: 8)
+    await coordinator.poll()
+
+    let done = await signals.savedStates().last
+    #expect(done?.phase == .done)
+    #expect(done?.insertionMode == .preview)
+    #expect(coordinator.isRecordingDetached == false)
+  }
+
+  @Test("#267: 端末がロックされたら、録音を捨てる")
+  func deviceLockAbandonsCapture() async {
+    let coordinator = await standby(
+      StandbySessionConfiguration(keepsRecordingWhenKeyboardCloses: true))
+    await signals.setCommand(command(1, .start))
+    advance(to: 0.1)
+    await coordinator.poll()
+
+    await coordinator.deviceLocked()
+
+    #expect(capture.abandoned == [session])
+    #expect(coordinator.failure == .deviceLocked)
+    #expect(audio.isInputMuted == true)
+  }
+
   @Test("iOS-04: 待機を始める前に書かれていた合図は、処理済みとして実行しない")
   func pendingCommandBeforeStandbyIgnored() async {
     await signals.setCommand(command(1, .start))
