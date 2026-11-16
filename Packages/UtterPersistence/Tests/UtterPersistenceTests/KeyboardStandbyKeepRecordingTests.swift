@@ -516,28 +516,33 @@ struct KeyboardStandbyKeepRecordingTests {
     #expect(command?.sessionID == id)
   }
 
-  /// 取り消しの書き込みを、決めた回数だけ失敗させ、その次の1回を開くまで止める
-  final class FailThenGateCancelSignals: KeyboardStandbySignals {
+  /// 決めた合図の書き込みを開くまで止め、取り消しの書き込みを決めた回数だけ失敗させる
+  final class ScriptedSignals: KeyboardStandbySignals {
     struct WriteFailed: Error {}
     let base: StandbySessionStore
     let gate: StopGate
-    let failures: Int
-    private let cancels = Mutex(0)
-    init(base: StandbySessionStore, gate: StopGate, failures: Int) {
+    let gatedAction: StandbyCommand.Action?
+    private let cancelFailures: Mutex<Int>
+    init(
+      base: StandbySessionStore, gate: StopGate, gatedAction: StandbyCommand.Action?,
+      cancelFailures: Int
+    ) {
       self.base = base
       self.gate = gate
-      self.failures = failures
+      self.gatedAction = gatedAction
+      self.cancelFailures = Mutex(cancelFailures)
     }
     func issueCommand(_ action: StandbyCommand.Action, sessionID: SessionID, at now: Date)
       async throws -> StandbyCommand
     {
+      if action == gatedAction { await gate.wait() }
       if action == .cancel {
-        let count = cancels.withLock { value -> Int in
-          value += 1
-          return value
+        let fails = cancelFailures.withLock { count -> Bool in
+          guard count > 0 else { return false }
+          count -= 1
+          return true
         }
-        if count <= failures { throw WriteFailed() }
-        if count == failures + 1 { await gate.wait() }
+        if fails { throw WriteFailed() }
       }
       return try await base.issueCommand(action, sessionID: sessionID, at: now)
     }
@@ -547,44 +552,77 @@ struct KeyboardStandbyKeepRecordingTests {
     func loadHostState() async throws -> StandbyHostState? { try await base.loadHostState() }
   }
 
-  @Test("#267: 取り消しの送り直しを待つ間に制限のある入力欄で閉じたら、録音中だった結果を自動で入れない")
-  func closingDuringRetryDoesNotInsert() async throws {
+  @Test("#267: 書けなかった取り消しは、本体アプリがもうそのセッションを録音していなければ送らずに外す（別の合図を上書きしない）")
+  func pendingCancelDroppedWhenHostMovedOn() async throws {
+    let clock = Clock(base)
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: ScriptedSignals(base: store, gate: StopGate(), gatedAction: nil, cancelFailures: 1),
+      inserter: CountingInserter(), now: { clock.now })
+    let old = SessionID()
+    try await store.saveHostState(host(.recording, session: old, detached: true, at: clock.now))
+    await dictation.keyboardClosed(reason: .restricted)
+    #expect(try await store.loadCommand() == nil)
+
+    // 本体アプリはその録音を捨てて待機に戻った。送り直さず、待ちから外す
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    #expect(try await store.loadCommand() == nil)
+    #expect(dictation.state == .ready)
+
+    // その後に同じセッションが録音中と読めても（古い状態など）、もう送らない
+    try await store.saveHostState(host(.recording, session: old, at: clock.now))
+    await dictation.tick()
+    #expect(try await store.loadCommand() == nil)
+  }
+
+  @Test("iOS-09・#267: 開始の合図を書いている間に制限のある入力欄で閉じ、取り消しを書けなくても、本体アプリが録音を始めたら送り直す")
+  func startCancelledByRestrictionRetries() async throws {
+    let clock = Clock(base)
+    let gate = StopGate()
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: ScriptedSignals(base: store, gate: gate, gatedAction: .start, cancelFailures: 1),
+      inserter: CountingInserter(), now: { clock.now })
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+
+    let starting = Task { await dictation.toggle() }
+    while !gate.hasEntered { await Task.yield() }
+    await dictation.keyboardClosed(reason: .restricted)
+    gate.open()
+    await starting.value
+    let started = try #require(try await store.loadCommand())
+    #expect(started.action == .start)
+
+    // 本体アプリが開始を読んで録音を始めた。次の表示で取り消しを送り直す
+    try await store.saveHostState(host(.recording, session: started.sessionID, at: clock.now))
+    await dictation.keyboardClosed(reason: .restricted)
+    let command = try await store.loadCommand()
+    #expect(command?.action == .cancel)
+    #expect(command?.sessionID == started.sessionID)
+  }
+
+  @Test("停止の合図を書いている間に読み直しが挿入まで進めても、処理中に戻さない")
+  func stopCompletionDoesNotRevertInserted() async throws {
     let clock = Clock(base)
     let gate = StopGate()
     let inserter = CountingInserter()
     let store = StandbySessionStore(directory: directory.url)
-    // 取り消しの書き込みは3回失敗し、4回目（B を録音中の送り直し）で止まる
     let dictation = KeyboardStandbyDictation(
-      signals: FailThenGateCancelSignals(base: store, gate: gate, failures: 3),
+      signals: ScriptedSignals(base: store, gate: gate, gatedAction: .stop, cancelFailures: 0),
       inserter: inserter, now: { clock.now })
+    let id = try await record(dictation, store, clock)
 
-    // 古い録音 A の取り消しを書けず、送り直しの待ちに残す（1回目）
-    let old = SessionID()
-    try await store.saveHostState(host(.recording, session: old, detached: true, at: clock.now))
-    await dictation.keyboardClosed(reason: .restricted)
-
-    // 普通の入力欄で、自分で録音 B を始める（送り直しの2・3回目も失敗する）
-    try await store.saveHostState(host(.standby, at: clock.now))
-    await dictation.tick()
-    #expect(dictation.state == .ready)
-    await dictation.toggle()
-    guard case .starting(let recording) = dictation.state else {
-      Issue.record("開始の待ちになっていない: \(dictation.state)")
-      return
-    }
-    try await store.saveHostState(host(.recording, session: recording, at: clock.now))
-    await dictation.tick()
-    #expect(dictation.state == .recording(recording))
-
-    // 本体アプリは B を仕上げた。読み直しが送り直し（4回目）で止まっている間に、制限のある入力欄で閉じる
-    try await store.saveHostState(host(.done, session: recording, mode: .automatic, at: clock.now))
-    let ticking = Task { await dictation.tick() }
+    let stopping = Task { await dictation.toggle() }
     while !gate.hasEntered { await Task.yield() }
-    await dictation.keyboardClosed(reason: .restricted)
+    try await store.saveHostState(host(.done, session: id, mode: .automatic, at: clock.now))
+    await dictation.tick()
+    #expect(dictation.state == .inserted)
     gate.open()
-    await ticking.value
+    await stopping.value
 
-    #expect(dictation.state == .unavailable)
-    #expect(inserter.insertedSessions.isEmpty)
+    #expect(dictation.state == .inserted)
+    #expect(inserter.insertedSessions == [id])
   }
 }

@@ -228,6 +228,13 @@ public final class KeyboardStandbyDictation {
     let current = now()
     switch state {
     case .starting(let id), .recording(let id):
+      // 取り消すと決めた録音は追わず、生存の印も書かない（取り消しの途中で引き継いだ場合など）
+      guard !relinquishedSessions.contains(id) || isIssuing else {
+        set(.unavailable)
+        startedAt = nil
+        lastHeartbeat = nil
+        return
+      }
       await writeHeartbeat(id, at: current)
       await follow(id, startEpoch: startEpoch, at: current)
     case .processing(let id):
@@ -271,19 +278,37 @@ public final class KeyboardStandbyDictation {
       do {
         _ = try await signals.issueCommand(.cancel, sessionID: id, at: now())
       } catch {
-        // 制限のある入力欄での取り消しを書けなければ、引き継がないまま、次の表示・読み直しで送り直す。
-        // ほかの取り消しは、書けなくても生存の印の途絶・上限で捨てる
-        if reason == .restricted { pendingCancels.insert(id) }
+        // 取り消しを書けなければ、引き継がないまま、本体アプリがまだ録音しているうちに送り直す
+        pendingCancels.insert(id)
       }
     }
   }
 
-  /// 書けなかった取り消しを送り直す。送れたものだけ待ちから外す
+  /// 書けなかった取り消しを送り直す。送れたもの・本体アプリがもう録音していないものは待ちから外す。
+  ///
+  /// 合図は1つのファイルのため、このキーボードが別の録音を追っている間・合図を書いている間は送らない
+  /// （別の録音の開始・停止・取り消しを上書きしない）。本体アプリがそのセッションを録音中のときだけ送る
   private func retryPendingCancels() async {
+    guard !pendingCancels.isEmpty, !isIssuing, !isFollowingAny else { return }
+    let host = try? await signals.loadHostState()
+    guard !isIssuing, !isFollowingAny else { return }
     for id in pendingCancels {
+      guard let host, host.phase == .recording, host.sessionID == id else {
+        // 本体アプリが録音していない（捨てた・別の録音・待機を終えた）。読めないときは次に回す
+        if host != nil { pendingCancels.remove(id) }
+        continue
+      }
       if (try? await signals.issueCommand(.cancel, sessionID: id, at: now())) != nil {
         pendingCancels.remove(id)
       }
+    }
+  }
+
+  /// 録音の途中（開始の待ち・録音中・処理中）を追っているか
+  private var isFollowingAny: Bool {
+    switch state {
+    case .starting, .recording, .processing: true
+    default: false
     }
   }
 
@@ -309,7 +334,10 @@ public final class KeyboardStandbyDictation {
     // 合図を書いている間に閉じられたら、追跡せず、書いた開始を取り消す（iOS-06）
     guard startEpoch == epoch else {
       relinquishedSessions.insert(id)
-      _ = try? await signals.issueCommand(.cancel, sessionID: id, at: now())
+      if (try? await signals.issueCommand(.cancel, sessionID: id, at: now())) == nil {
+        // 書けなければ、本体アプリが録音を始めていたときに送り直す
+        pendingCancels.insert(id)
+      }
       return
     }
     startedAt = current
@@ -355,6 +383,12 @@ public final class KeyboardStandbyDictation {
       return
     }
     guard startEpoch == epoch else { return }
+    // 書いている間に読み直しが先へ進めていたら（処理中・挿入済みなど）、戻さない
+    switch state {
+    case .starting(let current) where current == id, .recording(let current) where current == id:
+      break
+    default: return
+    }
     if isStarting {
       relinquishedSessions.insert(id)
       startedAt = nil
