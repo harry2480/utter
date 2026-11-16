@@ -525,11 +525,8 @@ struct KeyboardStandbyDictationTests {
   @Test("iOS-06・#271: 自動挿入の確保を待つ間に閉じたら、表示し直しても入れる直前の判定で挿入しない")
   func closingDuringAutoInsertBlocksInsertion() async throws {
     let (dictation, inserter) = try await autoInsert { dictation in
-      // 閉じた直後（取り消しなどを待つ前）に、待たずに記録する
+      // 閉じた瞬間に待たずに記録したところで、取り消しなど（`keyboardClosed`）より先に確保が済む
       dictation.invalidatePendingInsertion()
-      await dictation.keyboardClosed()
-      // 別の入力欄で表示し直した
-      await dictation.tick()
     }
     #expect(inserter.recordedChecks == [false])
     #expect(dictation.state != .inserted)

@@ -665,4 +665,28 @@ struct KeyboardStandbyKeepRecordingTests {
     await dictation.keyboardClosed(reason: .dismissed)
     #expect(try await store.loadCommand()?.action == .start)
   }
+
+  @Test("iOS-06・#271: 停止を書いている途中に閉じた記録をしても、停止を戻さず、続く取り消しで上書きしない")
+  func invalidatingWhileStoppingKeepsStop() async throws {
+    let clock = Clock(base)
+    let gate = StopGate()
+    let store = StandbySessionStore(directory: directory.url)
+    let dictation = KeyboardStandbyDictation(
+      signals: GatedStopSignals(base: store, gate: gate), inserter: CountingInserter(),
+      now: { clock.now })
+    let id = try await record(dictation, store, clock)
+
+    let stopping = Task { await dictation.toggle() }
+    while !gate.hasEntered { await Task.yield() }
+    // 閉じた瞬間の記録の後、取り消しなど（`keyboardClosed`）より先に停止の書き込みが済む
+    dictation.invalidatePendingInsertion()
+    gate.open()
+    await stopping.value
+    #expect(dictation.state == .processing(id))
+    await dictation.keyboardClosed(reason: .dismissed)
+
+    let command = try await store.loadCommand()
+    #expect(command?.action == .stop)
+    #expect(command?.sessionID == id)
+  }
 }

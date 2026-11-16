@@ -115,6 +115,11 @@ public final class KeyboardStandbyDictation {
   private var cancelPending = false
   /// `tick()` が重ならないようにする
   private var isTicking = false
+  /// キーボードの表示が終わった回数。録音の操作の `epoch` とは分け、自動挿入の判定にだけ使う（iOS-06, #271）。
+  /// `epoch` を閉じた瞬間に進めると、書き込み中の停止が戻ってしまい、続く取り消しで停止を上書きするため
+  private var displayCloses = 0
+  /// 読み直しを始めたときの `displayCloses`。読み直しは重ならない（`isTicking`）
+  private var displayClosesAtTickStart = 0
   /// 最後に読んだ本体アプリの状態で、閉じても録音を続ける設定だったか
   public private(set) var keepsRecordingWhenClosed = false
   /// 引き継いだ（このキーボードが始めていない）録音のセッション。結果は自動で挿入しない
@@ -228,6 +233,7 @@ public final class KeyboardStandbyDictation {
     isTicking = true
     defer { isTicking = false }
     let startEpoch = epoch
+    displayClosesAtTickStart = displayCloses
     await retryPendingCancels()
     // 送り直しを待つ間に閉じられたら、古い状態のまま進まない（閉じた後に結果を挿入しない）
     guard startEpoch == epoch else { return }
@@ -251,9 +257,10 @@ public final class KeyboardStandbyDictation {
   }
 
   /// キーボードが閉じられたことを、待たずに記録する。閉じる前に始めた自動挿入を、表示し直した入力欄へ入れない
-  /// （iOS-06, #271）。取り消しなどは、続けて呼ぶ `keyboardClosed(reason:)` が行う
+  /// （iOS-06, #271）。録音の操作（開始・停止・取り消し）には影響しない。取り消しなどは、続けて呼ぶ
+  /// `keyboardClosed(reason:)` が行う
   public func invalidatePendingInsertion() {
-    epoch += 1
+    displayCloses += 1
   }
 
   /// キーボードが閉じられた（表示が終わった・入力欄が制限された）。録音中なら取り消しを送る（iOS-06）。
@@ -566,10 +573,13 @@ public final class KeyboardStandbyDictation {
       }
       // 1つのセッションにつき1回だけ試みる。結果不明でも自動では重ねて試みない
       guard insertionAttempted.insert(id).inserted else { return }
-      // 結果の確保を待つ間に閉じられ、別の入力欄で表示し直されることがある。入れる直前にも、閉じられていないか
-      // （epoch が変わっていないか）を確かめる（iOS-06, #271）
+      // 読み直しを始めてから表示が終わっていれば入れない。結果の確保を待つ間に閉じられ、別の入力欄で表示し直される
+      // こともあるため、入れる直前にも確かめる（iOS-06, #271）
+      let closes = displayClosesAtTickStart
+      guard displayCloses == closes else { return }
       let outcome = try? await inserter.insertResult(sessionID: id) { [weak self] in
-        self?.epoch == startEpoch
+        guard let self else { return false }
+        return epoch == startEpoch && displayCloses == closes
       }
       // 閉じられた後に済んだ（または入れずに終えた）挿入の結果は、閉じた後の画面に出さない。挿入しなかった結果は
       // 挿入結果不明として残り、次の表示で確かめてもらう
