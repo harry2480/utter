@@ -182,6 +182,9 @@ struct StandbySection: View {
   private var statusMessage: String? {
     if driver.startFailed { return "待機を始められませんでした。マイクを使えない状態です。" }
     let coordinator = driver.coordinator
+    if coordinator.endedByAudioLoss, coordinator.hostPhase == .off {
+      return "電話などの後にマイクを取り戻せなかったため、待機を終えました。もう一度、待機を始めてください。"
+    }
     switch coordinator.hostPhase {
     case .off: return nil
     case .standby: return "待機中です。キーボードのマイクの操作で録音できます。"

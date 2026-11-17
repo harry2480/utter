@@ -23,6 +23,7 @@ final class StandbyDriver {
   @ObservationIgnored private var pollTask: Task<Void, Never>?
   @ObservationIgnored private var commandObservation: StandbyDarwinObservation?
   @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
+  @ObservationIgnored private var mediaServicesResetObserver: (any NSObjectProtocol)?
   @ObservationIgnored private var lockObserver: (any NSObjectProtocol)?
   @ObservationIgnored private var unlockObserver: (any NSObjectProtocol)?
 
@@ -47,12 +48,18 @@ final class StandbyDriver {
     guard !coordinator.isStandingBy else { return }
     coordinator.updateConfiguration(preferences.sessionConfiguration)
     startFailed = false
+    // 割り込みの終わりとリセットは、始める途中に届いても取りこぼさないよう先に受け始める（協調役が始めた後に取り戻す）
+    beginObservingAudio()
     guard await coordinator.startStandby() else {
       startFailed = true
+      stopObservingIfEnded()
       return
     }
-    // 始める途中に終える操作を受けていたら、すでに終わっている
-    guard coordinator.isStandingBy else { return }
+    // 始める途中に終える操作を受けていた、または取り戻せなかったら、すでに終わっている
+    guard coordinator.isStandingBy else {
+      stopObservingIfEnded()
+      return
+    }
     beginObserving()
   }
 
@@ -71,6 +78,32 @@ final class StandbyDriver {
     stopObservingIfEnded()
   }
 
+  /// オーディオの割り込みとメディアサービスのリセットを受け始める（iOS-PERF-03, #248）
+  private func beginObservingAudio() {
+    if interruptionObserver == nil {
+      interruptionObserver = NotificationCenter.default.addObserver(
+        forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+      ) { [weak self] notification in
+        let rawValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+        let type = rawValue.flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+        MainActor.assumeIsolated { self?.handleInterruption(type) }
+      }
+    }
+    if mediaServicesResetObserver == nil {
+      mediaServicesResetObserver = NotificationCenter.default.addObserver(
+        forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          Task {
+            await self.coordinator.mediaServicesWereReset()
+            self.stopObservingIfEnded()
+          }
+        }
+      }
+    }
+  }
+
   private func beginObserving() {
     guard pollTask == nil else { return }
     let groupIdentifier = groupIdentifier
@@ -78,13 +111,7 @@ final class StandbyDriver {
       [weak self] in
       Task { @MainActor in await self?.poll() }
     }
-    interruptionObserver = NotificationCenter.default.addObserver(
-      forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
-    ) { [weak self] notification in
-      let rawValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-      let type = rawValue.flatMap(AVAudioSession.InterruptionType.init(rawValue:))
-      MainActor.assumeIsolated { self?.handleInterruption(type) }
-    }
+    beginObservingAudio()
     // 端末がロックされたら録音を捨てる（閉じても録音を続ける設定でも、ロックの後は続けない, #267）
     lockObserver = NotificationCenter.default.addObserver(
       forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil,
@@ -121,7 +148,11 @@ final class StandbyDriver {
     case .began:
       Task { await coordinator.interruptionBegan() }
     case .ended:
-      audio.resumeAfterInterruption()
+      // shouldResume は見ない（理由は `StandbySessionCoordinator.interruptionEnded()`）
+      Task {
+        await coordinator.interruptionEnded()
+        stopObservingIfEnded()
+      }
     default:
       break
     }
@@ -136,6 +167,10 @@ final class StandbyDriver {
     if let interruptionObserver {
       NotificationCenter.default.removeObserver(interruptionObserver)
       self.interruptionObserver = nil
+    }
+    if let mediaServicesResetObserver {
+      NotificationCenter.default.removeObserver(mediaServicesResetObserver)
+      self.mediaServicesResetObserver = nil
     }
     if let lockObserver {
       NotificationCenter.default.removeObserver(lockObserver)
