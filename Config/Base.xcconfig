@@ -33,4 +33,8 @@ UTTER_IOS_STT_ENGINE =
 UTTER_SPARKLE_FEED_URL =
 UTTER_SPARKLE_PUBLIC_ED_KEY =
 
+// 公式バイナリの Developer ID 用プロファイル（名前か UUID）。scripts/release-macos.sh が渡すときだけ値が入る（#59）。
+// 自前ビルド（Automatic 署名）では空のままにする。値が入ると「自動署名なのにプロファイルを指定した」として止まる
+UTTER_MAC_PROVISIONING_PROFILE =
+
 #include? "Local.xcconfig"

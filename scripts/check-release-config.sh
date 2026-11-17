@@ -57,6 +57,13 @@ else
   fi
 fi
 
+# 公式バイナリの手動署名で、Developer ID 用のプロファイルをアプリ本体に渡す配線（#59, scripts/release-macos.sh）。
+# 展開した値ではなく、project.yml の書き方を確かめる（-showBuildSettings では空に展開されるため）
+# shellcheck disable=SC2016 # 展開しない文字列そのものを探す
+if ! grep -Fq 'PROVISIONING_PROFILE_SPECIFIER: $(UTTER_MAC_PROVISIONING_PROFILE)' Apps/macOS/project.yml; then
+  fail "UtterMac の PROVISIONING_PROFILE_SPECIFIER が \$(UTTER_MAC_PROVISIONING_PROFILE) を参照していません（Apps/macOS/project.yml）。"
+fi
+
 if ((failures > 0)); then
   exit 1
 fi

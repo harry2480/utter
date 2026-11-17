@@ -75,6 +75,10 @@ targets:
         # Entitlement は UtterMac.entitlements に足す。Release は Hardened Runtime のため、
         # マイクを使うなら com.apple.security.device.audio-input が要る（scripts/check-release-config.sh が確かめる）
         CODE_SIGN_ENTITLEMENTS: UtterMac.entitlements
+        # 公式バイナリ（scripts/release-macos.sh）の手動署名で、Developer ID 用のプロファイルをアプリ本体にだけ指定する
+        # （keychain-access-groups はプロファイルの承認が要る, #59）。xcodebuild の引数で PROVISIONING_PROFILE_SPECIFIER を
+        # 直接渡すと、STT Worker や Swift Package にもかかって止まるため、この変数を通す。既定は空（Config/Base.xcconfig）
+        PROVISIONING_PROFILE_SPECIFIER: $(UTTER_MAC_PROVISIONING_PROFILE)
       configs:
         # 配布用（Developer ID 署名・公証、docs/ビルド・配布規約.md「リリース」）。公証には Hardened Runtime が必須
         Release:
