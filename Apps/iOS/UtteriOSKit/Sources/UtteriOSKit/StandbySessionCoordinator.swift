@@ -223,13 +223,20 @@ public final class StandbySessionCoordinator {
     guard machine.phase != .off else { return }
     // 録音中なら捨てると決める。リセットでは録音のオブジェクトも無効になっている。割り込みの終わりで録音中なのは、
     // 始まりの通知が届かなかったときなど。録音を続けたまま待機のエンジンを作り直さない
-    var effects = machine.interruptionBegan(at: date())
-    // 取り戻すまで待ちを挟まない。状態の書き込みを待つ間に開始の合図を受け、取り戻す前のオーディオで録音を始めないため
-    if !audio.restoreStandby(after: disruption) {
-      endedByAudioLoss = true
-      effects += machine.endStandby(at: date())
+    // 捨てる録音は、取り戻す前に止めてミュートする（取り戻したエンジンで、捨てる録音の入力を開かない）
+    for effect in machine.interruptionBegan(at: date()) {
+      guard case .abandonCapture(let sessionID, let reason) = effect else { continue }
+      audio.setInputMuted(true)
+      capture.abandonCapture(sessionID)
+      failure = reason
     }
-    await apply(effects)
+    // 取り戻すまで待ちを挟まない。状態の書き込みを待つ間に開始の合図を受け、取り戻す前のオーディオで録音を始めないため
+    guard audio.restoreStandby(after: disruption) else {
+      endedByAudioLoss = true
+      await apply(machine.endStandby(at: date()))
+      return
+    }
+    await writeHostState()
   }
 
   private func endForAudioLoss() async {

@@ -422,7 +422,7 @@ struct StandbySessionCoordinatorTests {
     #expect(coordinator.hostPhase == .off)
     #expect(coordinator.endedByAudioLoss)
     // 片付け（ミュートを外してセッションを手放す）は、取り戻しの後に待機を終える処理で行う
-    #expect(audio.calls == ["restore", "end"])
+    #expect(Array(audio.calls.suffix(2)) == ["restore", "end"])
     #expect(await signals.savedPhases().last == .off)
     // 終えた後の読み直しでは何もしない
     await coordinator.poll()
@@ -445,6 +445,8 @@ struct StandbySessionCoordinatorTests {
     #expect(coordinator.failure == .interrupted)
     #expect(audio.restored == [.mediaServicesReset])
     #expect(audio.isInputMuted == true)
+    // 捨てる録音をミュートしてから取り戻す
+    #expect(Array(audio.calls.suffix(2)) == ["mute", "restore"])
     #expect(coordinator.isStandingBy)
   }
 
@@ -697,6 +699,7 @@ final class StubStandbyAudioSession: StandbyAudioSession {
 
   func setInputMuted(_ muted: Bool) {
     isInputMuted = muted
+    calls.append(muted ? "mute" : "unmute")
   }
 
   func restoreStandby(after disruption: StandbyAudioDisruption) -> Bool {
