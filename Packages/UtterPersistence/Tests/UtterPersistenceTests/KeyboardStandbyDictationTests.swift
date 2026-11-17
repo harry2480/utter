@@ -494,10 +494,11 @@ struct KeyboardStandbyDictationTests {
       }
     }
     func open() {
-      let waiting = state.withLock {
-        $0.isOpen = true
-        defer { $0.continuation = nil }
-        return $0.continuation
+      let waiting = state.withLock { state in
+        state.isOpen = true
+        let waiting = state.continuation
+        state.continuation = nil
+        return waiting
       }
       waiting?.resume()
     }
