@@ -221,14 +221,15 @@ public final class StandbySessionCoordinator {
       return
     }
     guard machine.phase != .off else { return }
-    if disruption == .mediaServicesReset {
-      // 録音のオブジェクトも無効になっている。録音中なら捨てる
-      await apply(machine.interruptionBegan(at: date()))
+    // 録音中なら捨てると決める。リセットでは録音のオブジェクトも無効になっている。割り込みの終わりで録音中なのは、
+    // 始まりの通知が届かなかったときなど。録音を続けたまま待機のエンジンを作り直さない
+    var effects = machine.interruptionBegan(at: date())
+    // 取り戻すまで待ちを挟まない。状態の書き込みを待つ間に開始の合図を受け、取り戻す前のオーディオで録音を始めないため
+    if !audio.restoreStandby(after: disruption) {
+      endedByAudioLoss = true
+      effects += machine.endStandby(at: date())
     }
-    guard audio.restoreStandby(after: disruption) else {
-      await endForAudioLoss()
-      return
-    }
+    await apply(effects)
   }
 
   private func endForAudioLoss() async {

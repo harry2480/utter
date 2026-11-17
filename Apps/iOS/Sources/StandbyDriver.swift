@@ -24,6 +24,8 @@ final class StandbyDriver {
   @ObservationIgnored private var commandObservation: StandbyDarwinObservation?
   @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
   @ObservationIgnored private var mediaServicesResetObserver: (any NSObjectProtocol)?
+  /// 待機を始める途中か。この間は、待機していなくても観測をやめない（協調役が受けた通知を始めた後に取り戻すため）
+  @ObservationIgnored private var isStarting = false
   @ObservationIgnored private var lockObserver: (any NSObjectProtocol)?
   @ObservationIgnored private var unlockObserver: (any NSObjectProtocol)?
 
@@ -45,12 +47,16 @@ final class StandbyDriver {
 
   /// 利用者が待機を始める
   func start() async {
-    guard !coordinator.isStandingBy else { return }
+    // 始める途中に重ねて呼ばれたら何もしない（後の呼び出しが、始める途中の観測をやめないように）
+    guard !coordinator.isStandingBy, !isStarting else { return }
     coordinator.updateConfiguration(preferences.sessionConfiguration)
     startFailed = false
     // 割り込みの終わりとリセットは、始める途中に届いても取りこぼさないよう先に受け始める（協調役が始めた後に取り戻す）
     beginObservingAudio()
-    guard await coordinator.startStandby() else {
+    isStarting = true
+    let started = await coordinator.startStandby()
+    isStarting = false
+    guard started else {
       startFailed = true
       stopObservingIfEnded()
       return
@@ -160,7 +166,7 @@ final class StandbyDriver {
 
   /// 無操作などで待機が終わっていたら、読み直しと受信をやめる
   private func stopObservingIfEnded() {
-    guard !coordinator.isStandingBy else { return }
+    guard !coordinator.isStandingBy, !isStarting else { return }
     pollTask?.cancel()
     pollTask = nil
     commandObservation = nil

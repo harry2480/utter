@@ -505,6 +505,67 @@ struct StandbySessionCoordinatorTests {
     #expect(coordinator.endedByAudioLoss)
     #expect(audio.endedStandbyCount == 1)
   }
+
+  @Test("#248: 録音中に割り込みの終わりが届いたら（始まりが届かなかったときなど）、録音を捨ててから取り戻す")
+  func interruptionEndedWhileRecordingAbandons() async {
+    let coordinator = await standby()
+    await signals.setCommand(command(1, .start))
+    await coordinator.poll()
+
+    await coordinator.interruptionEnded()
+
+    #expect(capture.abandoned == [session])
+    #expect(coordinator.failure == .interrupted)
+    #expect(audio.restored == [.interruptionEnded])
+    #expect(coordinator.isStandingBy)
+  }
+
+  @Test("#248: 録音中のリセットで作り直せなければ、録音を捨てて待機を終える")
+  func mediaServicesResetWhileRecordingFailure() async {
+    let coordinator = await standby()
+    await signals.setCommand(command(1, .start))
+    await coordinator.poll()
+    audio.restores = false
+
+    await coordinator.mediaServicesWereReset()
+
+    #expect(capture.abandoned == [session])
+    #expect(!coordinator.isStandingBy)
+    #expect(coordinator.endedByAudioLoss)
+    #expect(await signals.savedPhases().last == .off)
+  }
+
+  @Test("#248: 待機を始める途中に終える操作と取り戻すきっかけを両方受けたら、終えるほうを優先し、取り戻さない")
+  func endWinsOverRestoreWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.mediaServicesWereReset()
+    await coordinator.endStandby()
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(audio.restored.isEmpty)
+    #expect(!coordinator.isStandingBy)
+    #expect(!coordinator.endedByAudioLoss)
+  }
+
+  @Test("#248: 待機を始める途中に割り込みの終わり→リセットの順で届いても、リセットとして取り戻す")
+  func resetAfterInterruptionEndWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.interruptionEnded()
+    await coordinator.mediaServicesWereReset()
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(audio.restored == [.mediaServicesReset])
+  }
 }
 
 /// 進められる実時刻。待機セッションの時間の判定に使う
