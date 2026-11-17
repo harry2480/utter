@@ -398,6 +398,176 @@ struct StandbySessionCoordinatorTests {
     #expect(capture.begun.isEmpty)
     #expect(await signals.savedPhases().isEmpty)
   }
+
+  @Test("iOS-PERF-03・#248: 割り込みが終わったら待機のオーディオを取り戻し、待機を続ける")
+  func interruptionEndedRestores() async {
+    let coordinator = await standby()
+
+    await coordinator.interruptionEnded()
+
+    #expect(audio.restored == [.interruptionEnded])
+    #expect(coordinator.isStandingBy)
+    #expect(!coordinator.endedByAudioLoss)
+    #expect(audio.endedStandbyCount == 0)
+  }
+
+  @Test("iOS-PERF-03・#248: 割り込みの後に取り戻せなければ、待機を終えて理由を残す。次に始めたら消す")
+  func interruptionEndedFailureEndsStandby() async {
+    let coordinator = await standby()
+    audio.restores = false
+
+    await coordinator.interruptionEnded()
+
+    #expect(!coordinator.isStandingBy)
+    #expect(coordinator.hostPhase == .off)
+    #expect(coordinator.endedByAudioLoss)
+    // 片付け（ミュートを外してセッションを手放す）は、取り戻しの後に待機を終える処理で行う
+    #expect(Array(audio.calls.suffix(2)) == ["restore", "end"])
+    #expect(await signals.savedPhases().last == .off)
+    // 終えた後の読み直しでは何もしない
+    await coordinator.poll()
+    #expect(audio.restored.count == 1)
+
+    audio.restores = true
+    #expect(await coordinator.startStandby())
+    #expect(!coordinator.endedByAudioLoss)
+  }
+
+  @Test("iOS-PERF-03・#248: 録音中にメディアサービスがリセットされたら、録音を捨ててから待機のオーディオを作り直す")
+  func mediaServicesResetAbandonsAndRestores() async {
+    let coordinator = await standby()
+    await signals.setCommand(command(1, .start))
+    await coordinator.poll()
+
+    await coordinator.mediaServicesWereReset()
+
+    #expect(capture.abandoned == [session])
+    #expect(coordinator.failure == .interrupted)
+    #expect(audio.restored == [.mediaServicesReset])
+    #expect(audio.isInputMuted == true)
+    // 捨てる録音をミュートしてから取り戻す
+    #expect(Array(audio.calls.suffix(2)) == ["mute", "restore"])
+    #expect(coordinator.isStandingBy)
+  }
+
+  @Test("iOS-PERF-03・#248: リセットの後に作り直せなければ、待機を終える")
+  func mediaServicesResetFailureEndsStandby() async {
+    let coordinator = await standby()
+    audio.restores = false
+
+    await coordinator.mediaServicesWereReset()
+
+    #expect(!coordinator.isStandingBy)
+    #expect(coordinator.endedByAudioLoss)
+    #expect(audio.endedStandbyCount == 1)
+  }
+
+  @Test("#248: 待機していなければ、割り込みの終わり・リセットで何もしない")
+  func restoreIgnoredWhenOff() async {
+    let coordinator = coordinator()
+
+    await coordinator.interruptionEnded()
+    await coordinator.mediaServicesWereReset()
+
+    #expect(audio.restored.isEmpty)
+    #expect(!coordinator.endedByAudioLoss)
+    #expect(await signals.savedPhases().isEmpty)
+  }
+
+  @Test("#248: 待機を始める途中に届いた割り込みの終わり・リセットは、始めた後にリセットとして取り戻す")
+  func restoreRequestedWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.mediaServicesWereReset()
+    await coordinator.interruptionEnded()
+    #expect(audio.restored.isEmpty)
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(audio.restored == [.mediaServicesReset])
+    #expect(coordinator.isStandingBy)
+  }
+
+  @Test("#248: 待機を始める途中に届いたものを、始めた後に取り戻せなければ待機を終える")
+  func restoreRequestedWhileStartingFails() async {
+    await signals.setHoldsLoad(true)
+    audio.restores = false
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.interruptionEnded()
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(!coordinator.isStandingBy)
+    #expect(coordinator.endedByAudioLoss)
+    #expect(audio.endedStandbyCount == 1)
+  }
+
+  @Test("#248: 録音中に割り込みの終わりが届いたら（始まりが届かなかったときなど）、録音を捨ててから取り戻す")
+  func interruptionEndedWhileRecordingAbandons() async {
+    let coordinator = await standby()
+    await signals.setCommand(command(1, .start))
+    await coordinator.poll()
+
+    await coordinator.interruptionEnded()
+
+    #expect(capture.abandoned == [session])
+    #expect(coordinator.failure == .interrupted)
+    #expect(audio.restored == [.interruptionEnded])
+    #expect(coordinator.isStandingBy)
+  }
+
+  @Test("#248: 録音中のリセットで作り直せなければ、録音を捨てて待機を終える")
+  func mediaServicesResetWhileRecordingFailure() async {
+    let coordinator = await standby()
+    await signals.setCommand(command(1, .start))
+    await coordinator.poll()
+    audio.restores = false
+
+    await coordinator.mediaServicesWereReset()
+
+    #expect(capture.abandoned == [session])
+    #expect(!coordinator.isStandingBy)
+    #expect(coordinator.endedByAudioLoss)
+    #expect(await signals.savedPhases().last == .off)
+  }
+
+  @Test("#248: 待機を始める途中に終える操作と取り戻すきっかけを両方受けたら、終えるほうを優先し、取り戻さない")
+  func endWinsOverRestoreWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.mediaServicesWereReset()
+    await coordinator.endStandby()
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(audio.restored.isEmpty)
+    #expect(!coordinator.isStandingBy)
+    #expect(!coordinator.endedByAudioLoss)
+  }
+
+  @Test("#248: 待機を始める途中に割り込みの終わり→リセットの順で届いても、リセットとして取り戻す")
+  func resetAfterInterruptionEndWhileStarting() async {
+    await signals.setHoldsLoad(true)
+    let coordinator = coordinator()
+
+    let starting = Task { await coordinator.startStandby() }
+    #expect(await waitUntil { audio.beganStandbyCount == 1 })
+    await coordinator.interruptionEnded()
+    await coordinator.mediaServicesWereReset()
+
+    await signals.releaseLoad()
+    #expect(await starting.value)
+    #expect(audio.restored == [.mediaServicesReset])
+  }
 }
 
 /// 進められる実時刻。待機セッションの時間の判定に使う
@@ -499,6 +669,7 @@ actor StubStandbySignals: StandbySessionSignals {
     }
     states.append(state)
   }
+
 }
 
 /// 待機中のオーディオセッションの代わり。
@@ -507,9 +678,14 @@ final class StubStandbyAudioSession: StandbyAudioSession {
   struct Unavailable: Error {}
 
   var failsToBeginStandby = false
+  /// `restoreStandby` が取り戻せたと返すか
+  var restores = true
   private(set) var beganStandbyCount = 0
   private(set) var endedStandbyCount = 0
   private(set) var isInputMuted: Bool?
+  private(set) var restored: [StandbyAudioDisruption] = []
+  /// 呼ばれた順（取り戻し・終える処理の順を確かめる）
+  private(set) var calls: [String] = []
 
   func beginStandby() throws {
     if failsToBeginStandby { throw Unavailable() }
@@ -518,10 +694,18 @@ final class StubStandbyAudioSession: StandbyAudioSession {
 
   func endStandby() {
     endedStandbyCount += 1
+    calls.append("end")
   }
 
   func setInputMuted(_ muted: Bool) {
     isInputMuted = muted
+    calls.append(muted ? "mute" : "unmute")
+  }
+
+  func restoreStandby(after disruption: StandbyAudioDisruption) -> Bool {
+    restored.append(disruption)
+    calls.append("restore")
+    return restores
   }
 }
 

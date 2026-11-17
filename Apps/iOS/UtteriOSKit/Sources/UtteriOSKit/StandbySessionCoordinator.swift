@@ -27,6 +27,17 @@ public protocol StandbyAudioSession: AnyObject {
   func endStandby()
   /// マイクの入力をミュートする。合図が届くまでは `true`（待機中にマイクの使用表示を出さない, iOS-04）
   func setInputMuted(_ muted: Bool)
+  /// 割り込みの終わり・メディアサービスのリセットの後に、待機のオーディオセッションを取り戻す（iOS-PERF-03, #248）。
+  /// 取り戻せなければ `false`。そのときも片付けは `endStandby()` に任せる（保ったまま返し、ミュートを残さない）
+  func restoreStandby(after disruption: StandbyAudioDisruption) -> Bool
+}
+
+/// 待機のオーディオを取り戻すきっかけ（iOS-PERF-03, #248）
+public enum StandbyAudioDisruption: Hashable, Sendable {
+  /// 着信などの割り込みが終わった
+  case interruptionEnded
+  /// メディアサービスがリセットされた。オーディオのオブジェクトはすべて無効になっている
+  case mediaServicesReset
 }
 
 /// 合図を受けた録音と、その後の認識・整形・共有結果への保存（iOS-04）。
@@ -50,7 +61,9 @@ public protocol StandbyCapturing: AnyObject {
 /// - 利用者が待機を始める・終えるとき `startStandby()` / `endStandby()`
 /// - 合図のプロセス間の通知を受けたときと、定期的（`StandbyHostState.heartbeatTimeout` より短い間隔）に `poll()`。
 ///   定期的に呼ぶのは、録音の上限・生存の印の途絶・無操作を確かめ、本体アプリが生きていることを書き直すため
-/// - オーディオの割り込みが始まったとき `interruptionBegan()`（iOS-PERF-03）
+/// - オーディオの割り込みが始まったとき `interruptionBegan()`、終わったとき `interruptionEnded()`、
+///   メディアサービスがリセットされたとき `mediaServicesWereReset()`（iOS-PERF-03, #248）。
+///   待機を始める途中に届いたものも渡す（始めた後に取り戻す）
 @MainActor
 @Observable
 public final class StandbySessionCoordinator {
@@ -60,6 +73,8 @@ public final class StandbySessionCoordinator {
   public private(set) var failure: StandbyFailure?
   /// 録音中で、キーボードが離れている（閉じても録音を続ける設定のとき, #267）
   public private(set) var isRecordingDetached = false
+  /// 割り込みの後などに待機のオーディオを取り戻せず、待機を終えた（#248）。次に待機を始めるまで残す
+  public private(set) var endedByAudioLoss = false
 
   @ObservationIgnored private var machine: StandbySessionMachine
   @ObservationIgnored private let signals: any StandbySessionSignals
@@ -72,6 +87,8 @@ public final class StandbySessionCoordinator {
   @ObservationIgnored private var isStarting = false
   /// 始める途中に待機を終える操作を受けたか。始めたあとに終える
   @ObservationIgnored private var endRequestedWhileStarting = false
+  /// 始める途中に、オーディオを取り戻すきっかけを受けたか。始めたあとに取り戻す（リセットを優先する）
+  @ObservationIgnored private var restoreRequestedWhileStarting: StandbyAudioDisruption?
   /// 直前の状態の書き込み。書いた順に完了させ、古い状態で上書きしないためにつなぐ
   @ObservationIgnored private var writing: Task<Void, Never>?
 
@@ -115,6 +132,8 @@ public final class StandbySessionCoordinator {
     guard machine.phase == .off, !isStarting else { return true }
     isStarting = true
     endRequestedWhileStarting = false
+    restoreRequestedWhileStarting = nil
+    endedByAudioLoss = false
     do {
       try audio.beginStandby()
     } catch {
@@ -134,6 +153,14 @@ public final class StandbySessionCoordinator {
       endRequestedWhileStarting = false
       await apply(machine.endStandby(at: date()))
       return true
+    }
+    // 読み直しを待つ間に割り込みの終わり・リセットを受けていたら、始めたうえで取り戻す
+    if let disruption = restoreRequestedWhileStarting {
+      restoreRequestedWhileStarting = nil
+      guard audio.restoreStandby(after: disruption) else {
+        await endForAudioLoss()
+        return true
+      }
     }
     await writeHostState()
     return true
@@ -169,6 +196,52 @@ public final class StandbySessionCoordinator {
   /// 着信などのオーディオの割り込みが始まった（iOS-PERF-03）。録音中なら捨てる
   public func interruptionBegan() async {
     await apply(machine.interruptionBegan(at: date()))
+  }
+
+  /// 着信などのオーディオの割り込みが終わった。待機のオーディオを取り戻し、取り戻せなければ待機を終える（#248）。
+  ///
+  /// 割り込みの終わりの `shouldResume` は見ない。待機は他のアプリの音と混ぜる設定（`mixWithOthers`）で、取り戻しても
+  /// 他のアプリの音を止めず、待機を保つには入力を開き続ける必要があるため。取り戻せなければ待機を終えて知らせる
+  public func interruptionEnded() async {
+    await restore(after: .interruptionEnded)
+  }
+
+  /// メディアサービスがリセットされた。録音中なら捨て（割り込みと同じ扱い）、待機のオーディオを作り直す。
+  /// 作り直せなければ待機を終える（#248）
+  public func mediaServicesWereReset() async {
+    await restore(after: .mediaServicesReset)
+  }
+
+  private func restore(after disruption: StandbyAudioDisruption) async {
+    if isStarting {
+      // 始める途中は、始めた後に取り戻す。リセットのほうが重い（エンジンを作り直す）ので優先する
+      if restoreRequestedWhileStarting != .mediaServicesReset {
+        restoreRequestedWhileStarting = disruption
+      }
+      return
+    }
+    guard machine.phase != .off else { return }
+    // 録音中なら捨てると決める。リセットでは録音のオブジェクトも無効になっている。割り込みの終わりで録音中なのは、
+    // 始まりの通知が届かなかったときなど。録音を続けたまま待機のエンジンを作り直さない
+    // 捨てる録音は、取り戻す前に止めてミュートする（取り戻したエンジンで、捨てる録音の入力を開かない）
+    for effect in machine.interruptionBegan(at: date()) {
+      guard case .abandonCapture(let sessionID, let reason) = effect else { continue }
+      audio.setInputMuted(true)
+      capture.abandonCapture(sessionID)
+      failure = reason
+    }
+    // 取り戻すまで待ちを挟まない。状態の書き込みを待つ間に開始の合図を受け、取り戻す前のオーディオで録音を始めないため
+    guard audio.restoreStandby(after: disruption) else {
+      endedByAudioLoss = true
+      await apply(machine.endStandby(at: date()))
+      return
+    }
+    await writeHostState()
+  }
+
+  private func endForAudioLoss() async {
+    endedByAudioLoss = true
+    await apply(machine.endStandby(at: date()))
   }
 
   /// 端末がロックされた。録音中なら捨てる（#267）

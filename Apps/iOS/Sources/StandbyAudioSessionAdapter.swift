@@ -53,17 +53,43 @@ final class StandbyAudioSessionAdapter: StandbyAudioSession {
     applyMute()
   }
 
-  /// 割り込みが終わったあとに、待機のオーディオセッションを取り戻す（iOS-PERF-03）
-  func resumeAfterInterruption() {
-    guard isHolding else { return }
-    stopEngine()
+  /// 割り込みの終わり・メディアサービスのリセットの後に、待機のオーディオセッションを取り戻す（iOS-PERF-03, #248）。
+  ///
+  /// 取り戻せなくても `isHolding` は立てたまま返す。待機を終える `endStandby()` が、ミュートを外してセッションを手放す
+  func restoreStandby(after disruption: StandbyAudioDisruption) -> Bool {
+    guard isHolding else { return false }
+    switch disruption {
+    case .interruptionEnded:
+      stopEngine()
+    case .mediaServicesReset:
+      // リセットの後は古いエンジンが無効になっている。止めずに、通知の登録と参照だけを外す
+      discardEngineAfterReset()
+    }
+    let session = AVAudioSession.sharedInstance()
     do {
-      try AVAudioSession.sharedInstance().setActive(true)
+      if disruption == .mediaServicesReset {
+        // リセットでカテゴリなどの設定も失われる。入力を開く前にミュートし直す（使用表示を出さない）
+        // ミュートできなければ取り戻さない（取り戻せなかったとして待機を終える）
+        try AVAudioApplication.shared.setInputMuted(true)
+        try session.setCategory(
+          .playAndRecord, mode: .default,
+          options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
+      }
+      try session.setActive(true)
       try startEngine()
       applyMute()
+      return true
     } catch {
-      // 取り戻せなければ、待機は続くが録音を始められない。キーボードは更新の途絶で気づく
+      return false
     }
+  }
+
+  private func discardEngineAfterReset() {
+    if let configurationObserver {
+      NotificationCenter.default.removeObserver(configurationObserver)
+      self.configurationObserver = nil
+    }
+    engine = nil
   }
 
   private func applyMute() {

@@ -77,6 +77,9 @@ struct RecordingStandbyCaptureTests {
     recorder.emit(seconds: 1)
 
     capture.abandonCapture(sessionID)
+    // 待たずに止まっている（呼んだ側が続けて待機のオーディオを作り直しても、録音を続けない, #248）
+    #expect(!recorder.isRecording)
+    #expect(model.activeSessionID != sessionID)
     #expect(await waitUntil { model.phase == .idle && !recorder.isRecording })
     #expect(await model.outcome(of: sessionID) == .cancelled)
     #expect(try await store.storedSessionIDs().isEmpty)
