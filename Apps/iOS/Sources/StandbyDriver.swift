@@ -101,7 +101,9 @@ final class StandbyDriver {
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           guard let self else { return }
-          Task {
+          // 通知を受けたこの処理の中で、録音を捨てて取り戻すところまで進める（最初の待ちまで同期で走る）。
+          // 録音側（RecordingSessionModel）が同じ通知で始めた認識が、捨てるより先に保存へ進まないように
+          Task.immediate {
             await self.coordinator.mediaServicesWereReset()
             self.stopObservingIfEnded()
           }
@@ -152,10 +154,11 @@ final class StandbyDriver {
   private func handleInterruption(_ type: AVAudioSession.InterruptionType?) {
     switch type {
     case .began:
-      Task { await coordinator.interruptionBegan() }
+      // 録音を捨てるところまで、通知を受けたこの処理の中で進める（メディアサービスのリセットと同じ理由）
+      Task.immediate { await coordinator.interruptionBegan() }
     case .ended:
       // shouldResume は見ない（理由は `StandbySessionCoordinator.interruptionEnded()`）
-      Task {
+      Task.immediate {
         await coordinator.interruptionEnded()
         stopObservingIfEnded()
       }

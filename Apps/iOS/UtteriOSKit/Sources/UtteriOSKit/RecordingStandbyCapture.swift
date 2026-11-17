@@ -57,13 +57,17 @@ public final class RecordingStandbyCapture: StandbyCapturing {
     }
   }
 
-  /// 録音を止めて捨てる。認識の結果も保存しない（iOS-06）
+  /// 録音を止めて捨てる。認識の結果も保存しない（iOS-06）。
+  ///
+  /// そのセッションをもう録音している、または開始の途中なら、戻る前に止める（呼んだ側が続けて待機のオーディオを
+  /// 作り直しても、録音を続けたままにしない, #248）。開始の順番を待っているだけなら、順番が来ても録音を始めない
   /// - Note: 共有結果への保存を始めた後は取り消せない（`RecordingSessionModel.cancel()` と同じ）
   public func abandonCapture(_ sessionID: SessionID) {
     starting[sessionID] = nil
     abandoned.insert(sessionID)
-    // 開始の途中（マイクの許可の確認中など）なら、すぐに取り消しを伝え、許可が返っても録音を始めないようにする
-    if startingNow == sessionID { model.cancel() }
+    // 開始の途中（マイクの許可の確認中など）なら、すぐに取り消しを伝え、許可が返っても録音を始めないようにする。
+    // 録音中なら、ここで止める（順番待ちの後に回さない）
+    if startingNow == sessionID || model.activeSessionID == sessionID { model.cancel() }
     let model = model
     let previous = lastOperation
     lastOperation = Task { [weak self] in

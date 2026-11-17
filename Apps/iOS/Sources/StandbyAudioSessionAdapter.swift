@@ -69,7 +69,8 @@ final class StandbyAudioSessionAdapter: StandbyAudioSession {
     do {
       if disruption == .mediaServicesReset {
         // リセットでカテゴリなどの設定も失われる。入力を開く前にミュートし直す（使用表示を出さない）
-        try? AVAudioApplication.shared.setInputMuted(true)
+        // ミュートできなければ取り戻さない（取り戻せなかったとして待機を終える）
+        try AVAudioApplication.shared.setInputMuted(true)
         try session.setCategory(
           .playAndRecord, mode: .default,
           options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
