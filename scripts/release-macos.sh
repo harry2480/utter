@@ -8,8 +8,8 @@
 #   UTTER_TEAM_ID            Developer ID 証明書の Team ID
 #   UTTER_BUNDLE_ID_PREFIX   Bundle ID の接頭辞（macOS アプリは <接頭辞>.mac）
 #   UTTER_MAC_PROVISIONING_PROFILE  アプリ本体（<接頭辞>.mac）の Developer ID 用プロファイルの名前か UUID（Xcode に入れておく）。
-#                            keychain-access-groups の承認に要る（#59）。リリースのときにだけ渡す（自前ビルドの Automatic 署名を止めるため、
-#                            シェルに export したままにしない）
+#                            keychain-access-groups の承認に要る（#59）。リリースのときにだけ渡す（Config/Local.xcconfig に書くと、
+#                            自前ビルドの Automatic 署名が止まる）。期限まで180日を切ったプロファイルでは止める
 #   ASC_API_KEY_PATH         App Store Connect API キー（.p8）のファイルのパス
 #   ASC_API_KEY_ID           API キーの Key ID
 #   ASC_API_ISSUER_ID        API キーの Issuer ID
@@ -254,7 +254,10 @@ if [[ ! -f "$embedded_profile" ]]; then
   exit 1
 fi
 profile_plist="$out_dir/embedded-profile.plist"
-security cms -D -i "$embedded_profile" >"$profile_plist" 2>/dev/null
+if ! security cms -D -i "$embedded_profile" >"$profile_plist" 2>/dev/null; then
+  echo "埋め込んだプロファイルを読めません（Contents/embedded.provisionprofile）。" >&2
+  exit 1
+fi
 profile_value() {
   /usr/libexec/PlistBuddy -c "Print :$1" "$profile_plist" 2>/dev/null || true
 }
@@ -273,9 +276,15 @@ if [[ "$(profile_value ProvisionsAllDevices)" != "true" ]]; then
 fi
 # plutil は日付を ISO 8601（UTC）で出す
 profile_expiration="$(plutil -extract ExpirationDate raw -o - "$profile_plist" 2>/dev/null || true)"
+# 期限が切れると、配った後のアプリが起動しなくなる。配ってから更新するまでの余裕として180日を求める
 if [[ -z "$profile_expiration" ]] ||
-  (($(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$profile_expiration" +%s 2>/dev/null || echo 0) <= $(date +%s))); then
-  echo "埋め込んだプロファイルの有効期限が切れているか、読めません。" >&2
+  (($(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$profile_expiration" +%s 2>/dev/null || echo 0) <= $(date -v+180d +%s))); then
+  echo "埋め込んだプロファイルの有効期限が読めないか、180日以内に切れます（${profile_expiration:-不明}）。プロファイルを作り直してください。" >&2
+  exit 1
+fi
+# 署名の App ID が、プロファイルと同じか（プロファイルの承認は、署名に入る App ID と結びつく）
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$signed_entitlements" 2>/dev/null)" != "$app_identifier" ]]; then
+  echo "署名の com.apple.application-identifier が ${app_identifier} ではありません。" >&2
   exit 1
 fi
 # 署名の keychain-access-groups が、自アプリのグループ1つだけで、プロファイルにも含まれるか

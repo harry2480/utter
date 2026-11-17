@@ -57,11 +57,19 @@ else
   fi
 fi
 
-# 公式バイナリの手動署名で、Developer ID 用のプロファイルをアプリ本体に渡す配線（#59, scripts/release-macos.sh）。
-# 展開した値ではなく、project.yml の書き方を確かめる（-showBuildSettings では空に展開されるため）
-# shellcheck disable=SC2016 # 展開しない文字列そのものを探す
-if ! grep -Fq 'PROVISIONING_PROFILE_SPECIFIER: $(UTTER_MAC_PROVISIONING_PROFILE)' Apps/macOS/project.yml; then
-  fail "UtterMac の PROVISIONING_PROFILE_SPECIFIER が \$(UTTER_MAC_PROVISIONING_PROFILE) を参照していません（Apps/macOS/project.yml）。"
+# 公式バイナリの手動署名で、Developer ID 用のプロファイルをアプリ本体にだけ渡す配線（#59, scripts/release-macos.sh）。
+# 目印の値を渡して展開し、アプリ本体には入り、STT Worker には入らないことを確かめる
+probe="utter-release-config-probe"
+profile_specifier() {
+  xcodebuild -project "$project" -target "$1" -configuration Release -showBuildSettings \
+    -disableAutomaticPackageResolution UTTER_MAC_PROVISIONING_PROFILE="$probe" |
+    sed -n 's/^ *PROVISIONING_PROFILE_SPECIFIER = //p' | head -n 1
+}
+if [[ "$(profile_specifier UtterMac)" != "$probe" ]]; then
+  fail "UtterMac の PROVISIONING_PROFILE_SPECIFIER が UTTER_MAC_PROVISIONING_PROFILE を参照していません（Apps/macOS/project.yml）。"
+fi
+if [[ "$(profile_specifier UtterSTTWorker)" == "$probe" ]]; then
+  fail "UtterSTTWorker にもアプリ本体のプロファイルが指定されています（Worker はプロファイルを使わない）。"
 fi
 
 if ((failures > 0)); then
