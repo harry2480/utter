@@ -38,7 +38,9 @@ struct SharedResultRescueCoordinatorTests {
 
     var insertedTexts: [String] { inserted.withLock { $0 } }
 
-    func insert(_ text: String) async -> SharedResultInsertionConfirmation {
+    func insert(
+      _ text: String, isStillTarget: @escaping SharedResultInsertionTargetCheck
+    ) async -> SharedResultInsertionConfirmation {
       inserted.withLock { $0.append(text) }
       return .confirmed
     }

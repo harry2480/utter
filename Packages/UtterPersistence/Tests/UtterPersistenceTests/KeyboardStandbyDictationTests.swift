@@ -24,7 +24,9 @@ struct KeyboardStandbyDictationTests {
     private let outcome: SharedResultInsertionOutcome
     init(outcome: SharedResultInsertionOutcome = .inserted) { self.outcome = outcome }
     var insertedSessions: [SessionID] { calls.withLock { $0 } }
-    func insertResult(sessionID: SessionID) async throws -> SharedResultInsertionOutcome {
+    func insertResult(
+      sessionID: SessionID, isStillTarget: @escaping SharedResultInsertionTargetCheck
+    ) async throws -> SharedResultInsertionOutcome {
       calls.withLock { $0.append(sessionID) }
       return outcome
     }
@@ -469,5 +471,108 @@ struct KeyboardStandbyDictationTests {
 
     dictation.resultHandled()
     #expect(dictation.state == .ready)
+  }
+
+  /// 開くまで止める。先に開いたときも開いたままにし、後から待ち始めた Task を止めない
+  final class LatchedGate: Sendable {
+    private struct State {
+      var isOpen = false
+      var hasEntered = false
+      var continuation: CheckedContinuation<Void, Never>?
+    }
+    private let state = Mutex(State())
+    var hasEntered: Bool { state.withLock { $0.hasEntered } }
+    func wait() async {
+      await withCheckedContinuation { c in
+        let resumeNow = state.withLock {
+          $0.hasEntered = true
+          if $0.isOpen { return true }
+          $0.continuation = c
+          return false
+        }
+        if resumeNow { c.resume() }
+      }
+    }
+    func open() {
+      let waiting = state.withLock { state in
+        state.isOpen = true
+        let waiting = state.continuation
+        state.continuation = nil
+        return waiting
+      }
+      waiting?.resume()
+    }
+  }
+
+  /// 挿入の確保を、開くまで止める。開いた後、入れる直前の判定の値を記録する（#271）
+  final class GatedInserter: KeyboardStandbyInserting {
+    let gate = LatchedGate()
+    private let checks = Mutex<[Bool]>([])
+    var recordedChecks: [Bool] { checks.withLock { $0 } }
+    func insertResult(
+      sessionID: SessionID, isStillTarget: @escaping SharedResultInsertionTargetCheck
+    ) async throws -> SharedResultInsertionOutcome {
+      await gate.wait()
+      let stillTarget = await isStillTarget()
+      checks.withLock { $0.append(stillTarget) }
+      return stillTarget ? .inserted : .insertionUnknown
+    }
+  }
+
+  /// 自動挿入の確保を待っているところまで進め、`whileWaiting` を行ってから確保を終える
+  private func autoInsert(
+    whileWaiting: (KeyboardStandbyDictation) async -> Void
+  ) async throws -> (KeyboardStandbyDictation, GatedInserter) {
+    let clock = Clock(base)
+    let store = StandbySessionStore(directory: directory.url)
+    let inserter = GatedInserter()
+    let dictation = KeyboardStandbyDictation(
+      signals: store, inserter: inserter, now: { clock.now })
+    try await store.saveHostState(host(.standby, at: clock.now))
+    await dictation.tick()
+    await dictation.toggle()
+    guard case .starting(let id) = dictation.state else {
+      Issue.record("開始の待ちになっていない: \(dictation.state)")
+      return (dictation, inserter)
+    }
+    try await store.saveHostState(host(.recording, session: id, at: clock.now))
+    await dictation.tick()
+    await dictation.toggle()
+    try await store.saveHostState(host(.done, session: id, at: clock.now))
+
+    let ticking = Task { await dictation.tick() }
+    var spins = 0
+    while !inserter.gate.hasEntered && spins < 100_000 {
+      await Task.yield()
+      spins += 1
+    }
+    #expect(inserter.gate.hasEntered, "挿入に届かなかった")
+    guard inserter.gate.hasEntered else {
+      // 待つ間の操作は行わずに終える。開いたままのゲートなので、遅れて挿入に届いても止まらない
+      inserter.gate.open()
+      await ticking.value
+      return (dictation, inserter)
+    }
+    await whileWaiting(dictation)
+    inserter.gate.open()
+    await ticking.value
+    return (dictation, inserter)
+  }
+
+  @Test("iOS-06・#271: 自動挿入の確保を待つ間に閉じたら、表示し直しても入れる直前の判定で挿入しない")
+  func closingDuringAutoInsertBlocksInsertion() async throws {
+    let (dictation, inserter) = try await autoInsert { dictation in
+      // 閉じた瞬間に待たずに記録したところで、取り消しなど（`keyboardClosed`）より先に確保が済む
+      dictation.invalidatePendingInsertion()
+    }
+    #expect(inserter.recordedChecks == [false])
+    #expect(dictation.state != .inserted)
+  }
+
+  @Test("iOS-05・#271: 閉じずに確保を待ち終えたら、今までどおり挿入する")
+  func autoInsertWithoutClosingInserts() async throws {
+    let (dictation, inserter) = try await autoInsert { _ in }
+    #expect(inserter.recordedChecks == [true])
+    #expect(dictation.state == .inserted)
   }
 }

@@ -300,7 +300,8 @@ final class VoiceKeyboardPanel {
     // 挿入のたびに作る。診断はこの挿入の処理だけのもので、重なった別の挿入と混ざらない
     let inserter = VoiceTextInserter(controller: controller)
     let coordinator = SharedResultInsertionCoordinator(store: store, inserter: inserter)
-    let outcome = try? await coordinator.insert(sessionID: sessionID)
+    // 計測用のプローブは表示し直しを扱わない
+    let outcome = try? await coordinator.insert(sessionID: sessionID, isStillTarget: { true })
     VoiceStore.appendEvent(
       source: "keyboard", name: "inserted", sessionID: sessionID,
       detail: (outcome.map { String(describing: $0) } ?? "error") + " " + inserter.diagnostic)
@@ -427,7 +428,9 @@ final class VoiceTextInserter: SharedResultTextInserter {
     self.controller = controller
   }
 
-  func insert(_ text: String) async -> SharedResultInsertionConfirmation {
+  func insert(
+    _ text: String, isStillTarget: @escaping SharedResultInsertionTargetCheck
+  ) async -> SharedResultInsertionConfirmation {
     guard let proxy = controller?.textDocumentProxy else {
       diagnostic = "controllerなし"
       return .unknown

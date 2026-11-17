@@ -26,7 +26,11 @@ struct SharedResultInsertionCoordinatorTests {
 
     var insertedTexts: [String] { inserted.withLock { $0 } }
 
-    func insert(_ text: String) async -> SharedResultInsertionConfirmation {
+    func insert(
+      _ text: String, isStillTarget: @escaping SharedResultInsertionTargetCheck
+    ) async -> SharedResultInsertionConfirmation {
+      // 本番の挿入と同じく、入れる直前に表示が続いているかを確かめる
+      guard await isStillTarget() else { return .unknown }
       inserted.withLock { $0.append(text) }
       do {
         try await duringInsertion()
@@ -378,5 +382,18 @@ struct SharedResultInsertionCoordinatorTests {
     #expect(
       SharedResultInsertionConfirmation(
         insertedText: text, contextBefore: before, contextAfter: after) == expected)
+  }
+
+  @Test("iOS-06・#271: 確保を待つ間に表示し直されていたら、挿入せず確認待ちにする（自動では入れ直さない）")
+  func noInsertionWhenDisplayChanged() async throws {
+    _ = try await saveReady()
+    let inserter = RecordingInserter()
+
+    let outcome = try await coordinator(inserter).insert(
+      sessionID: sessionID, isStillTarget: { false })
+
+    #expect(outcome == .insertionUnknown)
+    #expect(inserter.insertedTexts.isEmpty)
+    #expect(try await stored()?.status == .insertionUnknown)
   }
 }

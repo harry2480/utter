@@ -596,7 +596,9 @@ public final class RecordingSessionModel {
 /// 本体アプリは入力欄へ挿入しない。`SharedResultInsertionCoordinator` は「この文章を消す」（`discard`）にだけ使い、
 /// `insert` は呼ばない。呼ばれても挿入せず、確認できなかったとして返す
 private struct MainAppDoesNotInsert: SharedResultTextInserter {
-  func insert(_ text: String) async -> SharedResultInsertionConfirmation {
+  func insert(
+    _ text: String, isStillTarget: @escaping SharedResultInsertionTargetCheck
+  ) async -> SharedResultInsertionConfirmation {
     .unknown
   }
 }
