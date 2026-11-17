@@ -57,6 +57,26 @@ else
   fi
 fi
 
+# 公式バイナリの手動署名で、Developer ID 用のプロファイルをアプリ本体にだけ渡す配線（#59, scripts/release-macos.sh）。
+# 目印の値を渡して展開し、アプリ本体には入り、STT Worker には入らないことを確かめる
+probe="utter-release-config-probe"
+profile_specifier() {
+  xcodebuild -project "$project" -target "$1" -configuration Release -showBuildSettings \
+    -disableAutomaticPackageResolution UTTER_MAC_PROVISIONING_PROFILE="$probe" |
+    sed -n 's/^ *PROVISIONING_PROFILE_SPECIFIER = //p' | head -n 1
+}
+# 取得に失敗したときは、空の値（指定なし）と区別して失敗にする
+if ! app_specifier="$(profile_specifier UtterMac)"; then
+  fail "UtterMac のビルド設定を取得できません。"
+elif [[ "$app_specifier" != "$probe" ]]; then
+  fail "UtterMac の PROVISIONING_PROFILE_SPECIFIER が UTTER_MAC_PROVISIONING_PROFILE を参照していません（Apps/macOS/project.yml）。"
+fi
+if ! worker_specifier="$(profile_specifier UtterSTTWorker)"; then
+  fail "UtterSTTWorker のビルド設定を取得できません。"
+elif [[ "$worker_specifier" == "$probe" ]]; then
+  fail "UtterSTTWorker にもアプリ本体のプロファイルが指定されています（Worker はプロファイルを使わない）。"
+fi
+
 if ((failures > 0)); then
   exit 1
 fi

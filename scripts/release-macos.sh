@@ -7,6 +7,9 @@
 #   UTTER_BUILD_NUMBER       ビルド番号（正の整数）→ CFBundleVersion
 #   UTTER_TEAM_ID            Developer ID 証明書の Team ID
 #   UTTER_BUNDLE_ID_PREFIX   Bundle ID の接頭辞（macOS アプリは <接頭辞>.mac）
+#   UTTER_MAC_PROVISIONING_PROFILE  アプリ本体（<接頭辞>.mac）の Developer ID 用プロファイルの名前か UUID（Xcode に入れておく）。
+#                            keychain-access-groups の承認に要る（#59）。リリースのときにだけ渡す（Config/Local.xcconfig に書くと、
+#                            自前ビルドの Automatic 署名が止まる）。期限まで180日を切ったプロファイルでは止める
 #   ASC_API_KEY_PATH         App Store Connect API キー（.p8）のファイルのパス
 #   ASC_API_KEY_ID           API キーの Key ID
 #   ASC_API_ISSUER_ID        API キーの Issuer ID
@@ -27,7 +30,7 @@ cd "$repo_root"
 
 missing=()
 for name in UTTER_VERSION UTTER_BUILD_NUMBER UTTER_TEAM_ID UTTER_BUNDLE_ID_PREFIX \
-  ASC_API_KEY_PATH ASC_API_KEY_ID ASC_API_ISSUER_ID; do
+  UTTER_MAC_PROVISIONING_PROFILE ASC_API_KEY_PATH ASC_API_KEY_ID ASC_API_ISSUER_ID; do
   if [[ -z "${!name:-}" ]]; then
     missing+=("$name")
   fi
@@ -42,6 +45,19 @@ if [[ ! "$UTTER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
 fi
 if [[ ! "$UTTER_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
   echo "UTTER_BUILD_NUMBER は正の整数にしてください。" >&2
+  exit 1
+fi
+# 次の3つは ExportOptions.plist に埋め込むため、plist の特殊文字を含まない形に限る
+if [[ ! "$UTTER_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+  echo "UTTER_TEAM_ID は英大文字と数字の10文字にしてください。" >&2
+  exit 1
+fi
+if [[ ! "$UTTER_BUNDLE_ID_PREFIX" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]]; then
+  echo "UTTER_BUNDLE_ID_PREFIX は com.example.utter のような逆ドメインの形にしてください。" >&2
+  exit 1
+fi
+if [[ ! "$UTTER_MAC_PROVISIONING_PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]*$ ]]; then
+  echo "UTTER_MAC_PROVISIONING_PROFILE は英数字・空白・._- だけの名前か UUID にしてください（Apple Developer で付けた名前を変えるか、UUID を使う）。" >&2
   exit 1
 fi
 if [[ ! -f "$ASC_API_KEY_PATH" ]]; then
@@ -157,6 +173,7 @@ xcodebuild \
   UTTER_BUNDLE_ID_PREFIX="$UTTER_BUNDLE_ID_PREFIX" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$signing_identity" \
+  UTTER_MAC_PROVISIONING_PROFILE="$UTTER_MAC_PROVISIONING_PROFILE" \
   MARKETING_VERSION="$marketing_version" \
   CURRENT_PROJECT_VERSION="$UTTER_BUILD_NUMBER" \
   -quiet archive
@@ -176,6 +193,12 @@ cat >"$export_options" <<PLIST
   <string>$signing_identity</string>
   <key>teamID</key>
   <string>$UTTER_TEAM_ID</string>
+  <!-- プロファイルが要るのはアプリ本体だけ（STT Worker と Sparkle の部品は、承認の要る Entitlement を持たない） -->
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>$UTTER_BUNDLE_ID_PREFIX.mac</key>
+    <string>$UTTER_MAC_PROVISIONING_PROFILE</string>
+  </dict>
 </dict>
 </plist>
 PLIST
@@ -222,6 +245,61 @@ if signed_entitlement_enabled com.apple.security.get-task-allow; then
   echo "署名に com.apple.security.get-task-allow が残っています（公証に通らない）。" >&2
   exit 1
 fi
+# Developer ID 用のプロファイルが埋め込まれ、Entitlement を承認しているか（#59）。合わないと公証には通っても、
+# 起動時に OS が拒否するか、Keychain を使えない。初回の配布では、公証後のアプリを起動して API キーを保存できることも確かめる
+app_identifier="$UTTER_TEAM_ID.$UTTER_BUNDLE_ID_PREFIX.mac"
+embedded_profile="$app/Contents/embedded.provisionprofile"
+if [[ ! -f "$embedded_profile" ]]; then
+  echo "アプリにプロビジョニングプロファイル（Contents/embedded.provisionprofile）が埋め込まれていません。" >&2
+  exit 1
+fi
+profile_plist="$out_dir/embedded-profile.plist"
+if ! security cms -D -i "$embedded_profile" >"$profile_plist" 2>/dev/null; then
+  echo "埋め込んだプロファイルを読めません（Contents/embedded.provisionprofile）。" >&2
+  exit 1
+fi
+profile_value() {
+  /usr/libexec/PlistBuddy -c "Print :$1" "$profile_plist" 2>/dev/null || true
+}
+if [[ "$(profile_value TeamIdentifier:0)" != "$UTTER_TEAM_ID" ]]; then
+  echo "埋め込んだプロファイルの Team ID が ${UTTER_TEAM_ID} ではありません。" >&2
+  exit 1
+fi
+if [[ "$(profile_value Entitlements:com.apple.application-identifier)" != "$app_identifier" ]]; then
+  echo "埋め込んだプロファイルの App ID が ${app_identifier} ではありません。" >&2
+  exit 1
+fi
+# Developer ID 用のプロファイルは端末を限らない（開発用・Ad Hoc 用のプロファイルではない）
+if [[ "$(profile_value ProvisionsAllDevices)" != "true" ]]; then
+  echo "埋め込んだプロファイルが Developer ID 用ではありません（ProvisionsAllDevices がない）。" >&2
+  exit 1
+fi
+# plutil は日付を ISO 8601（UTC）で出す
+profile_expiration="$(plutil -extract ExpirationDate raw -o - "$profile_plist" 2>/dev/null || true)"
+# 期限が切れると、配った後のアプリが起動しなくなる。配ってから更新するまでの余裕として180日を求める
+if [[ -z "$profile_expiration" ]] ||
+  (($(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$profile_expiration" +%s 2>/dev/null || echo 0) <= $(date -v+180d +%s))); then
+  echo "埋め込んだプロファイルの有効期限が読めないか、180日以内に切れます（${profile_expiration:-不明}）。プロファイルを作り直してください。" >&2
+  exit 1
+fi
+# 署名の App ID が、プロファイルと同じか（プロファイルの承認は、署名に入る App ID と結びつく）
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$signed_entitlements" 2>/dev/null)" != "$app_identifier" ]]; then
+  echo "署名の com.apple.application-identifier が ${app_identifier} ではありません。" >&2
+  exit 1
+fi
+# 署名の keychain-access-groups が、自アプリのグループ1つだけで、プロファイルにも含まれるか
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$signed_entitlements" 2>/dev/null)" != "$app_identifier" ]] ||
+  /usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:1' "$signed_entitlements" >/dev/null 2>&1; then
+  echo "署名の keychain-access-groups が ${app_identifier} の1つだけになっていません。" >&2
+  exit 1
+fi
+profile_groups="$(profile_value Entitlements:keychain-access-groups)"
+if ! grep -Fxq -e "    $app_identifier" -e "    $UTTER_TEAM_ID.*" <<<"$profile_groups"; then
+  echo "埋め込んだプロファイルが keychain-access-groups（${app_identifier}）を承認していません。" >&2
+  exit 1
+fi
+rm -f "$profile_plist"
+
 if /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$info_plist" >/dev/null 2>&1 &&
   ! signed_entitlement_enabled com.apple.security.device.audio-input; then
   echo "マイクの用途説明があるのに、署名に com.apple.security.device.audio-input がありません。" >&2
