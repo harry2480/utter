@@ -473,9 +473,39 @@ struct KeyboardStandbyDictationTests {
     #expect(dictation.state == .ready)
   }
 
+  /// 開くまで止める。先に開いたときも開いたままにし、後から待ち始めた Task を止めない
+  final class LatchedGate: Sendable {
+    private struct State {
+      var isOpen = false
+      var hasEntered = false
+      var continuation: CheckedContinuation<Void, Never>?
+    }
+    private let state = Mutex(State())
+    var hasEntered: Bool { state.withLock { $0.hasEntered } }
+    func wait() async {
+      await withCheckedContinuation { c in
+        let resumeNow = state.withLock {
+          $0.hasEntered = true
+          if $0.isOpen { return true }
+          $0.continuation = c
+          return false
+        }
+        if resumeNow { c.resume() }
+      }
+    }
+    func open() {
+      let waiting = state.withLock {
+        $0.isOpen = true
+        defer { $0.continuation = nil }
+        return $0.continuation
+      }
+      waiting?.resume()
+    }
+  }
+
   /// 挿入の確保を、開くまで止める。開いた後、入れる直前の判定の値を記録する（#271）
   final class GatedInserter: KeyboardStandbyInserting {
-    let gate = HeartbeatGate()
+    let gate = LatchedGate()
     private let checks = Mutex<[Bool]>([])
     var recordedChecks: [Bool] { checks.withLock { $0 } }
     func insertResult(
@@ -516,6 +546,12 @@ struct KeyboardStandbyDictationTests {
       spins += 1
     }
     #expect(inserter.gate.hasEntered, "挿入に届かなかった")
+    guard inserter.gate.hasEntered else {
+      // 待つ間の操作は行わずに終える。開いたままのゲートなので、遅れて挿入に届いても止まらない
+      inserter.gate.open()
+      await ticking.value
+      return (dictation, inserter)
+    }
     await whileWaiting(dictation)
     inserter.gate.open()
     await ticking.value
