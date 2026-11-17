@@ -65,10 +65,15 @@ profile_specifier() {
     -disableAutomaticPackageResolution UTTER_MAC_PROVISIONING_PROFILE="$probe" |
     sed -n 's/^ *PROVISIONING_PROFILE_SPECIFIER = //p' | head -n 1
 }
-if [[ "$(profile_specifier UtterMac)" != "$probe" ]]; then
+# 取得に失敗したときは、空の値（指定なし）と区別して失敗にする
+if ! app_specifier="$(profile_specifier UtterMac)"; then
+  fail "UtterMac のビルド設定を取得できません。"
+elif [[ "$app_specifier" != "$probe" ]]; then
   fail "UtterMac の PROVISIONING_PROFILE_SPECIFIER が UTTER_MAC_PROVISIONING_PROFILE を参照していません（Apps/macOS/project.yml）。"
 fi
-if [[ "$(profile_specifier UtterSTTWorker)" == "$probe" ]]; then
+if ! worker_specifier="$(profile_specifier UtterSTTWorker)"; then
+  fail "UtterSTTWorker のビルド設定を取得できません。"
+elif [[ "$worker_specifier" == "$probe" ]]; then
   fail "UtterSTTWorker にもアプリ本体のプロファイルが指定されています（Worker はプロファイルを使わない）。"
 fi
 
